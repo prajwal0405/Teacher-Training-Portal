@@ -3,6 +3,7 @@ import { Logo, Toast, Badge, StatusBadge, StatCard, SectionCard, S, globalCSS } 
 import AttendanceManager from "./AttendanceManager";
 import TrainingAndClassroomManager from "./TrainingAndClassroomManager";
 import GeotagAttendance from "./GeotagAttendance";
+import ProctoredAssessment from "./Proctoredassessment";
 
 /* ═══════════════════════════════════════════
    MOCK DATA
@@ -157,36 +158,380 @@ function OverviewTab({ user, setActiveTab }) {
   );
 }
 
+/* ═══════════════════════════════════════════
+   COURSE CONTENT DATA
+═══════════════════════════════════════════ */
+const COURSE_CONTENT = {
+  1: { // Pre-Primary Teacher Training
+    color: "#f59e0b",
+    icon: "👩‍🏫",
+    modules: [
+      {
+        id: "m1", title: "Introduction to Pre-Primary Education",
+        videos: [
+          { id: "v1", title: "What is Pre-Primary Education?", ytId: "Y5KmNaoMEVM", duration: "12:34" },
+          { id: "v2", title: "Developmental Stages of Early Childhood", ytId: "cWgCGKnUbZo", duration: "18:22" },
+          { id: "v3", title: "Role of a Pre-Primary Teacher", ytId: "vQnFgLxVJhU", duration: "14:10" },
+        ],
+        notes: `## Introduction to Pre-Primary Education\n\n**Key Concepts:**\n- Pre-primary education covers ages 3–6 years\n- It forms the foundation for lifelong learning\n- Focus areas: cognitive, social, emotional, physical development\n\n**The 5 Pillars of Early Childhood Education:**\n1. Play-based learning\n2. Holistic development\n3. Child-centered approach\n4. Family involvement\n5. Safe & nurturing environment\n\n**Important Theories:**\n- Piaget's Cognitive Development Theory\n- Vygotsky's Zone of Proximal Development (ZPD)\n- Bronfenbrenner's Ecological Systems Theory\n\n**Key Terms:** Scaffolding · Parallel Play · Sensorimotor Stage · Preoperational Stage`
+      },
+      {
+        id: "m2", title: "Classroom Setup & Environment",
+        videos: [
+          { id: "v4", title: "Designing a Child-Friendly Classroom", ytId: "I3mKV3UlCiE", duration: "16:45" },
+          { id: "v5", title: "Learning Corners & Activity Zones", ytId: "QlJif-4NWOE", duration: "11:30" },
+          { id: "v6", title: "Safety & Hygiene in Early Classrooms", ytId: "5TGp6X0KSAM", duration: "9:50" },
+        ],
+        notes: `## Classroom Setup & Environment\n\n**Key Areas to Set Up:**\n- Reading Corner: soft seating, picture books, literacy materials\n- Art & Craft Zone: easels, non-toxic supplies, display boards\n- Dramatic Play Area: dress-up, kitchen set, puppets\n- Construction Zone: blocks, LEGO, puzzles\n- Science Discovery Table: magnifiers, nature items\n\n**Arrangement Principles:**\n- Low shelves for child independence\n- Clear pathways for movement\n- Defined zones reduce conflict\n- Natural light when possible\n\n**Safety Checklist:**\n✅ No sharp corners at child height\n✅ Non-toxic materials only\n✅ Secure heavy furniture to walls\n✅ Clear emergency exit paths`
+      },
+      {
+        id: "m3", title: "Lesson Planning & Activity Design",
+        videos: [
+          { id: "v7", title: "Writing an Effective Lesson Plan", ytId: "1L_jKoiAb8c", duration: "20:15" },
+          { id: "v8", title: "Theme-Based Teaching Approach", ytId: "N6pCIqxtWE8", duration: "15:00" },
+          { id: "v9", title: "Circle Time & Group Activities", ytId: "sTRCTbmJMsc", duration: "13:40" },
+        ],
+        notes: `## Lesson Planning & Activity Design\n\n**Lesson Plan Template:**\n1. **Objective** — What will children learn?\n2. **Materials** — What do you need?\n3. **Introduction** (5 min) — Hook/story/song\n4. **Main Activity** (15–20 min) — Core learning\n5. **Review** (5 min) — Recap & discussion\n6. **Assessment** — Observation notes\n\n**Theme-Based Planning Examples:**\n- Week Theme: "Animals"\n  - Art: animal masks\n  - Science: habitat sorting\n  - Literacy: animal sound books\n  - Math: counting legs\n\n**Circle Time Essentials:**\n- Greeting ritual\n- Calendar & weather\n- Story or song\n- Day preview`
+      },
+    ]
+  },
+  2: { // Child Psychology
+    color: "#8b5cf6",
+    icon: "🧠",
+    modules: [
+      {
+        id: "m4", title: "Foundations of Child Psychology",
+        videos: [
+          { id: "v10", title: "Introduction to Child Psychology", ytId: "O5BOxhqHEUQ", duration: "17:20" },
+          { id: "v11", title: "Attachment Theory — Bowlby & Ainsworth", ytId: "WjOowWxOXCg", duration: "21:05" },
+          { id: "v12", title: "Emotional Development in Children", ytId: "m2jU92NqBMw", duration: "14:55" },
+        ],
+        notes: `## Foundations of Child Psychology\n\n**Core Theories:**\n\n**Bowlby's Attachment Theory:**\n- Secure attachment → confident exploration\n- Types: Secure, Anxious-Ambivalent, Avoidant, Disorganized\n- Primary caregiver relationship is critical (0–2 years)\n\n**Piaget's Stages (Cognitive):**\n| Stage | Age | Key Feature |\n|---|---|---|\n| Sensorimotor | 0–2 | Object permanence |\n| Preoperational | 2–7 | Symbolic thinking |\n| Concrete Op. | 7–11 | Logical thinking |\n| Formal Op. | 12+ | Abstract reasoning |\n\n**Erikson's Psychosocial Stages (Early Childhood):**\n- Trust vs Mistrust (0–18 months)\n- Autonomy vs Shame (18m–3 years)\n- Initiative vs Guilt (3–5 years)`
+      },
+      {
+        id: "m5", title: "Behavioural & Social Development",
+        videos: [
+          { id: "v13", title: "Social Learning Theory — Bandura", ytId: "eGSB1GKbJQE", duration: "16:30" },
+          { id: "v14", title: "Play & Peer Relationships", ytId: "yT-lSxHMGbg", duration: "19:10" },
+          { id: "v15", title: "Understanding Child Behaviour Problems", ytId: "RX2pjGIiS4w", duration: "22:45" },
+        ],
+        notes: `## Behavioural & Social Development\n\n**Bandura's Social Learning Theory:**\n- Children learn by observation (modeling)\n- 4 Steps: Attention → Retention → Reproduction → Motivation\n- Self-efficacy: belief in one's own ability\n\n**Types of Play (Parten's Social Stages):**\n1. Solitary Play (2–3 years)\n2. Parallel Play (2.5–3.5 years)\n3. Associative Play (3–4 years)\n4. Cooperative Play (4+ years)\n\n**Common Behaviour Challenges:**\n- Tantrums: validate emotion, stay calm\n- Aggression: teach words for feelings\n- Separation anxiety: consistent goodbye routine\n- Refusal: offer limited choices\n\n**Positive Reinforcement Tips:**\n✅ Praise effort, not outcome\n✅ Be specific: "I love how you shared your blocks"\n✅ Use visual reward charts`
+      },
+      {
+        id: "m6", title: "Special Needs & Inclusive Education",
+        videos: [
+          { id: "v16", title: "Introduction to Inclusive Education", ytId: "iVt5CX3BLGU", duration: "18:00" },
+          { id: "v17", title: "Identifying Learning Difficulties Early", ytId: "BVoCN5lD6rg", duration: "15:30" },
+        ],
+        notes: `## Special Needs & Inclusive Education\n\n**Key Principles of Inclusion:**\n- Every child has the right to education\n- Adapt environment, not the child\n- Collaboration: teachers, parents, specialists\n\n**Common Learning Differences:**\n- **Dyslexia**: difficulty with reading/writing → use multi-sensory methods\n- **ADHD**: attention/hyperactivity → structured routines, movement breaks\n- **Autism Spectrum**: social/communication differences → visual schedules, sensory awareness\n- **Developmental Delay**: slower milestone achievement → differentiated activities\n\n**Classroom Adaptations:**\n- Flexible seating arrangements\n- Visual timetables on walls\n- Quiet zones for sensory breaks\n- Peer buddy systems\n- Modified instructions & materials`
+      },
+    ]
+  },
+  3: { // Curriculum Design
+    color: "#10b981",
+    icon: "📐",
+    modules: [
+      {
+        id: "m7", title: "Principles of Curriculum Design",
+        videos: [
+          { id: "v18", title: "What is Curriculum? Types & Models", ytId: "sXpPDcBMBzs", duration: "20:00" },
+          { id: "v19", title: "Bloom's Taxonomy Explained", ytId: "ayefSTAnCR8", duration: "16:45" },
+          { id: "v20", title: "Backward Design — Understanding by Design", ytId: "d8F1SnWaIfE", duration: "18:30" },
+        ],
+        notes: `## Principles of Curriculum Design\n\n**Types of Curriculum:**\n- **Formal/Explicit**: planned, written syllabus\n- **Hidden**: unwritten social norms taught\n- **Null**: what is NOT taught\n- **Extracurricular**: beyond formal classes\n\n**Bloom's Taxonomy (Revised):**\n1. Remember (recall facts)\n2. Understand (explain ideas)\n3. Apply (use in new situations)\n4. Analyze (draw connections)\n5. Evaluate (justify decisions)\n6. Create (produce new work)\n\n**Backward Design (Wiggins & McTighe):**\n1. Identify desired results (What should students know?)\n2. Determine acceptable evidence (How will you know?)\n3. Plan learning experiences (How will you teach it?)\n\n**Key Curriculum Models:**\n- Tyler's Rational Model\n- Spiral Curriculum (Bruner)\n- Integrated/Thematic Model`
+      },
+      {
+        id: "m8", title: "Assessment & Evaluation Methods",
+        videos: [
+          { id: "v21", title: "Formative vs Summative Assessment", ytId: "FuBEpGpnGr0", duration: "14:20" },
+          { id: "v22", title: "Portfolio Assessment in Early Childhood", ytId: "U8ORh-l_i9Y", duration: "17:55" },
+          { id: "v23", title: "Observation as an Assessment Tool", ytId: "nWXD_bVQ-Ro", duration: "12:10" },
+        ],
+        notes: `## Assessment & Evaluation Methods\n\n**Formative Assessment (ongoing):**\n- Observations during activities\n- Questioning & discussion\n- Exit tickets / quick checks\n- Peer feedback\n\n**Summative Assessment (end of unit):**\n- Projects & presentations\n- Portfolios\n- Performance tasks\n- Written tests (older children)\n\n**Portfolio Assessment:**\n- Collects work samples over time\n- Shows growth, not just achievement\n- Involves child in self-reflection\n- Contents: drawings, photos, writing samples, teacher notes\n\n**Observation Checklist Items:**\n✅ Can follow 2-step instructions\n✅ Uses scissors with control\n✅ Recognises own name in print\n✅ Takes turns in group play\n✅ Expresses needs verbally`
+      },
+      {
+        id: "m9", title: "Technology Integration in Curriculum",
+        videos: [
+          { id: "v24", title: "EdTech Tools for Early Childhood", ytId: "bL4KNzBxDSk", duration: "15:40" },
+          { id: "v25", title: "SAMR Model for Technology Integration", ytId: "SC5ARwUkVyg", duration: "11:25" },
+        ],
+        notes: `## Technology Integration in Curriculum\n\n**SAMR Model:**\n- **S**ubstitution: tech replaces traditional tool (digital worksheet)\n- **A**ugmentation: tech with functional improvement (auto-spell check)\n- **M**odification: tech allows significant redesign (collaborative docs)\n- **R**edefinition: tech creates new tasks previously inconceivable (global collaboration)\n\n**Recommended EdTech for Early Childhood:**\n| Tool | Use Case |\n|---|---|\n| Seesaw | Digital portfolios |\n| Kahoot | Interactive quizzes |\n| Book Creator | Digital storytelling |\n| Canva for Edu | Visual projects |\n| Google Classroom | Assignment management |\n\n**Screen Time Guidelines (WHO):**\n- Under 2: no screen time\n- 2–4: max 1 hour/day, with adult supervision\n- Quality over quantity — co-view & discuss`
+      },
+    ]
+  }
+};
+
 function CoursesTab() {
-  return (
-    <div style={{ animation: "fadeIn 0.3s ease" }}>
-      <h1 style={S.pageTitle}>My Courses</h1>
-      <p style={S.pageSub}>Your enrolled courses and learning progress</p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        {MOCK_COURSES.map((c,i)=>(
-          <div key={i} style={{ background: "white", borderRadius: 16, padding: "22px 24px", border: "1px solid #f1f5f9", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", borderLeft: `4px solid ${c.status==="active"?"#f59e0b":"#3b82f6"}` }}>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
-              <div>
-                <h3 style={{ fontSize: 16, fontWeight: 800, color: "#1c1917", margin: "0 0 6px" }}>{c.title}</h3>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <StatusBadge status={c.status}/>
-                  <span style={{ fontSize: 11, color: "#9ca3af" }}>📅 Next session: {c.nextSession}</span>
+  const [activeCourseId, setActiveCourseId]   = useState(null);
+  const [activeModuleId, setActiveModuleId]   = useState(null);
+  const [activeVideoId,  setActiveVideoId]    = useState(null);
+  const [activeTab,      setActiveTab]        = useState("video"); // "video"|"notes"
+  // completed set stored as "courseId-moduleId-videoId"
+  const [completed, setCompleted] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("spaceece_completed") || "[]")); }
+    catch { return new Set(); }
+  });
+
+  const saveCompleted = (newSet) => {
+    setCompleted(newSet);
+    localStorage.setItem("spaceece_completed", JSON.stringify([...newSet]));
+  };
+
+  const markDone = (courseId, moduleId, videoId) => {
+    const key = `${courseId}-${moduleId}-${videoId}`;
+    const next = new Set(completed);
+    next.add(key);
+    saveCompleted(next);
+  };
+
+  const isVideoDone = (courseId, moduleId, videoId) => completed.has(`${courseId}-${moduleId}-${videoId}`);
+
+  // Dynamic progress per course
+  const getCourseProgress = (courseId) => {
+    const content = COURSE_CONTENT[courseId];
+    if (!content) return 0;
+    const allVideos = content.modules.flatMap(m => m.videos.map(v => `${courseId}-${m.id}-${v.id}`));
+    if (allVideos.length === 0) return 0;
+    const done = allVideos.filter(k => completed.has(k)).length;
+    return Math.round((done / allVideos.length) * 100);
+  };
+
+  const getModuleProgress = (courseId, module) => {
+    const allKeys = module.videos.map(v => `${courseId}-${module.id}-${v.id}`);
+    const done = allKeys.filter(k => completed.has(k)).length;
+    return { done, total: allKeys.length };
+  };
+
+  // ── Course list view ──
+  if (!activeCourseId) {
+    return (
+      <div style={{ animation: "fadeIn 0.3s ease" }}>
+        <h1 style={S.pageTitle}>My Courses</h1>
+        <p style={S.pageSub}>Your enrolled courses and learning progress</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {MOCK_COURSES.map((c) => {
+            const progress = getCourseProgress(c.id);
+            const content  = COURSE_CONTENT[c.id];
+            const totalVids = content ? content.modules.reduce((a,m)=>a+m.videos.length,0) : 0;
+            const doneVids  = content ? content.modules.reduce((a,m)=>a+m.videos.filter(v=>isVideoDone(c.id,m.id,v.id)).length,0) : 0;
+            return (
+              <div key={c.id} style={{ background: "white", borderRadius: 16, padding: "22px 24px", border: "1px solid #f1f5f9", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", borderLeft: `4px solid ${content?.color || "#f59e0b"}` }}>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
+                  <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                    <div style={{ fontSize: 36 }}>{content?.icon || "📚"}</div>
+                    <div>
+                      <h3 style={{ fontSize: 16, fontWeight: 800, color: "#1c1917", margin: "0 0 6px" }}>{c.title}</h3>
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                        <StatusBadge status={c.status}/>
+                        <span style={{ fontSize: 11, color: "#9ca3af" }}>📅 Next: {c.nextSession}</span>
+                        <span style={{ fontSize: 11, color: "#6b7280" }}>🎬 {doneVids}/{totalVids} videos</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontSize: 28, fontWeight: 900, color: content?.color || "#f59e0b" }}>{progress}%</div>
+                    <div style={{ fontSize: 11, color: "#9ca3af" }}>Complete</div>
+                  </div>
+                </div>
+                <div style={{ height: 8, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", marginBottom: 12 }}>
+                  <div style={{ height: "100%", width: `${progress}%`, background: `linear-gradient(90deg,${content?.color||"#f59e0b"},${content?.color||"#d97706"})`, borderRadius: 4, transition: "width 0.8s ease" }}/>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 12, color: "#6b7280" }}>📖 {content?.modules?.length || 0} modules · {doneVids}/{totalVids} videos done</span>
+                  <button
+                    onClick={() => {
+                      setActiveCourseId(c.id);
+                      const firstModule = COURSE_CONTENT[c.id]?.modules[0];
+                      setActiveModuleId(firstModule?.id || null);
+                      setActiveVideoId(firstModule?.videos[0]?.id || null);
+                      setActiveTab("video");
+                    }}
+                    style={{ ...S.primaryBtn, padding: "8px 20px", fontSize: 12, background: `linear-gradient(135deg,${content?.color||"#f59e0b"},${content?.color||"#d97706"})` }}
+                  >
+                    {progress > 0 ? "Continue →" : "Start Course →"}
+                  </button>
                 </div>
               </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 28, fontWeight: 900, color: "#f59e0b" }}>{c.progress}%</div>
-                <div style={{ fontSize: 11, color: "#9ca3af" }}>Complete</div>
-              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Course player view ──
+  const course        = MOCK_COURSES.find(c => c.id === activeCourseId);
+  const courseContent = COURSE_CONTENT[activeCourseId];
+  const activeModule  = courseContent?.modules.find(m => m.id === activeModuleId);
+  const activeVideo   = activeModule?.videos.find(v => v.id === activeVideoId);
+  const overallProg   = getCourseProgress(activeCourseId);
+
+  return (
+    <div style={{ animation: "fadeIn 0.3s ease" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+        <button onClick={() => setActiveCourseId(null)} style={{ background: "#f3f4f6", border: "none", borderRadius: 10, padding: "8px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer", color: "#374151" }}>← Back</button>
+        <div style={{ flex: 1 }}>
+          <h1 style={{ ...S.pageTitle, margin: 0 }}>{courseContent?.icon} {course?.title}</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
+            <div style={{ flex: 1, height: 6, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", maxWidth: 300 }}>
+              <div style={{ height: "100%", width: `${overallProg}%`, background: `linear-gradient(90deg,${courseContent?.color},${courseContent?.color})`, borderRadius: 4, transition: "width 0.6s" }}/>
             </div>
-            <div style={{ height: 8, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", marginBottom: 12 }}>
-              <div style={{ height: "100%", width: `${c.progress}%`, background: "linear-gradient(90deg,#f59e0b,#d97706)", borderRadius: 4, transition: "width 1s" }}/>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 12, color: "#6b7280" }}>📖 {c.completed} / {c.total} modules completed</span>
-              <button style={{ ...S.primaryBtn, padding: "7px 16px", fontSize: 12 }}>{c.progress>0 ? "Continue →" : "Start →"}</button>
-            </div>
+            <span style={{ fontSize: 12, fontWeight: 800, color: courseContent?.color }}>{overallProg}% complete</span>
           </div>
-        ))}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 20, alignItems: "start" }}>
+        {/* ── Sidebar: module/video list ── */}
+        <div style={{ background: "white", borderRadius: 16, border: "1px solid #f1f5f9", overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+          <div style={{ padding: "14px 16px", background: "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1917" }}>Course Content</div>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{courseContent?.modules?.length} modules</div>
+          </div>
+          <div style={{ overflowY: "auto", maxHeight: 600 }}>
+            {courseContent?.modules.map((mod) => {
+              const mp = getModuleProgress(activeCourseId, mod);
+              const isModActive = mod.id === activeModuleId;
+              return (
+                <div key={mod.id}>
+                  {/* Module header */}
+                  <div
+                    onClick={() => { setActiveModuleId(mod.id); setActiveVideoId(mod.videos[0]?.id); setActiveTab("video"); }}
+                    style={{ padding: "12px 16px", background: isModActive ? "#fffbeb" : "white", borderBottom: "1px solid #f9fafb", cursor: "pointer", borderLeft: `3px solid ${isModActive ? courseContent?.color : "transparent"}` }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 700, color: isModActive ? "#92400e" : "#374151" }}>{mod.title}</div>
+                    <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 3 }}>
+                      {mp.done}/{mp.total} videos
+                      <span style={{ marginLeft: 6, background: mp.done===mp.total?"#d1fae5":"#f3f4f6", color: mp.done===mp.total?"#065f46":"#9ca3af", padding: "1px 6px", borderRadius: 10, fontWeight: 700 }}>
+                        {mp.done===mp.total?"✓ Done":`${Math.round((mp.done/mp.total)*100)}%`}
+                      </span>
+                    </div>
+                  </div>
+                  {/* Videos under module */}
+                  {isModActive && mod.videos.map((vid) => {
+                    const isActive = vid.id === activeVideoId;
+                    const done = isVideoDone(activeCourseId, mod.id, vid.id);
+                    return (
+                      <div
+                        key={vid.id}
+                        onClick={() => { setActiveVideoId(vid.id); setActiveTab("video"); }}
+                        style={{ padding: "9px 16px 9px 28px", background: isActive ? "#fef3c7" : "#fafafa", borderBottom: "1px solid #f3f4f6", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+                      >
+                        <div style={{ width: 20, height: 20, borderRadius: "50%", background: done ? "#10b981" : isActive ? courseContent?.color : "#e5e7eb", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "white", flexShrink: 0 }}>
+                          {done ? "✓" : isActive ? "▶" : ""}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 11, fontWeight: isActive?700:500, color: isActive?"#92400e":"#374151", lineHeight: 1.3 }}>{vid.title}</div>
+                          <div style={{ fontSize: 10, color: "#9ca3af" }}>⏱ {vid.duration}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Main content area ── */}
+        <div>
+          {activeVideo ? (
+            <>
+              {/* Video + Notes tabs */}
+              <div style={{ background: "white", borderRadius: 16, border: "1px solid #f1f5f9", overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", marginBottom: 16 }}>
+                {/* Tab bar */}
+                <div style={{ display: "flex", borderBottom: "1px solid #f1f5f9" }}>
+                  {["video","notes"].map(t => (
+                    <button key={t} onClick={() => setActiveTab(t)} style={{ flex: 1, padding: "12px", border: "none", background: activeTab===t?"#fffbeb":"white", color: activeTab===t?"#92400e":"#6b7280", fontWeight: activeTab===t?800:600, fontSize: 13, cursor: "pointer", borderBottom: `2px solid ${activeTab===t?courseContent?.color:"transparent"}`, transition: "all 0.15s" }}>
+                      {t === "video" ? "🎬 Video Lesson" : "📝 Notes"}
+                    </button>
+                  ))}
+                </div>
+
+                {activeTab === "video" ? (
+                  <div>
+                    {/* YouTube embed */}
+                    <div style={{ position: "relative", paddingBottom: "56.25%", height: 0, background: "#000" }}>
+                      <iframe
+                        src={`https://www.youtube.com/embed/${activeVideo.ytId}?rel=0&modestbranding=1`}
+                        title={activeVideo.title}
+                        style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none" }}
+                        allowFullScreen
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      />
+                    </div>
+                    <div style={{ padding: "16px 20px" }}>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", marginBottom: 4 }}>{activeVideo.title}</div>
+                      <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 16 }}>{activeModule?.title} · ⏱ {activeVideo.duration}</div>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                        {isVideoDone(activeCourseId, activeModuleId, activeVideoId) ? (
+                          <span style={{ background: "#d1fae5", color: "#065f46", padding: "8px 18px", borderRadius: 10, fontSize: 13, fontWeight: 800 }}>✓ Completed</span>
+                        ) : (
+                          <button
+                            onClick={() => markDone(activeCourseId, activeModuleId, activeVideoId)}
+                            style={{ ...S.primaryBtn, background: `linear-gradient(135deg,${courseContent?.color},${courseContent?.color})`, fontSize: 13 }}
+                          >
+                            ✅ Mark as Complete
+                          </button>
+                        )}
+                        <button onClick={() => setActiveTab("notes")} style={{ ...S.exportBtn, fontSize: 12 }}>📝 View Notes</button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ padding: "20px 24px", maxHeight: 520, overflowY: "auto" }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", marginBottom: 12 }}>📝 Notes — {activeModule?.title}</div>
+                    <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.8, whiteSpace: "pre-line", fontFamily: "inherit" }}>
+                      {activeModule?.notes?.split('\n').map((line, i) => {
+                        if (line.startsWith('## ')) return <h3 key={i} style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", margin: "16px 0 8px" }}>{line.replace('## ','')}</h3>;
+                        if (line.startsWith('**') && line.endsWith('**')) return <div key={i} style={{ fontWeight: 700, color: "#374151", margin: "8px 0 4px" }}>{line.replace(/\*\*/g,'')}</div>;
+                        if (line.startsWith('- ')) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#4b5563" }}>• {line.slice(2)}</div>;
+                        if (line.match(/^\d+\./)) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#4b5563" }}>{line}</div>;
+                        if (line.startsWith('✅')) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#059669", fontWeight: 600 }}>{line}</div>;
+                        if (line.startsWith('|')) return <div key={i} style={{ fontFamily: "monospace", fontSize: 12, background: "#f8fafc", padding: "3px 8px", margin: "1px 0" }}>{line}</div>;
+                        if (line === '') return <div key={i} style={{ height: 6 }}/>;
+                        return <div key={i} style={{ margin: "3px 0" }}>{line}</div>;
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Next video navigation */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>
+                  {(() => {
+                    const allVids = courseContent.modules.flatMap(m => m.videos.map(v => ({ ...v, moduleId: m.id })));
+                    const idx = allVids.findIndex(v => v.id === activeVideoId);
+                    return `Video ${idx+1} of ${allVids.length}`;
+                  })()}
+                </div>
+                <button
+                  onClick={() => {
+                    const allVids = courseContent.modules.flatMap(m => m.videos.map(v => ({ ...v, moduleId: m.id })));
+                    const idx = allVids.findIndex(v => v.id === activeVideoId);
+                    if (idx < allVids.length - 1) {
+                      markDone(activeCourseId, activeModuleId, activeVideoId);
+                      const next = allVids[idx + 1];
+                      setActiveModuleId(next.moduleId);
+                      setActiveVideoId(next.id);
+                      setActiveTab("video");
+                    }
+                  }}
+                  style={{ ...S.primaryBtn, fontSize: 12, background: `linear-gradient(135deg,${courseContent?.color},${courseContent?.color})` }}
+                >
+                  Next Video →
+                </button>
+              </div>
+            </>
+          ) : (
+            <div style={{ background: "white", borderRadius: 16, padding: 40, textAlign: "center", border: "1px solid #f1f5f9" }}>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>👆</div>
+              <div style={{ fontSize: 14, color: "#6b7280" }}>Select a video from the left to start learning</div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -610,8 +955,9 @@ export default function TeacherDashboard({ user, onLogout }) {
     { key: "geotag",        label: "Geotag Attendance",   icon: "📍" },
     { key: "training",      label: "Training & Lessons",  icon: "🎓" },
     { key: "courses",       label: "My Courses",          icon: "📚" },
+    { key: "assessment",    label: "Assessments",         icon: "📝" },
     { key: "schedule",      label: "Schedule",            icon: "📅" },
-    { key: "grades",        label: "Grades",              icon: "📝" },
+    { key: "grades",        label: "Grades",              icon: "📊" },
     { key: "assignments",   label: "Assignments",         icon: "✏️", badge: MOCK_ASSIGNMENTS.filter(a=>a.status==="pending"||a.status==="revision").length },
     { key: "certificates",  label: "Certificates",        icon: "🏆" },
     { key: "notifications", label: "Notifications",       icon: "🔔", badge: unreadCount },
@@ -628,6 +974,7 @@ export default function TeacherDashboard({ user, onLogout }) {
       case "geotag":        return <GeotagAttendance user={enrichedUser}/>;
       case "training":      return <TrainingAndClassroomManager user={enrichedUser}/>;
       case "courses":       return <CoursesTab/>;
+      case "assessment":    return <ProctoredAssessment user={enrichedUser}/>;
       case "schedule":      return <ScheduleTab user={enrichedUser}/>;
       case "grades":        return <GradesTab/>;
       case "assignments":   return <AssignmentsTab/>;
