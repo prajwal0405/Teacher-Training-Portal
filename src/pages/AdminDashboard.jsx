@@ -16,7 +16,7 @@ import SettingsTab from "../admin/SettingsTab";
 import LearningContentManagementTab from "../admin/LearningContentManagementTab";
 import FeedbackManagementTab from "../admin/FeedbackManagementTab";
 import { MOCK_TEACHERS, MOCK_COURSES, MOCK_BATCHES, MOCK_TRAINERS, MOCK_SESSIONS, MOCK_ASSIGNMENTS, MOCK_CONTENT_ITEMS, MOCK_ASSESSMENTS, MOCK_CERTIFICATES, MOCK_FEEDBACKS, MOCK_CATEGORIES } from "../data/mockData";
-//import CourseManagementTab from "../admin/CourseManagementTab";
+import CourseManagementTab from "../admin/CourseManagementTab";
 //import BatchManagementTab from "../admin/BatchManagementTab";
 //import AssessmentManagementTab from "../admin/AssessmentManagementTab";
 //import CertificateManagementTab from "../admin/CertificateManagementTab";
@@ -90,7 +90,7 @@ export default function AdminDashboard({ user, onLogout }) {
       case "overview":     return <OverviewTab teachers={teachers} courses={[]} batches={[]} sessions={[]}/>;
       case "centers": return <CenterManagementTab teachers={teachers} setToast={setToast}/>;
       case "teachers": return <TeacherManagementTab teachers={teachers} setTeachers={persistTeachers} setToast={setToast}/>;
-      case "curriculum": return <CurriculumTrainingTab setToast={setToast}/>;
+      case "curriculum": return <CourseManagementTab setToast={setToast}/>;
       case "activities": return <ActivityMonitoringTab setToast={setToast}/>;
       case "lessonplans": return <LessonPlanManagementTab setToast={setToast} />;
       case "children": return <ChildrenManagementTab setToast={setToast}/>;
@@ -102,7 +102,7 @@ export default function AdminDashboard({ user, onLogout }) {
       case "settings":     return <SettingsTab/>;
       case "feedback":     return <FeedbackManagementTab feedbacks={feedbacks} setFeedbacks={setFeedbacks} setToast={setToast}/>;
       //case "sessions": return <LiveSessionsTab sessions={sessions} setSessions={setSessions} teachers={teachers} batches={[]} setToast={setToast}/>;
-      //case "courses":      return <CourseManagementTab courses={courses} setCourses={setCourses} categories={categories} setCategories={setCategories} setToast={setToast}/>;
+      case "courses":      return <CourseManagementTab courses={courses} setCourses={setCourses} categories={categories} setCategories={setCategories} setToast={setToast}/>;
       //case "batches": return <BatchManagementTab batches={batches} setBatches={setBatches} teachers={teachers} setToast={setToast}/>;
       //case "content":      return <LearningContentManagementTab contentItems={contentItems} setContentItems={setContentItems} setToast={setToast}/>;
       //case "assessments":  return <AssessmentManagementTab assessmentsData={assessmentsData} setAssessmentsData={setAssessmentsData} setToast={setToast}/>;
