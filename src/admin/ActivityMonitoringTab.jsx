@@ -2,281 +2,250 @@ import { useState, useEffect } from "react";
 import { Modal, S, SearchBar, StatCard, StatusBadge, Toast } from "../components/Shared";
 import { getActivities, reviewActivity, getCenters } from "../services/api";
 
-const getFileUrl = (file) => {
-  if (!file) return null;
-  const path = file.publicUrl || file.path || (typeof file === "string" ? file : "");
-  if (!path) return null;
-  if (path.startsWith("http")) return path;
-  return `http://localhost:5000${path}`;
-};
+const API = '/api';
 
-const mapActivityFromApi = (a) => ({
-  id: a._id || a.id,
-  date: a.activityDate ? new Date(a.activityDate).toLocaleDateString("en-IN") : "—",
-  centerName: a.center?.name || "Unassigned Center",
-  centerId: a.center?._id || a.center || "",
-  teacherName: a.teacher?.name || "Unknown Teacher",
-  className: a.class?.name || "Unassigned Class",
-  description: a.description || "",
-  image: a.files?.length > 0 ? getFileUrl(a.files[0]) : null,
-  imageName: a.files?.length > 0 ? a.files[0].originalName || "Classroom Photo" : "📸 Classroom Photo",
-  status: a.status || "pending",
-  adminComments: a.adminComments || ""
-});
-
-/* ── Activity Process/Detail Modal ── */
-function ActivityReviewModal({ activity, onAction, onClose }) {
-  const [comments, setComments] = useState(activity.adminComments || "");
-
-  const handleStatusUpdate = (newStatus) => {
-    onAction(activity.id, newStatus, comments);
-    onClose();
-  };
-
-  return (
-    <Modal title="🔎 Review Classroom Activity Submission" onClose={onClose}>
-      {/* Detail Fields Matrix Grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-        {[
-          { icon: "📅", label: "Date", val: activity.date },
-          { icon: "🏢", label: "Center Context", val: activity.centerName },
-          { icon: "👩‍🏫", label: "Teacher", val: activity.teacherName },
-          { icon: "🎒", label: "Class Target", val: activity.className },
-        ].map((item, idx) => (
-          <div key={idx} style={{ background: "#f9fafb", borderRadius: 10, padding: "10px 12px", border: "1px solid #f3f4f6" }}>
-            <span style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 2 }}>{item.label}</span>
-            <span style={{ fontSize: 12, color: "#374151", fontWeight: 600 }}>{item.icon} {item.val}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Description Content Box */}
-      <div style={{ marginBottom: 14 }}>
-        <label style={S.label}>Activity Description Summary</label>
-        <div style={{ background: "#f8fafc", padding: 12, borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 12, lineHeight: "1.5", color: "#334155" }}>
-          {activity.description}
-        </div>
-      </div>
-
-      {/* Uploaded Media Box */}
-      <div style={{ marginBottom: 16 }}>
-        <label style={S.label}>Uploaded Documentation Media</label>
-        {activity.image ? (
-          <div style={{ textAlign: "center", borderRadius: 12, border: "1px solid #cbd5e1", overflow: "hidden", background: "#f1f5f9" }}>
-            <img src={activity.image} alt={activity.imageName} style={{ maxWidth: "100%", maxHeight: 200, objectFit: "contain", display: "block", margin: "0 auto" }} />
-          </div>
-        ) : (
-          <div style={{ background: "#fef3c7", border: "1.5px dashed #f59e0b", borderRadius: 12, height: 110, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#b45309" }}>
-            <span style={{ fontSize: 24, marginBottom: 4 }}>📷</span>
-            <b style={{ fontSize: 12 }}>No image attached</b>
-            <span style={{ fontSize: 10, color: "#92400e", marginTop: 2 }}>This report contains text observation details only.</span>
-          </div>
-        )}
-      </div>
-
-      {/* Admin Review Workspace Feedback Form */}
-      <div style={{ marginBottom: 18 }}>
-        <label style={S.label}>Admin Feedback Comments</label>
-        <textarea 
-          style={{ ...S.input, height: 60, resize: "none" }} 
-          value={comments} 
-          onChange={e => setComments(e.target.value)} 
-          placeholder="Type constructive advice, observations, or follow-up criteria..."
-        />
-      </div>
-
-      {/* Operational Actions */}
-      <div style={{ display: "flex", gap: 10 }}>
-        <button 
-          onClick={() => handleStatusUpdate("approved")} 
-          style={{ ...S.primaryBtn, flex: 1, padding: "10px", fontSize: 12, background: "linear-gradient(135deg,#10b981,#059669)", border: "none" }}
-        >
-          ✓ Approve Activity
-        </button>
-        <button 
-          onClick={() => handleStatusUpdate("flagged")} 
-          style={{ ...S.tblBtn, flex: 1, padding: "10px", fontSize: 12, color: "#dc2626", borderColor: "#fca5a5" }}
-        >
-          🔕 Flag for Review
-        </button>
-      </div>
-    </Modal>
-  );
-}
-
-/* ══════════════════════════════════════════
-    MAIN CLASSROOM ACTIVITY MONITORING TAB
-   ══════════════════════════════════════════ */
 export default function ActivityMonitoringTab({ setToast }) {
   const [activities, setActivities] = useState([]);
   const [centers, setCenters] = useState([]);
   const [search, setSearch] = useState("");
-  const [centerFilter, setCenterFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [selectedActivity, setSelectedActivity] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [filterCenter, setFilterCenter] = useState("");
+  const [filterType, setFilterType] = useState("");
+  const [detailActivity, setDetailActivity] = useState(null);
   const [toast, setLocalToast] = useState({ msg: "", type: "" });
 
   const showToast = setToast || setLocalToast;
 
-  const loadData = () => {
-    setLoading(true);
-    Promise.all([getActivities(), getCenters()])
-      .then(([actRes, centersRes]) => {
-        setActivities((actRes.activities || []).map(mapActivityFromApi));
-        setCenters(centersRes.centers || []);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error("Error loading activities:", err);
-        setLoading(false);
-        showToast({ msg: "Failed to fetch activities from database.", type: "error" });
-      });
-  };
-
   useEffect(() => {
-    loadData();
+    async function fetchData() {
+      try {
+        const [activitiesRes, centersRes] = await Promise.all([
+          fetch(`${API}/activities`),
+          fetch(`${API}/centers`)
+        ]);
+        const activitiesData = await activitiesRes.json();
+        const centersData = await centersRes.json();
+        setActivities(activitiesData);
+        setCenters(centersData);
+        setLoading(false);
+      } catch (err) {
+        console.error("Failed to fetch:", err);
+        showToast({ msg: "Failed to load activities from database", type: "error" });
+        setLoading(false);
+      }
+    }
+    fetchData();
   }, []);
 
-  // Filter based on dropdown selectors & search query
-  const filtered = activities.filter(act => {
-    const query = search.toLowerCase();
-    const matchSearch = act.teacherName.toLowerCase().includes(query) || 
-      act.description.toLowerCase().includes(query) || 
-      act.className.toLowerCase().includes(query);
-    const matchCenter = centerFilter === "all" || act.centerId === centerFilter;
-    const matchStatus = statusFilter === "all" || act.status === statusFilter;
-    return matchSearch && matchCenter && matchStatus;
+  const filtered = activities.filter(a => {
+    const q = search.toLowerCase();
+    const matchSearch = a.title?.toLowerCase().includes(q) || a.description?.toLowerCase().includes(q);
+    const cId = a.center?._id || a.center;
+    const matchCenter = !filterCenter || cId === filterCenter;
+    const matchType = !filterType || a.type === filterType;
+    return matchSearch && matchCenter && matchType;
   });
 
-  const handleReviewAction = (id, newStatus, comments) => {
-    reviewActivity(id, { status: newStatus, adminComments: comments })
-      .then(() => {
-        showToast({ msg: `Activity submission marked as ${newStatus}!`, type: "success" });
-        loadData();
-      })
-      .catch(err => {
-        console.error("Error reviewing activity:", err);
-        showToast({ msg: "Failed to save review: " + err.message, type: "error" });
-      });
+  const photos = activities.filter(a => a.type === 'photo').length;
+  const videos = activities.filter(a => a.type === 'video').length;
+  const docs = activities.filter(a => a.type === 'document').length;
+
+  const getTypeIcon = (type) => {
+    switch (type) {
+      case 'photo': return '📸';
+      case 'video': return '🎥';
+      case 'document': return '📄';
+      default: return '📋';
+    }
+  };
+
+  const getTypeColor = (type) => {
+    switch (type) {
+      case 'photo': return '#3b82f6';
+      case 'video': return '#ef4444';
+      case 'document': return '#10b981';
+      default: return '#6b7280';
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm('Delete this activity?')) return;
+    try {
+      const res = await fetch(`${API}/activities/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setActivities(prev => prev.filter(a => a._id !== id));
+        showToast({ msg: "Activity deleted", type: "success" });
+      }
+    } catch (err) {
+      showToast({ msg: "Failed to delete", type: "error" });
+    }
   };
 
   if (loading) {
     return (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "40vh", fontSize: 14, fontWeight: 600, color: "#d97706" }}>
-        🔄 Loading Classroom Activities...
+      <div style={{ textAlign: "center", padding: 60, color: "#9ca3af" }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>⏳</div>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>Loading activities from database...</div>
       </div>
     );
   }
 
-  const pending = activities.filter(a => a.status === "pending").length;
-  const approved = activities.filter(a => a.status === "approved").length;
-  const flagged = activities.filter(a => a.status === "flagged").length;
-
   return (
-    <div style={{ animation: "fadeIn 0.3s ease" }}>
+    <div style={{ animation: "fadeIn 0.3s ease", fontFamily: "inherit" }}>
       {!setToast && <Toast msg={toast.msg} type={toast.type} onClose={() => setLocalToast({ msg: "", type: "" })} />}
 
-      {/* Review Modals */}
-      {selectedActivity && (
-        <ActivityReviewModal 
-          activity={selectedActivity} 
-          onAction={handleReviewAction} 
-          onClose={() => setSelectedActivity(null)} 
-        />
+      {detailActivity && (
+        <Modal title={`Activity: ${detailActivity.title}`} onClose={() => setDetailActivity(null)}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+            {[
+              { icon: "📂", label: "Type", val: detailActivity.type },
+              { icon: "📅", label: "Date", val: detailActivity.date?.split('T')[0] || "N/A" },
+              { icon: "🏫", label: "Center", val: detailActivity.center?.name || "N/A" },
+              { icon: "👩‍🏫", label: "Teacher", val: detailActivity.teacher?.name || "N/A" },
+              { icon: "👶", label: "Children", val: (detailActivity.children || []).length + " tagged" },
+              { icon: "📝", label: "Status", val: detailActivity.status },
+            ].map((r, i) => (
+              <div key={i} style={{ background: "#f9fafb", borderRadius: 10, padding: "10px 12px", border: "1px solid #f3f4f6" }}>
+                <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", marginBottom: 2 }}>{r.label}</div>
+                <div style={{ fontSize: 12, color: "#374151", fontWeight: 600 }}>{r.icon} {r.val}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 6 }}>Description</div>
+            <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.6, padding: 12, background: "#f9fafb", borderRadius: 8 }}>
+              {detailActivity.description || "No description"}
+            </div>
+          </div>
+          {detailActivity.notes && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 6 }}>Notes</div>
+              <div style={{ fontSize: 13, color: "#6b7280", padding: 12, background: "#fffbeb", borderRadius: 8, border: "1px solid #fef3c7" }}>
+                {detailActivity.notes}
+              </div>
+            </div>
+          )}
+          {(detailActivity.children || []).length > 0 && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 6 }}>Tagged Children</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {detailActivity.children.map(ch => (
+                  <span key={ch._id} style={{ background: "#ede9fe", color: "#6d28d9", padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600 }}>
+                    {ch.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </Modal>
       )}
 
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div>
-          <h1 style={S.pageTitle}>Classroom Activity Monitoring</h1>
-          <p style={S.pageSub}>{pending} pending review · {approved} approved · {flagged} flagged logs</p>
+          <h1 style={S.pageTitle}>Activity Monitoring</h1>
+          <p style={S.pageSub}>{activities.length} total activities uploaded by teachers</p>
         </div>
       </div>
 
-      {/* KPI Stat Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 14, marginBottom: 20 }}>
-        <StatCard icon="📸" label="Total Activities" val={activities.length} color="#3b82f6" bg="#dbeafe" />
-        <StatCard icon="⏳" label="Awaiting Review" val={pending} color="#f59e0b" bg="#fef3c7" />
-        <StatCard icon="✅" label="Approved Logs" val={approved} color="#10b981" bg="#d1fae5" />
-        <StatCard icon="🔕" label="Flagged Issues" val={flagged} color="#ef4444" bg="#fee2e2" />
+      {/* KPI Cards */}
+      <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
+        <StatCard icon="📋" label="Total Activities" val={activities.length} color="#8b5cf6" bg="#ede9fe" />
+        <StatCard icon="📸" label="Photos" val={photos} color="#3b82f6" bg="#dbeafe" />
+        <StatCard icon="🎥" label="Videos" val={videos} color="#ef4444" bg="#fee2e2" />
+        <StatCard icon="📄" label="Documents" val={docs} color="#10b981" bg="#d1fae5" />
       </div>
 
-      {/* Filter Toolbar */}
-      <div style={{ background: "white", borderRadius: 14, padding: "14px 18px", border: "1px solid #f1f5f9", marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+      {/* Filters */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ flex: 1, minWidth: 200 }}>
-          <SearchBar value={search} onChange={setSearch} placeholder="Search by teacher, class, description..." />
+          <SearchBar value={search} onChange={setSearch} placeholder="Search activities..." />
         </div>
-        <select style={{ ...S.input, width: 200, marginBottom: 0 }} value={centerFilter} onChange={e => setCenterFilter(e.target.value)}>
-          <option value="all">All Centers</option>
-          {centers.map(c => <option key={c._id || c.id} value={c._id || c.id}>{c.name}</option>)}
+        <select style={{ ...S.input, width: "auto", minWidth: 160 }} value={filterCenter}
+          onChange={e => setFilterCenter(e.target.value)}>
+          <option value="">All Centers</option>
+          {centers.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
         </select>
-        <select style={{ ...S.input, width: 160, marginBottom: 0 }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-          <option value="all">All Statuses</option>
-          <option value="pending">Pending</option>
-          <option value="approved">Approved</option>
-          <option value="flagged">Flagged</option>
+        <select style={{ ...S.input, width: "auto", minWidth: 130 }} value={filterType}
+          onChange={e => setFilterType(e.target.value)}>
+          <option value="">All Types</option>
+          <option value="photo">Photos</option>
+          <option value="video">Videos</option>
+          <option value="document">Documents</option>
         </select>
       </div>
 
-      {/* Submissions Grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 20 }}>
-        {filtered.map(act => (
-          <div key={act.id} style={{ background: "white", borderRadius: 14, border: "1px solid #f1f5f9", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-            
-            {/* Image Thumbnail */}
-            {act.image ? (
-              <div style={{ height: 160, width: "100%", overflow: "hidden", background: "#f1f5f9" }}>
-                <img src={act.image} alt={act.imageName} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-              </div>
-            ) : (
-              <div style={{ height: 160, background: "#fef3c7", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#b45309" }}>
-                <span style={{ fontSize: 36 }}>📝</span>
-                <span style={{ fontSize: 11, fontWeight: 700, marginTop: 4 }}>Observation Log (No Image)</span>
-              </div>
-            )}
+      {/* Activities Grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(340px,1fr))", gap: 16 }}>
+        {filtered.map(a => {
+          const centerObj = centers.find(c => c._id === (a.center?._id || a.center));
+          const teacherName = a.teacher?.name || "Unknown";
+          const childCount = (a.children || []).length;
+          const dateStr = a.date?.split('T')[0] || "N/A";
 
-            {/* Body */}
-            <div style={{ padding: "14px 16px", flex: 1, display: "flex", flexDirection: "column" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontSize: 11, color: "#9ca3af", fontWeight: 700 }}>📅 {act.date}</span>
-                <StatusBadge status={act.status} />
+          return (
+            <div key={a._id} style={{
+              background: "white", borderRadius: 16, padding: 20,
+              border: "1px solid #f1f5f9", boxShadow: "0 2px 10px rgba(0,0,0,0.05)",
+              borderLeft: `4px solid ${getTypeColor(a.type)}`
+            }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
+                <div style={{
+                  width: 48, height: 48, borderRadius: 14,
+                  background: `${getTypeColor(a.type)}15`,
+                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0
+                }}>
+                  {getTypeIcon(a.type)}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", marginBottom: 4 }}>{a.title}</div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>
+                    {a.type?.toUpperCase()} · {dateStr}
+                  </div>
+                </div>
+                <span style={{
+                  background: `${getTypeColor(a.type)}20`, color: getTypeColor(a.type),
+                  padding: "4px 10px", borderRadius: 20, fontSize: 10, fontWeight: 700
+                }}>
+                  {a.type}
+                </span>
               </div>
 
-              <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", marginBottom: 4 }}>
-                {act.teacherName}
-              </div>
-              <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, marginBottom: 8 }}>
-                🏢 {act.centerName} · {act.className}
-              </div>
-
-              <p style={{ fontSize: 12, color: "#475569", margin: "0 0 12px", lineHeight: 1.5, flex: 1 }}>
-                {act.description.length > 120 ? act.description.substring(0, 120) + "..." : act.description}
+              <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 14, lineHeight: 1.5 }}>
+                {a.description?.length > 120 ? a.description.substring(0, 120) + "..." : a.description}
               </p>
 
-              {act.adminComments && (
-                <div style={{ background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 8, padding: "8px 10px", fontSize: 11, color: "#334155", marginBottom: 12 }}>
-                  💬 <b>Admin:</b> {act.adminComments}
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: 12, background: "#f9fafb", borderRadius: 10, border: "1px solid #f3f4f6", marginBottom: 14 }}>
+                <div style={{ fontSize: 12, color: "#374151" }}>
+                  <span style={{ color: "#9ca3af" }}>🏫</span> {centerObj?.name || "N/A"}
                 </div>
-              )}
+                <div style={{ fontSize: 12, color: "#374151" }}>
+                  <span style={{ color: "#9ca3af" }}>👩‍🏫</span> {teacherName}
+                </div>
+                {childCount > 0 && (
+                  <div style={{ fontSize: 12, color: "#374151" }}>
+                    <span style={{ color: "#9ca3af" }}>👶</span> {childCount} children tagged
+                  </div>
+                )}
+              </div>
 
-              <button 
-                onClick={() => setSelectedActivity(act)} 
-                style={{ ...S.primaryBtn, width: "100%", fontSize: 12, padding: "8px 12px", background: "linear-gradient(135deg,#f59e0b,#d97706)", border: "none" }}
-              >
-                🔎 Review & Feedback
-              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setDetailActivity(a)} style={{ ...S.tblBtn, flex: 1, color: "#4f46e5", borderColor: "#c4b5fd" }}>
+                  View
+                </button>
+                <button onClick={() => handleDelete(a._id)} style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>
+                  Delete
+                </button>
+              </div>
             </div>
-
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {filtered.length === 0 && (
-        <div style={{ textAlign: "center", padding: "60px 20px", color: "#9ca3af" }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>📸</div>
+        <div style={{ textAlign: "center", padding: 60, color: "#9ca3af" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>No activities found</div>
-          <div style={{ fontSize: 12, marginTop: 4 }}>Try adjusting filters or wait for teacher submissions.</div>
         </div>
       )}
     </div>
