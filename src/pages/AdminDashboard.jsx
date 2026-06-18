@@ -17,78 +17,99 @@ import LearningContentManagementTab from "../admin/LearningContentManagementTab"
 import FeedbackManagementTab from "../admin/FeedbackManagementTab";
 import { MOCK_TEACHERS, MOCK_COURSES, MOCK_BATCHES, MOCK_TRAINERS, MOCK_SESSIONS, MOCK_ASSIGNMENTS, MOCK_CONTENT_ITEMS, MOCK_ASSESSMENTS, MOCK_CERTIFICATES, MOCK_FEEDBACKS, MOCK_CATEGORIES } from "../data/mockData";
 import CourseManagementTab from "../admin/CourseManagementTab";
-//import BatchManagementTab from "../admin/BatchManagementTab";
-//import AssessmentManagementTab from "../admin/AssessmentManagementTab";
-//import CertificateManagementTab from "../admin/CertificateManagementTab";
-//import LiveSessionsTab from "../admin/LiveSessionsTab";
 
+const API = '/api';
+async function fetchAPI(url) {
+  const res = await fetch(`${API}${url}`);
+  if (!res.ok) throw new Error('API Error');
+  return res.json();
+}
 
-
-
-
-
-
-
-
-/* ═══════════════════════════════════════════
-   MAIN ADMIN DASHBOARD
-═══════════════════════════════════════════ */
 export default function AdminDashboard({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState("overview");
-  const [teachers,  setTeachers]  = useState(MOCK_TEACHERS);
-  const [trainers,  setTrainers]  = useState(MOCK_TRAINERS);
-  const [feedbacks, setFeedbacks] = useState(MOCK_FEEDBACKS);
-  const [assignments,setAssignments] = useState(MOCK_ASSIGNMENTS);
-  const [toast, setToast] = useState({msg:"",type:""});
-  
-  //const [sessions,  setSessions]  = useState(MOCK_SESSIONS);
-  //const [contentItems, setContentItems] = useState(MOCK_CONTENT_ITEMS);
-  //const [assessmentsData, setAssessmentsData] = useState(MOCK_ASSESSMENTS);
-  //const [certificates, setCertificates] = useState(MOCK_CERTIFICATES);
-  //const [courses,   setCourses]   = useState(MOCK_COURSES);
-  //const [batches,   setBatches]   = useState(MOCK_BATCHES);
-  //const [categories, setCategories] = useState(MOCK_CATEGORIES);
 
-  const pending = teachers.filter(t=>t.status==="pending");
+  // DB data states
+  const [teachers, setTeachers] = useState([]);
+  const [children, setChildren] = useState([]);
+  const [centers, setCenters] = useState([]);
+  const [courses, setCourses] = useState([]);
+  const [activities, setActivities] = useState([]);
+  const [attendance, setAttendance] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Mock states (modules not yet DB-connected)
+  const [trainers, setTrainers] = useState(MOCK_TRAINERS);
+  const [feedbacks, setFeedbacks] = useState(MOCK_FEEDBACKS);
+  const [assignments, setAssignments] = useState(MOCK_ASSIGNMENTS);
+
+  const [toast, setToast] = useState({ msg: "", type: "" });
+
+  // Fetch all DB data
+  useEffect(() => {
+    async function loadAll() {
+      const load = (url) => fetchAPI(url).catch(() => []);
+      try {
+        const [t, ch, ce, co, ac, at] = await Promise.all([
+          load('/teachers'),
+          load('/children'),
+          load('/centers'),
+          load('/courses'),
+          load('/activities'),
+          load('/attendance'),
+        ]);
+        setTeachers(t);
+        setChildren(ch);
+        setCenters(ce);
+        setCourses(co);
+        setActivities(ac);
+        setAttendance(at);
+      } catch (e) {
+        console.error("DB load error:", e);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadAll();
+  }, []);
+  const pending = teachers.filter(t => t.status === "pending");
 
   const navItems = [
-    { key:"overview",     label:"Admin Dashboard",          icon:"📊" },
-    { key:"centers",      label:"Center Management", icon:"🏫" },
-    { key:"teachers",     label:"Teacher Management",icon:"👩‍🏫", badge:pending.length },
+    { key: "overview",     label: "Admin Dashboard",          icon: "📊" },
+    { key: "centers",      label: "Center Management", icon: "🏫" },
+    { key: "teachers",     label: "Teacher Management",icon: "👩‍🏫", badge: pending.length },
     { key: "curriculum", label: "Course Management", icon: "📚" },
     { key: "activities", label: "Activity Monitoring", icon: "📸" },
     { key: "lessonplans", label: "Lesson Plans", icon: "📋" },
     { key: "children", label: "Children & Classes", icon: "👶" },
-    { key:"trainers",     label:"Trainer Management",icon:"🎓" },
-    { key:"assignments",  label:"Assignment Review", icon:"📝", badge:assignments.filter(a=>a.status==="pending").length },
-    { key:"attendance",   label:"Attendance",        icon:"📋" },
-   
-    { key:"reports",      label:"Reports & Analytics",icon:"📈" },
-    { key:"notifications",label:"Notifications",     icon:"🔔" },
-    { key:"settings",     label:"Settings & Roles",  icon:"⚙️" },
-    { key:"feedback",     label:"Feedback",              icon:"💬" },
-    //{ key:"courses",      label:"Course Management", icon:"📚" },
-    //{ key:"batches",      label:"Batch Management",  icon:"🗂️" },
-    // { key:"content",      label:"Learning Content",      icon:"🎬" },
-    // { key:"assessments",  label:"Assessment Management", icon:"🧠" },
-    // { key:"certificates", label:"Certificates",          icon:"🏅" },
-    //{ key:"sessions",     label:"Live Sessions",     icon:"📹" },
-    
+    { key: "trainers",     label: "Trainer Management",icon: "🎓" },
+    { key: "assignments",  label: "Assignment Review", icon: "📝", badge: assignments.filter(a => a.status === "pending").length },
+    { key: "attendance",   label: "Attendance",        icon: "📋" },
+    { key: "reports",      label: "Reports & Analytics",icon: "📈" },
+    { key: "notifications",label: "Notifications",     icon: "🔔" },
+    { key: "settings",     label: "Settings & Roles",  icon: "⚙️" },
+    { key: "feedback",     label: "Feedback",              icon: "💬" },
   ];
+
   const persistTeachers = (updater) => {
-  setTeachers(prev => {
-    const next = typeof updater === "function" ? updater(prev) : updater;
-    const toStore = next.filter(t => t.password);
-    localStorage.setItem("spaceece_teachers", JSON.stringify(toStore));
-    return next;
-  });
-};
-
-
+    setTeachers(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      const toStore = next.filter(t => t.password);
+      localStorage.setItem("spaceece_teachers", JSON.stringify(toStore));
+      return next;
+    });
+  };
+const refreshDB = {
+    teachers: async () => { try { setTeachers(await fetchAPI('/teachers')); } catch(e){} },
+    children: async () => { try { setChildren(await fetchAPI('/children')); } catch(e){} },
+    centers: async () => { try { setCenters(await fetchAPI('/centers')); } catch(e){} },
+    courses:  async () => { try { setCourses(await fetchAPI('/courses')); } catch(e){} },
+    activities: async () => { try { setActivities(await fetchAPI('/activities')); } catch(e){} },
+    attendance: async () => { try { setAttendance(await fetchAPI('/attendance')); } catch(e){} },
+  };
   const renderContent = () => {
     switch(activeTab) {
-      case "overview":     return <OverviewTab teachers={teachers} courses={[]} batches={[]} sessions={[]}/>;
-      case "centers": return <CenterManagementTab teachers={teachers} setToast={setToast}/>;
+      case "overview":     return <OverviewTab teachers={teachers} children={children} centers={centers} courses={courses} activities={activities} attendance={attendance} />;
+      case "centers": return <CenterManagementTab centers={centers} teachers={teachers} children={children} setToast={setToast} onRefresh={refreshDB.centers} />;
       case "teachers": return <TeacherManagementTab teachers={teachers} setTeachers={persistTeachers} setToast={setToast}/>;
       case "curriculum": return <CourseManagementTab setToast={setToast}/>;
       case "activities": return <ActivityMonitoringTab setToast={setToast}/>;
@@ -101,33 +122,28 @@ export default function AdminDashboard({ user, onLogout }) {
       case "notifications":return <NotificationsTab teachers={teachers} setToast={setToast}/>;
       case "settings":     return <SettingsTab/>;
       case "feedback":     return <FeedbackManagementTab feedbacks={feedbacks} setFeedbacks={setFeedbacks} setToast={setToast}/>;
-      //case "sessions": return <LiveSessionsTab sessions={sessions} setSessions={setSessions} teachers={teachers} batches={[]} setToast={setToast}/>;
-      case "courses":      return <CourseManagementTab courses={courses} setCourses={setCourses} categories={categories} setCategories={setCategories} setToast={setToast}/>;
-      //case "batches": return <BatchManagementTab batches={batches} setBatches={setBatches} teachers={teachers} setToast={setToast}/>;
-      //case "content":      return <LearningContentManagementTab contentItems={contentItems} setContentItems={setContentItems} setToast={setToast}/>;
-      //case "assessments":  return <AssessmentManagementTab assessmentsData={assessmentsData} setAssessmentsData={setAssessmentsData} setToast={setToast}/>;
-      //case "certificates": return <CertificateManagementTab certificates={certificates} setCertificates={setCertificates} setToast={setToast}/>;
-      
       default:             return null;
     }
   };
-  useEffect(() => {
-  const stored = JSON.parse(localStorage.getItem("spaceece_teachers") || "[]");
-  // Stored teachers (registered via form) take priority — merge with mocks
-  const storedIds = new Set(stored.map(t => t.email));
-  const merged = [
-    ...MOCK_TEACHERS.filter(t => !storedIds.has(t.email)),
-    ...stored,
-  ];
-  setTeachers(merged);
-}, []);
+
+  if (loading) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#f8fafc", fontFamily: "'Segoe UI','Inter',-apple-system,sans-serif" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ width: 48, height: 48, border: "4px solid #fbbf24", borderTopColor: "#d97706", borderRadius: "50%", animation: "spin 1s linear infinite", margin: "0 auto" }}></div>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          <p style={{ marginTop: 16, color: "#6b7280", fontSize: 16 }}>Loading Dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display:"flex", minHeight:"100vh", background:"#f8fafc", fontFamily:"'Segoe UI','Inter',-apple-system,sans-serif" }}>
       <style>{globalCSS}</style>
       <Toast msg={toast.msg} type={toast.type} onClose={()=>setToast({msg:"",type:""})}/>
 
-      {/* ── Sidebar ── */}
+      {/* Sidebar */}
       <div style={{ width:250, background:"white", borderRight:"1px solid #f1f5f9", display:"flex", flexDirection:"column", flexShrink:0, boxShadow:"2px 0 12px rgba(0,0,0,0.04)", position:"sticky", top:0, height:"100vh", overflowY:"auto" }}>
         <div style={{ padding:"20px 16px 12px" }}>
           <Logo size={120}/>
@@ -163,7 +179,7 @@ export default function AdminDashboard({ user, onLogout }) {
         </div>
       </div>
 
-      {/* ── Main ── */}
+      {/* Main */}
       <div style={{ flex:1, padding:"28px 32px", overflowY:"auto", maxHeight:"100vh" }}>
         {renderContent()}
       </div>

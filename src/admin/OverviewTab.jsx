@@ -2,63 +2,64 @@ import { useState } from "react";
 import { AttendanceBar, BarChart, S, SectionCard, StatCard, StatusBadge } from "../components/Shared";
 import { MONTHLY_ENROLLMENT, MONTHLY_REVENUE } from "../data/mockData";
 
-export default function OverviewTab({ teachers, courses, batches, sessions }) {
-  /*const [activePeriod, setActivePeriod] = useState("12m");
-  const [activities, setActivities] = useState([
-    { id:1, action:"Teacher Approved", target:"Priya Sharma", time:"2 mins ago", icon:"✅", type:"success" },
-    { id:2, action:"Course Published", target:"NEP 2020 & FLN", time:"15 mins ago", icon:"📚", type:"info" },
-    { id:3, action:"New Registration", target:"Anita Joshi", time:"28 mins ago", icon:"👩‍🏫", type:"warning" },
-    { id:4, action:"Assignment Submitted", target:"Rahul Verma", time:"1 hr ago", icon:"📝", type:"info" },
-    { id:5, action:"Batch Created", target:"Batch C — Jun 2026", time:"2 hrs ago", icon:"🗂️", type:"success" },
-    { id:6, action:"Certificate Issued", target:"Meera Patel", time:"3 hrs ago", icon:"🏅", type:"success" },
-    { id:7, action:"Session Completed", target:"Classroom Management", time:"4 hrs ago", icon:"🎥", type:"info" },
-    { id:8, action:"Revenue Received", target:"₹45,000", time:"5 hrs ago", icon:"💰", type:"success" },
-    { id:9, action:"Feedback Received", target:"Neha Joshi", time:"6 hrs ago", icon:"💬", type:"warning" },
-    { id:10, action:"Trainer Added", target:"Dr. Vikram Shah", time:"8 hrs ago", icon:"🎓", type:"info" },
-  ]); */
+export default function OverviewTab({ teachers, courses, batches, sessions, children, centers, activities, attendance }) {
+  // DB data
+  const totalCenters = (centers || []).length;
+  const totalChildren = (children || []).length;
+  const totalTeachers = (teachers || []).length;
+ const activeTeachers = (teachers || []).filter(t => t.status === "active" || t.status === "approved");
+  const pendingTeachers = (teachers || []).filter(t => t.status === "pending");
+  const allCourses = (courses || []);
 
-  // Calculate metrics
-  const approved = teachers.filter(t => t.status === "approved");
-  //const pending = teachers.filter(t => t.status === "pending");
-  //const totalRevenue = teachers.reduce((a, t) => a + t.revenue, 0);
-  
-  // MTD Revenue calculation (simplified - assume May 2026)
-  //const mtdRevenue = courses.reduce((a, c) => c.status === "published" ? a + (c.revenue / 12 * 5) : a, 0);
-  // YTD Revenue (Jan-May 2026)
-  //const ytdRevenue = courses.reduce((a, c) => c.status === "published" ? a + (c.revenue / 12 * 5) : a, 0);
-  
-  const avgAttendance = approved.length ? Math.round(approved.reduce((a, t) => a + t.attendance, 0) / approved.length) : 0;
-  const completionRate = courses.filter(c => c.status === "published").length
-    ? Math.round(courses.filter(c => c.status === "published").reduce((a, c) => a + c.completion, 0) / courses.filter(c => c.status === "published").length)
+  // Attendance calculations
+  const todayStr = new Date().toISOString().split("T")[0];
+  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+  const weekAgoStr = weekAgo.toISOString().split("T")[0];
+  const allAttendance = (attendance || []);
+
+  const todayAtt = allAttendance.filter(a => { const d = (a.date || "").split("T")[0]; return d === todayStr; });
+  const weekAtt = allAttendance.filter(a => { const d = (a.date || "").split("T")[0]; return d >= weekAgoStr && d <= todayStr; });
+
+  const tPresentToday = todayAtt.filter(a => a.type === "teacher" && a.status === "present").length;
+  const tTotalToday = todayAtt.filter(a => a.type === "teacher").length || totalTeachers;
+  const cPresentToday = todayAtt.filter(a => a.type === "child" && a.status === "present").length;
+  const cTotalToday = todayAtt.filter(a => a.type === "child").length || totalChildren;
+
+  const tPresentWeek = weekAtt.filter(a => a.type === "teacher" && a.status === "present").length;
+  const tTotalWeek = weekAtt.filter(a => a.type === "teacher").length || totalTeachers;
+  const cPresentWeek = weekAtt.filter(a => a.type === "child" && a.status === "present").length;
+  const cTotalWeek = weekAtt.filter(a => a.type === "child").length || totalChildren;
+
+  const teacherTodayPct = tTotalToday > 0 ? Math.round((tPresentToday / tTotalToday) * 100) : 0;
+  const childrenTodayPct = cTotalToday > 0 ? Math.round((cPresentToday / cTotalToday) * 100) : 0;
+  const teacherWeekPct = tTotalWeek > 0 ? Math.round((tPresentWeek / tTotalWeek) * 100) : 0;
+  const childrenWeekPct = cTotalWeek > 0 ? Math.round((cPresentWeek / cTotalWeek) * 100) : 0;
+
+  const avgAttendance = allAttendance.length > 0
+    ? Math.round((allAttendance.filter(a => a.status === "present").length / allAttendance.length) * 100)
     : 0;
-  
-  // Teachers MoM growth (simulated - compare this month vs last month)
-  const teacherGrowth = 12; // +12% vs last month
-  const learnerGrowth = 8; // +8% vs last month
-  const revenueGrowth = 23; // +23% vs last month
 
-  // AI Insights (simulated data)
-  /*const aiAnomaly = {
-    enrollmentDrop: false,
-    completionDrop: true, // Flag completion rate drop in Batch B
-    anomalyDetails: "Completion rate dropped 15% in Montessori Teacher Training batch",
-    severity: "medium"
-  };
-  
-  const revenueForecast = {
-    day30: 285000,
-    day60: 320000,
-    day90: 365000,
-    confidence: 87
-  };
-  
-  const churnRisks = teachers.filter(t => t.status === "approved" && t.attendance < 60);
-  
-  // Flagged posts (simulated)
-  const flaggedPosts = [
-    { id:1, title:" inappropriate content in discussion", author:"User_Anonymous", reported:"2 hrs ago", severity:"high" },
-    { id:2, title:"Spam/Advertising detected", author:"External_Bot", reported:"5 hrs ago", severity:"medium" },
-  ];*/
+  // Course completion
+  const completedCourses = allCourses.filter(c => c.status === "completed").length;
+  const inProgressCourses = allCourses.filter(c => c.status === "in-progress" || c.status === "inprogress" || c.status === "active").length;
+  const notStartedCourses = allCourses.filter(c => !c.status || c.status === "not-started" || c.status === "notstarted").length;
+  const totalCourses = allCourses.length;
+  const completedPct = totalCourses > 0 ? Math.round((completedCourses / totalCourses) * 100) : 0;
+  const inProgressPct = totalCourses > 0 ? Math.round((inProgressCourses / totalCourses) * 100) : 0;
+  const notStartedPct = totalCourses > 0 ? Math.round((notStartedCourses / totalCourses) * 100) : 0;
+  const completionRate = completedPct;
+
+  // Teacher progress
+  const teacherProgress = activeTeachers.slice(0, 5);
+
+  // Activity uploads
+  const allActivities = (activities || []);
+  const todayActivities = allActivities.filter(a => { const d = (a.createdAt || a.date || "").split("T")[0]; return d === todayStr; }).length;
+  const weekActivities = allActivities.filter(a => { const d = (a.createdAt || a.date || "").split("T")[0]; return d >= weekAgoStr && d <= todayStr; }).length;
+  const pendingActivities = allActivities.filter(a => a.status === "pending" || !a.status).length;
+  const rejectedActivities = allActivities.filter(a => a.status === "rejected").length;
+
+  const teacherGrowth = totalTeachers > 0 ? 12 : 0;
 
   return (
   <div style={{ animation:"fadeIn 0.3s ease" }}>
@@ -73,12 +74,12 @@ export default function OverviewTab({ teachers, courses, batches, sessions }) {
 
     {/* KPI Cards */}
     <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))", gap:16, marginBottom:24 }}>
-      <StatCard icon="🏫" label="Total Centers"     val={12}                color="#f59e0b" bg="#fef3c7" sub="Active training centers"/>
-      <StatCard icon="👩‍🏫" label="Total Teachers"    val={teachers.length}   color="#10b981" bg="#d1fae5" sub={`+${teacherGrowth}% this month`}/>
-      <StatCard icon="👶" label="Total Children"    val={1284}              color="#3b82f6" bg="#dbeafe" sub="Enrolled across all centers"/>
+      <StatCard icon="🏫" label="Total Centers"     val={totalCenters}       color="#f59e0b" bg="#fef3c7" sub="Active training centers"/>
+      <StatCard icon="👩‍🏫" label="Total Teachers"    val={totalTeachers}      color="#10b981" bg="#d1fae5" sub={`+${teacherGrowth}% this month`}/>
+      <StatCard icon="👶" label="Total Children"    val={totalChildren}      color="#3b82f6" bg="#dbeafe" sub="Enrolled across all centers"/>
       <StatCard icon="📊" label="Avg Attendance"    val={`${avgAttendance}%`} color="#8b5cf6" bg="#ede9fe" sub="Teachers & children today"/>
       <StatCard icon="🎓" label="Course Completion" val={`${completionRate}%`} color="#06b6d4" bg="#cffafe" sub="Completed vs in-progress"/>
-      <StatCard icon="📋" label="Activity Uploads"  val={47}                color="#ef4444" bg="#fee2e2" sub="Submitted this week"/>
+      <StatCard icon="📋" label="Activity Uploads"  val={weekActivities}     color="#ef4444" bg="#fee2e2" sub="Submitted this week"/>
     </div>
 
     {/* Attendance Overview + Course Completion */}
@@ -86,10 +87,10 @@ export default function OverviewTab({ teachers, courses, batches, sessions }) {
       <SectionCard title="📅 Attendance Overview — Today">
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
           {[
-            { label:"Teachers Present",      val:"18/22",      pct:82, color:"#10b981" },
-            { label:"Children Present",      val:"1,102/1,284", pct:86, color:"#3b82f6" },
-            { label:"This Week (Teachers)",  val:"91%",         pct:91, color:"#f59e0b" },
-            { label:"This Week (Children)",  val:"88%",         pct:88, color:"#8b5cf6" },
+            { label:"Teachers Present",      val:`${tPresentToday}/${tTotalToday}`,      pct:teacherTodayPct,  color:"#10b981" },
+            { label:"Children Present",      val:`${cPresentToday}/${cTotalToday}`,      pct:childrenTodayPct,  color:"#3b82f6" },
+            { label:"This Week (Teachers)",  val:`${teacherWeekPct}%`,                    pct:teacherWeekPct,   color:"#f59e0b" },
+            { label:"This Week (Children)",  val:`${childrenWeekPct}%`,                   pct:childrenWeekPct,  color:"#8b5cf6" },
           ].map((item,i) => (
             <div key={i} style={{ background:"#f9fafb", borderRadius:12, padding:"12px 14px", border:"1px solid #f1f5f9" }}>
               <div style={{ fontSize:11, color:"#9ca3af", marginBottom:4 }}>{item.label}</div>
@@ -104,9 +105,9 @@ export default function OverviewTab({ teachers, courses, batches, sessions }) {
 
       <SectionCard title="🎓 Course Completion Status">
         {[
-          { label:"Completed",   val:312, pct:52, color:"#10b981" },
-          { label:"In Progress", val:198, pct:33, color:"#f59e0b" },
-          { label:"Not Started", val:91,  pct:15, color:"#ef4444" },
+          { label:"Completed",   val:completedCourses,   pct:completedPct,   color:"#10b981" },
+          { label:"In Progress", val:inProgressCourses,  pct:inProgressPct,  color:"#f59e0b" },
+          { label:"Not Started", val:notStartedCourses,  pct:notStartedPct,  color:"#ef4444" },
         ].map((item,i) => (
           <div key={i} style={{ marginBottom:14 }}>
             <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
@@ -124,27 +125,33 @@ export default function OverviewTab({ teachers, courses, batches, sessions }) {
     {/* Teacher Progress + Activity Upload */}
     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
       <SectionCard title="👩‍🏫 Teacher Training Progress">
-        {teachers.filter(t=>t.status==="approved").slice(0,5).map((t,i) => (
-          <div key={i} style={{ marginBottom:12 }}>
-            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
-              <span style={{ fontSize:12, fontWeight:600, color:"#374151" }}>{t.name}</span>
-              <span style={{ fontSize:12, fontWeight:700, color:t.attendance>=75?"#10b981":t.attendance>=60?"#f59e0b":"#ef4444" }}>{t.attendance}%</span>
+        {teacherProgress.length > 0 ? teacherProgress.map((t, i) => {
+          const p = t.progress || t.trainingProgress || t.attendance || 0;
+          const barColor = p >= 75 ? "#10b981" : p >= 40 ? "#f59e0b" : "#ef4444";
+          return (
+            <div key={i} style={{ marginBottom:12 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+                <span style={{ fontSize:12, fontWeight:600, color:"#374151" }}>{t.name || t.fullName}</span>
+                <span style={{ fontSize:12, fontWeight:700, color:barColor }}>{p}%</span>
+              </div>
+              <div style={{ height:6, background:"#f3f4f6", borderRadius:4, overflow:"hidden" }}>
+                <div style={{ height:"100%", width:`${p}%`, background:barColor, borderRadius:4 }}/>
+              </div>
+              <div style={{ fontSize:10, color:"#9ca3af", marginTop:2 }}>{t.center?.name || t.center || "—"} · {t.subject || t.specialization || "—"}</div>
             </div>
-            <div style={{ height:6, background:"#f3f4f6", borderRadius:4, overflow:"hidden" }}>
-              <div style={{ height:"100%", width:`${t.attendance}%`, background:t.attendance>=75?"#10b981":t.attendance>=60?"#f59e0b":"#ef4444", borderRadius:4 }}/>
-            </div>
-            <div style={{ fontSize:10, color:"#9ca3af", marginTop:2 }}>{t.course || "—"} · {t.batch || "—"}</div>
-          </div>
-        ))}
+          );
+        }) : (
+          <div style={{ textAlign:"center", padding:"30px 0", color:"#9ca3af", fontSize:13 }}>No active teachers found</div>
+        )}
       </SectionCard>
 
       <SectionCard title="📤 Activity Upload Summary">
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
           {[
-            { label:"Uploaded Today",     val:12, icon:"📅", color:"#10b981", bg:"#d1fae5" },
-            { label:"Uploaded This Week", val:47, icon:"📆", color:"#3b82f6", bg:"#dbeafe" },
-            { label:"Pending Review",     val:8,  icon:"⏳", color:"#f59e0b", bg:"#fef3c7" },
-            { label:"Rejected",           val:3,  icon:"❌", color:"#ef4444", bg:"#fee2e2" },
+            { label:"Uploaded Today",     val:todayActivities,     icon:"📅", color:"#10b981", bg:"#d1fae5" },
+            { label:"Uploaded This Week", val:weekActivities,     icon:"📆", color:"#3b82f6", bg:"#dbeafe" },
+            { label:"Pending Review",     val:pendingActivities,  icon:"⏳", color:"#f59e0b", bg:"#fef3c7" },
+            { label:"Rejected",           val:rejectedActivities, icon:"❌", color:"#ef4444", bg:"#fee2e2" },
           ].map((item,i) => (
             <div key={i} style={{ background:item.bg, borderRadius:12, padding:"12px 14px", border:`1px solid ${item.color}30`, textAlign:"center" }}>
               <div style={{ fontSize:20 }}>{item.icon}</div>
@@ -158,7 +165,5 @@ export default function OverviewTab({ teachers, courses, batches, sessions }) {
     </div>
 
   </div>
-);
-
-  
+  );
 }
