@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AttendanceBar, BarChart, S, SectionCard, StatCard, StatusBadge } from "../components/Shared";
 import { MONTHLY_ENROLLMENT, MONTHLY_REVENUE } from "../data/mockData";
+import { getAdminDashboard, getAdminTeachers } from "../services/api";
 
 export default function OverviewTab({ teachers, courses, batches, sessions, children, centers, activities, attendance }) {
   // DB data
@@ -62,15 +63,24 @@ export default function OverviewTab({ teachers, courses, batches, sessions, chil
   const teacherGrowth = totalTeachers > 0 ? 12 : 0;
 
   return (
-  <div style={{ animation:"fadeIn 0.3s ease" }}>
+    <div style={{ animation: "fadeIn 0.3s ease" }}>
+      {/* Header */}
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={S.pageTitle}>Admin Dashboard 👋</h1>
+        <p style={S.pageSub}>
+          Here's your SpacECE platform overview for today — {new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+        </p>
+      </div>
 
-    {/* Header */}
-    <div style={{ marginBottom:24 }}>
-      <h1 style={S.pageTitle}>Admin Dashboard 👋</h1>
-      <p style={S.pageSub}>
-        Here's your SpacECE platform overview for today — {new Date().toLocaleDateString("en-IN", { weekday:"long", year:"numeric", month:"long", day:"numeric" })}
-      </p>
-    </div>
+      {/* KPI Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(170px,1fr))", gap: 16, marginBottom: 24 }}>
+        <StatCard icon="🏫" label="Total Centers" val={stats?.totalCenters ?? 0} color="#f59e0b" bg="#fef3c7" sub="Active training centers" />
+        <StatCard icon="👩‍🏫" label="Total Teachers" val={stats?.totalTeachers ?? teachers.length} color="#10b981" bg="#d1fae5" sub={`+${teacherGrowth}% this month`} />
+        <StatCard icon="👶" label="Total Children" val={stats?.totalChildren ?? 0} color="#3b82f6" bg="#dbeafe" sub="Enrolled across all centers" />
+        <StatCard icon="📊" label="Avg Attendance" val={`${avgAttendance}%`} color="#8b5cf6" bg="#ede9fe" sub="Overall teacher rate" />
+        <StatCard icon="🎓" label="Course Completion" val={`${completionRate}%`} color="#06b6d4" bg="#cffafe" sub="Completed vs in-progress" />
+        <StatCard icon="📋" label="Pending Activities" val={stats?.pendingActivities ?? 0} color="#ef4444" bg="#fee2e2" sub="Awaiting approval" />
+      </div>
 
     {/* KPI Cards */}
     <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))", gap:16, marginBottom:24 }}>
@@ -82,10 +92,7 @@ export default function OverviewTab({ teachers, courses, batches, sessions, chil
       <StatCard icon="📋" label="Activity Uploads"  val={weekActivities}     color="#ef4444" bg="#fee2e2" sub="Submitted this week"/>
     </div>
 
-    {/* Attendance Overview + Course Completion */}
-    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
-      <SectionCard title="📅 Attendance Overview — Today">
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
+        <SectionCard title="🎓 Course Completion Status">
           {[
             { label:"Teachers Present",      val:`${tPresentToday}/${tTotalToday}`,      pct:teacherTodayPct,  color:"#10b981" },
             { label:"Children Present",      val:`${cPresentToday}/${cTotalToday}`,      pct:childrenTodayPct,  color:"#3b82f6" },
@@ -100,8 +107,8 @@ export default function OverviewTab({ teachers, courses, batches, sessions, chil
               </div>
             </div>
           ))}
-        </div>
-      </SectionCard>
+        </SectionCard>
+      </div>
 
       <SectionCard title="🎓 Course Completion Status">
         {[

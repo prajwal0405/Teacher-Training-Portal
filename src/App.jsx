@@ -2,17 +2,26 @@ import { useState } from "react";
 import LoginPage       from "./pages/LoginPage";
 import AdminDashboard  from "./pages/AdminDashboard";
 import TeacherDashboard from "./pages/TeacherDashboard";
+import { getStoredSession, storeSession, clearSession } from "./services/api";
 
 export default function App() {
-  const [screen, setScreen]         = useState("login");
-  const [currentUser, setCurrentUser] = useState(null);
+  const [initialSession] = useState(getStoredSession);
+  const [screen, setScreen] = useState(() => {
+    if (!initialSession) return "login";
+    return initialSession.user.role === "admin" ? "admin" : "teacher";
+  });
+  const [currentUser, setCurrentUser] = useState(initialSession?.user || null);
 
-  const handleLogin = (user) => {
+  const handleLogin = (session) => {
+    const user = session.user || session;
+    if (session.token) storeSession(session);
+
     setCurrentUser(user);
     setScreen(user.role === "admin" ? "admin" : "teacher");
   };
 
   const handleLogout = () => {
+    clearSession();
     setCurrentUser(null);
     setScreen("login");
   };

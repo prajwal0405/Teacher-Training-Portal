@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Modal, S, SearchBar, SectionCard, StatCard, StatusBadge, Toast } from "../components/Shared";
 
 const API = '/api';
@@ -222,6 +222,24 @@ export default function CenterManagementTab({ centers = [], teachers = [], child
 
   const showToast = setToast || setLocalToast;
 
+  const fetchCenters = () => {
+    getCenters()
+      .then(data => {
+        const mapped = (data.centers || []).map(mapCenterFromApi);
+        setCenters(mapped);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error("Error loading centers:", err);
+        setLoading(false);
+        showToast({ msg: "Failed to load centers from database", type: "error" });
+      });
+  };
+
+  useEffect(() => {
+    fetchCenters();
+  }, []);
+
   const filtered = centers.filter(c => {
     const q = search.toLowerCase();
     const matchSearch = (c.name || "").toLowerCase().includes(q) ||
@@ -268,6 +286,7 @@ export default function CenterManagementTab({ centers = [], teachers = [], child
       {formModal && (
         <CenterFormModal
           center={editCenter}
+          teachers={teachers}
           onSave={handleSave}
           onClose={() => { setFormModal(false); setEditCenter(null); }}
           setToast={showToast}

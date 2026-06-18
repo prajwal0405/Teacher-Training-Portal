@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { Logo, Toast, Particles, S, globalCSS } from "../components/Shared";
-
-const ADMIN_CREDENTIALS = { email: "admin@spaceece.com", password: "Admin@123" };
+import { loginUser, registerTeacher } from "../services/api";
 
 /* ── Animated illustration ── */
 function LoginIllustration() {
@@ -71,17 +70,14 @@ function LoginForm({ onLogin, onGoRegister, onGoForgot }) {
   const handleLogin = (e) => {
     e.preventDefault();
     if (!email || !password) { setToast({ msg: "Please fill in all fields.", type: "error" }); return; }
-    if (email === ADMIN_CREDENTIALS.email && password === ADMIN_CREDENTIALS.password) {
-      onLogin({ role: "admin", name: "Admin", email }); return;
-    }
-    const teachers = JSON.parse(localStorage.getItem("spaceece_teachers") || "[]");
-    const teacher  = teachers.find(t => t.email === email && t.password === password);
-    if (teacher) {
-      if (teacher.status === "pending")  { setToast({ msg: "Your account is pending admin approval.", type: "error" }); return; }
-      if (teacher.status === "rejected") { setToast({ msg: "Your account has been rejected.", type: "error" }); return; }
-      onLogin({ role: "teacher", ...teacher }); return;
-    }
-    setToast({ msg: "Incorrect credentials. Please try again.", type: "error" });
+
+    loginUser({ email, password })
+      .then((data) => {
+        onLogin(data);
+      })
+      .catch((err) => {
+        setToast({ msg: err.message || "Incorrect credentials. Please try again.", type: "error" });
+      });
   };
 
   return (
@@ -372,22 +368,28 @@ function RegisterForm({ onBack }) {
 
   const handleRegister = (e) => {
     e.preventDefault();
-    const { name, email, phone, address, subject, photo, password, confirmPassword } = form;
+    const { name, email, phone, address, subject, password, confirmPassword } = form;
     if (!name || !email || !phone || !address || !subject || !password || !confirmPassword) { setToast({ msg: "Please fill all fields.", type: "error" }); return; }
     if (password !== confirmPassword) { setToast({ msg: "Passwords do not match.", type: "error" }); return; }
     if (password.length < 8)          { setToast({ msg: "Password must be at least 8 characters.", type: "error" }); return; }
 
-    const teachers = JSON.parse(localStorage.getItem("spaceece_teachers") || "[]");
-    if (teachers.find(t => t.email === email)) { setToast({ msg: "Email already registered.", type: "error" }); return; }
-
-    const newTeacher = {
-      id: Date.now(), name, email, phone, address, subject, password, photo,
-      status: "pending", joined: new Date().toLocaleDateString("en-IN"),
-      attendance: 0, classes: 0, students: 0, batch: "", course: "", revenue: 0
-    };
-    localStorage.setItem("spaceece_teachers", JSON.stringify([...teachers, newTeacher]));
-    setToast({ msg: "Registration submitted! Awaiting admin approval.", type: "success" });
-    setTimeout(onBack, 2000);
+    registerTeacher({
+      name,
+      email,
+      phone,
+      password,
+      qualification: "B.Ed",
+      subject,
+      experience: "2 years",
+      address,
+    })
+      .then(() => {
+        setToast({ msg: "Registration submitted! Awaiting admin approval.", type: "success" });
+        setTimeout(onBack, 2000);
+      })
+      .catch((err) => {
+        setToast({ msg: err.message || "Failed to submit registration.", type: "error" });
+      });
   };
 
   return (

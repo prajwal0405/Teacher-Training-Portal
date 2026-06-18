@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Logo, Toast, S, globalCSS } from "../components/Shared";
+﻿import { useState, useEffect } from "react";
+import { Logo, Toast, globalCSS } from "../components/Shared";
 import OverviewTab from "../admin/OverviewTab";
 import CenterManagementTab from "../admin/CenterManagementTab";
 import TeacherManagementTab from "../admin/TeacherManagementTab";
@@ -13,7 +13,6 @@ import AttendanceTab from "../admin/AttendanceTab";
 import ReportsTab from "../admin/ReportsTab";
 import NotificationsTab from "../admin/NotificationsTab";
 import SettingsTab from "../admin/SettingsTab";
-import LearningContentManagementTab from "../admin/LearningContentManagementTab";
 import FeedbackManagementTab from "../admin/FeedbackManagementTab";
 import { MOCK_TEACHERS, MOCK_COURSES, MOCK_BATCHES, MOCK_TRAINERS, MOCK_SESSIONS, MOCK_ASSIGNMENTS, MOCK_CONTENT_ITEMS, MOCK_ASSESSMENTS, MOCK_CERTIFICATES, MOCK_FEEDBACKS, MOCK_CATEGORIES } from "../data/mockData";
 import CourseManagementTab from "../admin/CourseManagementTab";
@@ -115,10 +114,10 @@ const refreshDB = {
       case "activities": return <ActivityMonitoringTab setToast={setToast}/>;
       case "lessonplans": return <LessonPlanManagementTab setToast={setToast} />;
       case "children": return <ChildrenManagementTab setToast={setToast}/>;
-      case "trainers": return <TrainerManagementTab trainers={trainers} setTrainers={setTrainers} batches={[]} setToast={setToast}/>;
+      case "trainers": return <TrainerManagementTab batches={[]} setToast={setToast}/>;
       case "assignments":  return <AssignmentReviewTab assignments={assignments} setAssignments={setAssignments} setToast={setToast}/>;
       case "attendance":   return <AttendanceTab teachers={teachers} sessions={[]}/>;
-      case "reports":      return <ReportsTab teachers={teachers} courses={[]} batches={[]}/>;
+      case "reports":      return <ReportsTab teachers={teachers} courses={courses} batches={[]}/>;
       case "notifications":return <NotificationsTab teachers={teachers} setToast={setToast}/>;
       case "settings":     return <SettingsTab/>;
       case "feedback":     return <FeedbackManagementTab feedbacks={feedbacks} setFeedbacks={setFeedbacks} setToast={setToast}/>;
@@ -149,7 +148,7 @@ const refreshDB = {
           <Logo size={120}/>
           <div style={{ textAlign:"center", padding:"4px 12px", borderRadius:20, fontSize:11, fontWeight:700,
             background:"#fef3c7", color:"#92400e", border:"1px solid #fbbf24", margin:"6px auto 0", display:"inline-block", width:"fit-content", letterSpacing:"0.3px" }}>
-            🛡️ Admin Panel
+            ðŸ›¡ï¸ Admin Panel
           </div>
         </div>
 
@@ -175,7 +174,7 @@ const refreshDB = {
             <div style={{ fontSize:10, color:"#9ca3af", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user?.email}</div>
           </div>
           <button onClick={onLogout} title="Sign Out"
-            style={{ background:"none", border:"none", cursor:"pointer", fontSize:16, color:"#9ca3af", padding:4 }}>⏻</button>
+            style={{ background:"none", border:"none", cursor:"pointer", fontSize:16, color:"#9ca3af", padding:4 }}>â»</button>
         </div>
       </div>
 

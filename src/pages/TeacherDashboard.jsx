@@ -1,13 +1,18 @@
-import { useState, useRef } from "react";
+﻿import { useState, useEffect, useRef } from "react";
 import { Logo, Toast, Badge, StatusBadge, StatCard, SectionCard, S, globalCSS } from "../components/Shared";
 import AttendanceManager from "./AttendanceManager";
 import TrainingAndClassroomManager from "./TrainingAndClassroomManager";
 import GeotagAttendance from "./GeotagAttendance";
 import ProctoredAssessment from "./Proctoredassessment";
-
-/* ═══════════════════════════════════════════
-   MOCK DATA
-═══════════════════════════════════════════ */
+import {
+  getTeacherProgress,
+  getNotifications,
+  markNotificationRead,
+  askTeacherChatbot,
+  updateCourseAssignmentProgress,
+  getCourses,
+  uploadFile
+} from "../services/api";
 const MOCK_SCHEDULE = [
   { time: "08:00 AM", class: "Grade 5A", topic: "Number Patterns",        room: "101", status: "completed" },
   { time: "09:30 AM", class: "Grade 6B", topic: "Algebraic Expressions",  room: "203", status: "ongoing"   },
@@ -32,7 +37,7 @@ const MOCK_ATTENDANCE_MONTHLY = [
 ];
 
 const MOCK_ASSIGNMENTS = [
-  { id: 1, title: "Lesson Plan — Number Patterns",      course: "Pre-Primary Training", due: "05/06/2026", status: "pending",  score: null },
+  { id: 1, title: "Lesson Plan â€” Number Patterns",      course: "Pre-Primary Training", due: "05/06/2026", status: "pending",  score: null },
   { id: 2, title: "Activity Worksheet Set",             course: "Pre-Primary Training", due: "01/06/2026", status: "approved", score: 95   },
   { id: 3, title: "Assessment Tool Design",             course: "Pre-Primary Training", due: "28/05/2026", status: "revision", score: null },
   { id: 4, title: "Classroom Management Report",        course: "Pre-Primary Training", due: "20/05/2026", status: "approved", score: 88   },
@@ -45,54 +50,62 @@ const MOCK_COURSES = [
 ];
 
 const MOCK_CERTIFICATES = [
-  { id: 1, title: "Pre-Primary Teacher Training — Level 1", issued: "15/03/2026", grade: "A+", credentialId: "SPC-2026-001" },
+  { id: 1, title: "Pre-Primary Teacher Training â€” Level 1", issued: "15/03/2026", grade: "A+", credentialId: "SPC-2026-001" },
   { id: 2, title: "Child Safety & Wellbeing",               issued: "10/02/2026", grade: "A",  credentialId: "SPC-2026-002" },
 ];
 
 const MOCK_NOTIFICATIONS = [
-  { id: 1, type: "session",     msg: "Live session tomorrow at 10:00 AM — Classroom Management",  time: "2h ago",  read: false },
-  { id: 2, type: "assignment",  msg: "Assignment reviewed — Activity Worksheet scored 95/100",     time: "5h ago",  read: false },
-  { id: 3, type: "approval",    msg: "Assignment needs revision — Reattempt by 05/06/2026",        time: "1d ago",  read: true  },
+  { id: 1, type: "session",     msg: "Live session tomorrow at 10:00 AM â€” Classroom Management",  time: "2h ago",  read: false },
+  { id: 2, type: "assignment",  msg: "Assignment reviewed â€” Activity Worksheet scored 95/100",     time: "5h ago",  read: false },
+  { id: 3, type: "approval",    msg: "Assignment needs revision â€” Reattempt by 05/06/2026",        time: "1d ago",  read: true  },
   { id: 4, type: "certificate", msg: "Your certificate for Child Safety has been issued",           time: "3d ago",  read: true  },
-  { id: 5, type: "course",      msg: "New course available — Curriculum Design & Lesson Planning", time: "5d ago",  read: true  },
+  { id: 5, type: "course",      msg: "New course available â€” Curriculum Design & Lesson Planning", time: "5d ago",  read: true  },
 ];
 
-/* ═══════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    TAB COMPONENTS
-═══════════════════════════════════════════ */
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
-function OverviewTab({ user, setActiveTab }) {
-  const attendance = user.attendance || 90;
+function OverviewTab({ user, setActiveTab, courses = [], assignments = [], lessons = [], activities = [], summary = {} }) {
+  const attendance = summary.attendanceRate !== undefined ? summary.attendanceRate : (user.attendance || 90);
   const attColor   = attendance>=85 ? "#10b981" : attendance>=70 ? "#f59e0b" : "#ef4444";
+
+  // Calculate certificates based on completed courses
+  const certificatesCount = courses.filter(c => c.status === "completed" || c.progressPercent === 100).length;
+  // Calculate pending tasks (assignments in assigned or revision status)
+  const pendingTasksCount = assignments.filter(a => a.status === "assigned" || a.status === "revision").length;
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
       <div style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)", borderRadius: 20, padding: "24px 28px", marginBottom: 24, color: "white", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 900, margin: "0 0 6px", letterSpacing: "-0.3px" }}>Good morning, {user.name?.split(" ")[0]}! 👋</h1>
-          <p style={{ fontSize: 13, margin: 0, opacity: 0.88 }}>{user.subject} Teacher · {user.batch || "SpacECE"} · {new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long"})}</p>
+          <h1 style={{ fontSize: 22, fontWeight: 900, margin: "0 0 6px", letterSpacing: "-0.3px" }}>Good morning, {user.name?.split(" ")[0]}! ðŸ‘‹</h1>
+          <p style={{ fontSize: 13, margin: 0, opacity: 0.88 }}>{user.subject} Teacher Â· {user.batch || "SpacECE"} Â· {new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long"})}</p>
         </div>
-        <div style={{ fontSize: 48, opacity: 0.7 }}>🎓</div>
+        <div style={{ fontSize: 48, opacity: 0.7 }}>ðŸŽ“</div>
       </div>
 
       <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700 }}>
-        <span style={{ fontSize: 18 }}>📍</span>
+        <span style={{ fontSize: 18 }}>ðŸ“</span>
         <span>Working Center : {user.workingCenter || "Dhayri, Pune, Maharashtra"}</span>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 16, marginBottom: 24, marginTop: 16 }}>
-        <StatCard icon="📚" label="My Classes"     val={user.classes||6}   color="#f59e0b" bg="#fef3c7"/>
-        <StatCard icon="👥" label="Total Students" val={user.students||230} color="#3b82f6" bg="#dbeafe"/>
-        <StatCard icon="📊" label="Attendance"     val={`${attendance}%`}  color={attColor} bg={attendance>=85?"#d1fae5":attendance>=70?"#fef3c7":"#fee2e2"}/>
-        <StatCard icon="📝" label="Avg Grade"      val="82%"               color="#8b5cf6" bg="#ede9fe"/>
-        <StatCard icon="🏆" label="Certificates"   val={MOCK_CERTIFICATES.length} color="#06b6d4" bg="#cffafe"/>
-        <StatCard icon="⏳" label="Pending Tasks"  val={MOCK_ASSIGNMENTS.filter(a=>a.status==="pending"||a.status==="revision").length} color="#ef4444" bg="#fee2e2"/>
+        <StatCard icon="ðŸ“š" label="My Classes"     val={user.classes||6}   color="#f59e0b" bg="#fef3c7"/>
+        <StatCard icon="ðŸ‘¥" label="Total Students" val={user.students||230} color="#3b82f6" bg="#dbeafe"/>
+        <StatCard icon="ðŸ“Š" label="Attendance"     val={`${attendance}%`}  color={attColor} bg={attendance>=85?"#d1fae5":attendance>=70?"#fef3c7":"#fee2e2"}/>
+        <StatCard icon="ðŸ“" label="Avg Grade"      val="82%"               color="#8b5cf6" bg="#ede9fe"/>
+        <StatCard icon="ðŸ†" label="Certificates"   val={certificatesCount} color="#06b6d4" bg="#cffafe"/>
+        <StatCard icon="â³" label="Pending Tasks"  val={pendingTasksCount} color="#ef4444" bg="#fee2e2"/>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
-        <SectionCard title="📈 My Monthly Attendance">
+        <SectionCard title="ðŸ“ˆ My Monthly Attendance">
           <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", height: 220, paddingTop: 15 }}>
-            {MOCK_ATTENDANCE_MONTHLY.map((d, i) => (
+            {[
+              { month: "Jan", val: 95 },{ month: "Feb", val: 88 },{ month: "Mar", val: 92 },
+              { month: "Apr", val: 87 },{ month: "May", val: 90 },{ month: "Jun", val: attendance || 94 },
+            ].map((d, i) => (
               <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1 }}>
                 <span style={{ marginBottom: 8, fontSize: 12, fontWeight: 800, color: d.val >= 90 ? "#10b981" : d.val >= 80 ? "#f59e0b" : "#ef4444" }}>{d.val}%</span>
                 <div style={{ width: 36, height: `${d.val * 1.6}px`, borderRadius: "12px 12px 0 0", background: d.val >= 90 ? "linear-gradient(180deg,#34d399,#10b981)" : d.val >= 80 ? "linear-gradient(180deg,#fbbf24,#f59e0b)" : "linear-gradient(180deg,#f87171,#ef4444)", transition: "all .6s ease" }}/>
@@ -102,69 +115,80 @@ function OverviewTab({ user, setActiveTab }) {
           </div>
         </SectionCard>
 
-        <SectionCard title="📚 Course Progress">
-          {MOCK_COURSES.map((c,i)=>(
-            <div key={i} style={{ marginBottom: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>{c.title.split(" ").slice(0,3).join(" ")}...</span>
-                <span style={{ fontSize: 12, fontWeight: 800, color: "#f59e0b" }}>{c.progress}%</span>
-              </div>
-              <div style={{ height: 6, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", marginBottom: 2 }}>
-                <div style={{ height: "100%", width: `${c.progress}%`, background: "linear-gradient(90deg,#f59e0b,#d97706)", borderRadius: 4 }}/>
-              </div>
-              <div style={{ fontSize: 10, color: "#9ca3af" }}>{c.completed}/{c.total} modules · Next: {c.nextSession}</div>
-            </div>
-          ))}
-          <button onClick={()=>setActiveTab("courses")} style={{ fontSize: 12, color: "#d97706", fontWeight: 700, background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 4 }}>View all courses →</button>
+        <SectionCard title="ðŸ“š Course Progress">
+          {courses.length === 0 ? (
+            <div style={{ padding: 20, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>No assigned courses yet.</div>
+          ) : (
+            courses.slice(0, 3).map((c, i) => {
+              const progress = c.progressPercent || 0;
+              return (
+                <div key={i} style={{ marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>{c.course?.title?.split(" ").slice(0,3).join(" ") || "Course"}...</span>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: "#f59e0b" }}>{progress}%</span>
+                  </div>
+                  <div style={{ height: 6, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", marginBottom: 2 }}>
+                    <div style={{ height: "100%", width: `${progress}%`, background: "linear-gradient(90deg,#f59e0b,#d97706)", borderRadius: 4 }}/>
+                  </div>
+                  <div style={{ fontSize: 10, color: "#9ca3af" }}>{c.status || "Assigned"} Â· Due: {c.dueDate ? new Date(c.dueDate).toLocaleDateString() : "No deadline"}</div>
+                </div>
+              );
+            })
+          )}
+          <button onClick={()=>setActiveTab("courses")} style={{ fontSize: 12, color: "#d97706", fontWeight: 700, background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 4 }}>View all courses â†’</button>
         </SectionCard>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-        <SectionCard title="📅 Today's Classes">
+        <SectionCard title="ðŸ“… Today's Classes">
           {MOCK_SCHEDULE.slice(0,4).map((cl,i)=>{
             const statusColor = { completed: "#10b981", ongoing: "#f59e0b", upcoming: "#6b7280" };
             return (
               <div key={i} style={{ display: "flex", gap: 12, padding: "8px 0", borderBottom: "1px solid #f3f4f6" }}>
                 <div style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor[cl.status], marginTop: 5, flexShrink: 0 }}/>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1c1917" }}>{cl.class} — {cl.topic}</div>
-                  <div style={{ fontSize: 10, color: "#9ca3af" }}>{cl.time} · Room {cl.room}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1c1917" }}>{cl.class} â€” {cl.topic}</div>
+                  <div style={{ fontSize: 10, color: "#9ca3af" }}>{cl.time} Â· Room {cl.room}</div>
                 </div>
                 <StatusBadge status={cl.status}/>
               </div>
             );
           })}
-          <button onClick={()=>setActiveTab("schedule")} style={{ fontSize: 12, color: "#d97706", fontWeight: 700, background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 8 }}>Full schedule →</button>
+          <button onClick={()=>setActiveTab("schedule")} style={{ fontSize: 12, color: "#d97706", fontWeight: 700, background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 8 }}>Full schedule â†’</button>
         </SectionCard>
 
-        <SectionCard title="📝 Assignment Status">
-          {MOCK_ASSIGNMENTS.map((a,i)=>(
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #f3f4f6" }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0, background: a.status==="approved"?"#10b981":a.status==="revision"?"#ef4444":"#f59e0b" }}/>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#1c1917" }}>{a.title.substring(0,28)}...</div>
-                <div style={{ fontSize: 10, color: "#9ca3af" }}>Due: {a.due}</div>
+        <SectionCard title="ðŸ“ Assignment Status">
+          {assignments.length === 0 ? (
+            <div style={{ padding: 20, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>No assignments available.</div>
+          ) : (
+            assignments.slice(0, 4).map((a, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #f3f4f6" }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0, background: a.status==="approved"?"#10b981":a.status==="revision"?"#ef4444":"#f59e0b" }}/>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#1c1917" }}>{(a.title || a.course?.title || "Assignment").substring(0,28)}...</div>
+                  <div style={{ fontSize: 10, color: "#9ca3af" }}>Due: {a.dueDate ? new Date(a.dueDate).toLocaleDateString() : "No due date"}</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  {a.score !== null && a.score !== undefined && <span style={{ fontSize: 11, fontWeight: 800, color: "#10b981" }}>{a.score}/100</span>}
+                  <StatusBadge status={a.status}/>
+                </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                {a.score && <span style={{ fontSize: 11, fontWeight: 800, color: "#10b981" }}>{a.score}/100</span>}
-                <StatusBadge status={a.status}/>
-              </div>
-            </div>
-          ))}
-          <button onClick={()=>setActiveTab("assignments")} style={{ fontSize: 12, color: "#d97706", fontWeight: 700, background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 8 }}>View all →</button>
+            ))
+          )}
+          <button onClick={()=>setActiveTab("assignments")} style={{ fontSize: 12, color: "#d97706", fontWeight: 700, background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 8 }}>View all â†’</button>
         </SectionCard>
       </div>
     </div>
   );
 }
 
-/* ═══════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    COURSE CONTENT DATA
-═══════════════════════════════════════════ */
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const COURSE_CONTENT = {
   1: { // Pre-Primary Teacher Training
     color: "#f59e0b",
-    icon: "👩‍🏫",
+    icon: "ðŸ‘©â€ðŸ«",
     modules: [
       {
         id: "m1", title: "Introduction to Pre-Primary Education",
@@ -173,7 +197,7 @@ const COURSE_CONTENT = {
           { id: "v2", title: "Developmental Stages of Early Childhood", ytId: "cWgCGKnUbZo", duration: "18:22" },
           { id: "v3", title: "Role of a Pre-Primary Teacher", ytId: "vQnFgLxVJhU", duration: "14:10" },
         ],
-        notes: `## Introduction to Pre-Primary Education\n\n**Key Concepts:**\n- Pre-primary education covers ages 3–6 years\n- It forms the foundation for lifelong learning\n- Focus areas: cognitive, social, emotional, physical development\n\n**The 5 Pillars of Early Childhood Education:**\n1. Play-based learning\n2. Holistic development\n3. Child-centered approach\n4. Family involvement\n5. Safe & nurturing environment\n\n**Important Theories:**\n- Piaget's Cognitive Development Theory\n- Vygotsky's Zone of Proximal Development (ZPD)\n- Bronfenbrenner's Ecological Systems Theory\n\n**Key Terms:** Scaffolding · Parallel Play · Sensorimotor Stage · Preoperational Stage`
+        notes: `## Introduction to Pre-Primary Education\n\n**Key Concepts:**\n- Pre-primary education covers ages 3â€“6 years\n- It forms the foundation for lifelong learning\n- Focus areas: cognitive, social, emotional, physical development\n\n**The 5 Pillars of Early Childhood Education:**\n1. Play-based learning\n2. Holistic development\n3. Child-centered approach\n4. Family involvement\n5. Safe & nurturing environment\n\n**Important Theories:**\n- Piaget's Cognitive Development Theory\n- Vygotsky's Zone of Proximal Development (ZPD)\n- Bronfenbrenner's Ecological Systems Theory\n\n**Key Terms:** Scaffolding Â· Parallel Play Â· Sensorimotor Stage Â· Preoperational Stage`
       },
       {
         id: "m2", title: "Classroom Setup & Environment",
@@ -182,7 +206,7 @@ const COURSE_CONTENT = {
           { id: "v5", title: "Learning Corners & Activity Zones", ytId: "QlJif-4NWOE", duration: "11:30" },
           { id: "v6", title: "Safety & Hygiene in Early Classrooms", ytId: "5TGp6X0KSAM", duration: "9:50" },
         ],
-        notes: `## Classroom Setup & Environment\n\n**Key Areas to Set Up:**\n- Reading Corner: soft seating, picture books, literacy materials\n- Art & Craft Zone: easels, non-toxic supplies, display boards\n- Dramatic Play Area: dress-up, kitchen set, puppets\n- Construction Zone: blocks, LEGO, puzzles\n- Science Discovery Table: magnifiers, nature items\n\n**Arrangement Principles:**\n- Low shelves for child independence\n- Clear pathways for movement\n- Defined zones reduce conflict\n- Natural light when possible\n\n**Safety Checklist:**\n✅ No sharp corners at child height\n✅ Non-toxic materials only\n✅ Secure heavy furniture to walls\n✅ Clear emergency exit paths`
+        notes: `## Classroom Setup & Environment\n\n**Key Areas to Set Up:**\n- Reading Corner: soft seating, picture books, literacy materials\n- Art & Craft Zone: easels, non-toxic supplies, display boards\n- Dramatic Play Area: dress-up, kitchen set, puppets\n- Construction Zone: blocks, LEGO, puzzles\n- Science Discovery Table: magnifiers, nature items\n\n**Arrangement Principles:**\n- Low shelves for child independence\n- Clear pathways for movement\n- Defined zones reduce conflict\n- Natural light when possible\n\n**Safety Checklist:**\nâœ… No sharp corners at child height\nâœ… Non-toxic materials only\nâœ… Secure heavy furniture to walls\nâœ… Clear emergency exit paths`
       },
       {
         id: "m3", title: "Lesson Planning & Activity Design",
@@ -191,31 +215,31 @@ const COURSE_CONTENT = {
           { id: "v8", title: "Theme-Based Teaching Approach", ytId: "N6pCIqxtWE8", duration: "15:00" },
           { id: "v9", title: "Circle Time & Group Activities", ytId: "sTRCTbmJMsc", duration: "13:40" },
         ],
-        notes: `## Lesson Planning & Activity Design\n\n**Lesson Plan Template:**\n1. **Objective** — What will children learn?\n2. **Materials** — What do you need?\n3. **Introduction** (5 min) — Hook/story/song\n4. **Main Activity** (15–20 min) — Core learning\n5. **Review** (5 min) — Recap & discussion\n6. **Assessment** — Observation notes\n\n**Theme-Based Planning Examples:**\n- Week Theme: "Animals"\n  - Art: animal masks\n  - Science: habitat sorting\n  - Literacy: animal sound books\n  - Math: counting legs\n\n**Circle Time Essentials:**\n- Greeting ritual\n- Calendar & weather\n- Story or song\n- Day preview`
+        notes: `## Lesson Planning & Activity Design\n\n**Lesson Plan Template:**\n1. **Objective** â€” What will children learn?\n2. **Materials** â€” What do you need?\n3. **Introduction** (5 min) â€” Hook/story/song\n4. **Main Activity** (15â€“20 min) â€” Core learning\n5. **Review** (5 min) â€” Recap & discussion\n6. **Assessment** â€” Observation notes\n\n**Theme-Based Planning Examples:**\n- Week Theme: "Animals"\n  - Art: animal masks\n  - Science: habitat sorting\n  - Literacy: animal sound books\n  - Math: counting legs\n\n**Circle Time Essentials:**\n- Greeting ritual\n- Calendar & weather\n- Story or song\n- Day preview`
       },
     ]
   },
   2: { // Child Psychology
     color: "#8b5cf6",
-    icon: "🧠",
+    icon: "ðŸ§ ",
     modules: [
       {
         id: "m4", title: "Foundations of Child Psychology",
         videos: [
           { id: "v10", title: "Introduction to Child Psychology", ytId: "O5BOxhqHEUQ", duration: "17:20" },
-          { id: "v11", title: "Attachment Theory — Bowlby & Ainsworth", ytId: "WjOowWxOXCg", duration: "21:05" },
+          { id: "v11", title: "Attachment Theory â€” Bowlby & Ainsworth", ytId: "WjOowWxOXCg", duration: "21:05" },
           { id: "v12", title: "Emotional Development in Children", ytId: "m2jU92NqBMw", duration: "14:55" },
         ],
-        notes: `## Foundations of Child Psychology\n\n**Core Theories:**\n\n**Bowlby's Attachment Theory:**\n- Secure attachment → confident exploration\n- Types: Secure, Anxious-Ambivalent, Avoidant, Disorganized\n- Primary caregiver relationship is critical (0–2 years)\n\n**Piaget's Stages (Cognitive):**\n| Stage | Age | Key Feature |\n|---|---|---|\n| Sensorimotor | 0–2 | Object permanence |\n| Preoperational | 2–7 | Symbolic thinking |\n| Concrete Op. | 7–11 | Logical thinking |\n| Formal Op. | 12+ | Abstract reasoning |\n\n**Erikson's Psychosocial Stages (Early Childhood):**\n- Trust vs Mistrust (0–18 months)\n- Autonomy vs Shame (18m–3 years)\n- Initiative vs Guilt (3–5 years)`
+        notes: `## Foundations of Child Psychology\n\n**Core Theories:**\n\n**Bowlby's Attachment Theory:**\n- Secure attachment â†’ confident exploration\n- Types: Secure, Anxious-Ambivalent, Avoidant, Disorganized\n- Primary caregiver relationship is critical (0â€“2 years)\n\n**Piaget's Stages (Cognitive):**\n| Stage | Age | Key Feature |\n|---|---|---|\n| Sensorimotor | 0â€“2 | Object permanence |\n| Preoperational | 2â€“7 | Symbolic thinking |\n| Concrete Op. | 7â€“11 | Logical thinking |\n| Formal Op. | 12+ | Abstract reasoning |\n\n**Erikson's Psychosocial Stages (Early Childhood):**\n- Trust vs Mistrust (0â€“18 months)\n- Autonomy vs Shame (18mâ€“3 years)\n- Initiative vs Guilt (3â€“5 years)`
       },
       {
         id: "m5", title: "Behavioural & Social Development",
         videos: [
-          { id: "v13", title: "Social Learning Theory — Bandura", ytId: "eGSB1GKbJQE", duration: "16:30" },
+          { id: "v13", title: "Social Learning Theory â€” Bandura", ytId: "eGSB1GKbJQE", duration: "16:30" },
           { id: "v14", title: "Play & Peer Relationships", ytId: "yT-lSxHMGbg", duration: "19:10" },
           { id: "v15", title: "Understanding Child Behaviour Problems", ytId: "RX2pjGIiS4w", duration: "22:45" },
         ],
-        notes: `## Behavioural & Social Development\n\n**Bandura's Social Learning Theory:**\n- Children learn by observation (modeling)\n- 4 Steps: Attention → Retention → Reproduction → Motivation\n- Self-efficacy: belief in one's own ability\n\n**Types of Play (Parten's Social Stages):**\n1. Solitary Play (2–3 years)\n2. Parallel Play (2.5–3.5 years)\n3. Associative Play (3–4 years)\n4. Cooperative Play (4+ years)\n\n**Common Behaviour Challenges:**\n- Tantrums: validate emotion, stay calm\n- Aggression: teach words for feelings\n- Separation anxiety: consistent goodbye routine\n- Refusal: offer limited choices\n\n**Positive Reinforcement Tips:**\n✅ Praise effort, not outcome\n✅ Be specific: "I love how you shared your blocks"\n✅ Use visual reward charts`
+        notes: `## Behavioural & Social Development\n\n**Bandura's Social Learning Theory:**\n- Children learn by observation (modeling)\n- 4 Steps: Attention â†’ Retention â†’ Reproduction â†’ Motivation\n- Self-efficacy: belief in one's own ability\n\n**Types of Play (Parten's Social Stages):**\n1. Solitary Play (2â€“3 years)\n2. Parallel Play (2.5â€“3.5 years)\n3. Associative Play (3â€“4 years)\n4. Cooperative Play (4+ years)\n\n**Common Behaviour Challenges:**\n- Tantrums: validate emotion, stay calm\n- Aggression: teach words for feelings\n- Separation anxiety: consistent goodbye routine\n- Refusal: offer limited choices\n\n**Positive Reinforcement Tips:**\nâœ… Praise effort, not outcome\nâœ… Be specific: "I love how you shared your blocks"\nâœ… Use visual reward charts`
       },
       {
         id: "m6", title: "Special Needs & Inclusive Education",
@@ -223,20 +247,20 @@ const COURSE_CONTENT = {
           { id: "v16", title: "Introduction to Inclusive Education", ytId: "iVt5CX3BLGU", duration: "18:00" },
           { id: "v17", title: "Identifying Learning Difficulties Early", ytId: "BVoCN5lD6rg", duration: "15:30" },
         ],
-        notes: `## Special Needs & Inclusive Education\n\n**Key Principles of Inclusion:**\n- Every child has the right to education\n- Adapt environment, not the child\n- Collaboration: teachers, parents, specialists\n\n**Common Learning Differences:**\n- **Dyslexia**: difficulty with reading/writing → use multi-sensory methods\n- **ADHD**: attention/hyperactivity → structured routines, movement breaks\n- **Autism Spectrum**: social/communication differences → visual schedules, sensory awareness\n- **Developmental Delay**: slower milestone achievement → differentiated activities\n\n**Classroom Adaptations:**\n- Flexible seating arrangements\n- Visual timetables on walls\n- Quiet zones for sensory breaks\n- Peer buddy systems\n- Modified instructions & materials`
+        notes: `## Special Needs & Inclusive Education\n\n**Key Principles of Inclusion:**\n- Every child has the right to education\n- Adapt environment, not the child\n- Collaboration: teachers, parents, specialists\n\n**Common Learning Differences:**\n- **Dyslexia**: difficulty with reading/writing â†’ use multi-sensory methods\n- **ADHD**: attention/hyperactivity â†’ structured routines, movement breaks\n- **Autism Spectrum**: social/communication differences â†’ visual schedules, sensory awareness\n- **Developmental Delay**: slower milestone achievement â†’ differentiated activities\n\n**Classroom Adaptations:**\n- Flexible seating arrangements\n- Visual timetables on walls\n- Quiet zones for sensory breaks\n- Peer buddy systems\n- Modified instructions & materials`
       },
     ]
   },
   3: { // Curriculum Design
     color: "#10b981",
-    icon: "📐",
+    icon: "ðŸ“",
     modules: [
       {
         id: "m7", title: "Principles of Curriculum Design",
         videos: [
           { id: "v18", title: "What is Curriculum? Types & Models", ytId: "sXpPDcBMBzs", duration: "20:00" },
           { id: "v19", title: "Bloom's Taxonomy Explained", ytId: "ayefSTAnCR8", duration: "16:45" },
-          { id: "v20", title: "Backward Design — Understanding by Design", ytId: "d8F1SnWaIfE", duration: "18:30" },
+          { id: "v20", title: "Backward Design â€” Understanding by Design", ytId: "d8F1SnWaIfE", duration: "18:30" },
         ],
         notes: `## Principles of Curriculum Design\n\n**Types of Curriculum:**\n- **Formal/Explicit**: planned, written syllabus\n- **Hidden**: unwritten social norms taught\n- **Null**: what is NOT taught\n- **Extracurricular**: beyond formal classes\n\n**Bloom's Taxonomy (Revised):**\n1. Remember (recall facts)\n2. Understand (explain ideas)\n3. Apply (use in new situations)\n4. Analyze (draw connections)\n5. Evaluate (justify decisions)\n6. Create (produce new work)\n\n**Backward Design (Wiggins & McTighe):**\n1. Identify desired results (What should students know?)\n2. Determine acceptable evidence (How will you know?)\n3. Plan learning experiences (How will you teach it?)\n\n**Key Curriculum Models:**\n- Tyler's Rational Model\n- Spiral Curriculum (Bruner)\n- Integrated/Thematic Model`
       },
@@ -247,183 +271,241 @@ const COURSE_CONTENT = {
           { id: "v22", title: "Portfolio Assessment in Early Childhood", ytId: "U8ORh-l_i9Y", duration: "17:55" },
           { id: "v23", title: "Observation as an Assessment Tool", ytId: "nWXD_bVQ-Ro", duration: "12:10" },
         ],
-        notes: `## Assessment & Evaluation Methods\n\n**Formative Assessment (ongoing):**\n- Observations during activities\n- Questioning & discussion\n- Exit tickets / quick checks\n- Peer feedback\n\n**Summative Assessment (end of unit):**\n- Projects & presentations\n- Portfolios\n- Performance tasks\n- Written tests (older children)\n\n**Portfolio Assessment:**\n- Collects work samples over time\n- Shows growth, not just achievement\n- Involves child in self-reflection\n- Contents: drawings, photos, writing samples, teacher notes\n\n**Observation Checklist Items:**\n✅ Can follow 2-step instructions\n✅ Uses scissors with control\n✅ Recognises own name in print\n✅ Takes turns in group play\n✅ Expresses needs verbally`
+        notes: `## Assessment & Evaluation Methods\n\n**Formative Assessment (ongoing):**\n- Observations during activities\n- Questioning & discussion\n- Exit tickets / quick checks\n- Peer feedback\n\n**Summative Assessment (end of unit):**\n- Projects & presentations\n- Portfolios\n- Performance tasks\n- Written tests (older children)\n\n**Portfolio Assessment:**\n- Collects work samples over time\n- Shows growth, not just achievement\n- Involves child in self-reflection\n- Contents: drawings, photos, writing samples, teacher notes\n\n**Observation Checklist Items:**\nâœ… Can follow 2-step instructions\nâœ… Uses scissors with control\nâœ… Recognises own name in print\nâœ… Takes turns in group play\nâœ… Expresses needs verbally`
       },
       {
         id: "m9", title: "Technology Integration in Curriculum",
         videos: [
-          { id: "v24", title: "EdTech Tools for Early Childhood", ytId: "bL4KNzBxDSk", duration: "15:40" },
           { id: "v25", title: "SAMR Model for Technology Integration", ytId: "SC5ARwUkVyg", duration: "11:25" },
         ],
-        notes: `## Technology Integration in Curriculum\n\n**SAMR Model:**\n- **S**ubstitution: tech replaces traditional tool (digital worksheet)\n- **A**ugmentation: tech with functional improvement (auto-spell check)\n- **M**odification: tech allows significant redesign (collaborative docs)\n- **R**edefinition: tech creates new tasks previously inconceivable (global collaboration)\n\n**Recommended EdTech for Early Childhood:**\n| Tool | Use Case |\n|---|---|\n| Seesaw | Digital portfolios |\n| Kahoot | Interactive quizzes |\n| Book Creator | Digital storytelling |\n| Canva for Edu | Visual projects |\n| Google Classroom | Assignment management |\n\n**Screen Time Guidelines (WHO):**\n- Under 2: no screen time\n- 2–4: max 1 hour/day, with adult supervision\n- Quality over quantity — co-view & discuss`
+        notes: `## Technology Integration in Curriculum\n\n**SAMR Model:**\n- **S**ubstitution: tech replaces traditional tool (digital worksheet)\n- **A**ugmentation: tech with functional improvement (auto-spell check)\n- **M**odification: tech allows significant redesign (collaborative docs)\n- **R**edefinition: tech creates new tasks previously inconceivable (global collaboration)\n\n**Recommended EdTech for Early Childhood:**\n| Tool | Use Case |\n|---|---|\n| Seesaw | Digital portfolios |\n| Kahoot | Interactive quizzes |\n| Book Creator | Digital storytelling |\n| Canva for Edu | Visual projects |\n| Google Classroom | Assignment management |\n\n**Screen Time Guidelines (WHO):**\n- Under 2: no screen time\n- 2â€“4: max 1 hour/day, with adult supervision\n- Quality over quantity â€” co-view & discuss`
       },
     ]
   }
 };
 
-function CoursesTab() {
-  const [activeCourseId, setActiveCourseId]   = useState(null);
+const getEnrichedCourseContent = (assignment) => {
+  const dbCourse = assignment?.course;
+  if (!dbCourse) return null;
+  const title = dbCourse.title.toLowerCase();
+  let template = null;
+  if (title.includes("pre-primary") || title.includes("teacher training")) {
+    template = COURSE_CONTENT[1];
+  } else if (title.includes("psychology") || title.includes("development")) {
+    template = COURSE_CONTENT[2];
+  } else if (title.includes("curriculum") || title.includes("lesson")) {
+    template = COURSE_CONTENT[3];
+  }
+  
+  if (template) {
+    return {
+      ...template,
+      modules: template.modules.map((m, mIdx) => {
+        const dbMod = dbCourse.modules?.[mIdx];
+        return {
+          ...m,
+          id: dbMod?._id || m.id,
+          videos: m.videos.map((v, vIdx) => {
+            const dbContent = dbMod?.contents?.[vIdx];
+            return {
+              ...v,
+              id: dbContent?._id || v.id
+            };
+          })
+        };
+      })
+    };
+  }
+  
+  return {
+    color: "#fbbf24",
+    icon: "ðŸ“š",
+    modules: (dbCourse.modules || []).map((m, mIdx) => ({
+      id: m._id || `mod-${mIdx}`,
+      title: m.title,
+      videos: (m.contents || [])
+        .filter(c => c.type === "video" || c.type === "link")
+        .map((c, cIdx) => {
+          let ytId = "Y5KmNaoMEVM";
+          if (c.externalUrl) {
+            if (c.externalUrl.includes("youtube.com") || c.externalUrl.includes("youtu.be")) {
+              const match = c.externalUrl.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+              if (match) ytId = match[1];
+            }
+          }
+          return {
+            id: c._id || `vid-${cIdx}`,
+            title: c.title,
+            ytId,
+            duration: "10:00"
+          };
+        }),
+      notes: m.description || `Notes for ${m.title}`
+    }))
+  };
+};
+
+function CoursesTab({ assignments = [], onMarkDone }) {
+  const [activeAssignmentId, setActiveAssignmentId] = useState(null);
   const [activeModuleId, setActiveModuleId]   = useState(null);
   const [activeVideoId,  setActiveVideoId]    = useState(null);
   const [activeTab,      setActiveTab]        = useState("video"); // "video"|"notes"
-  // completed set stored as "courseId-moduleId-videoId"
-  const [completed, setCompleted] = useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("spaceece_completed") || "[]")); }
-    catch { return new Set(); }
-  });
 
-  const saveCompleted = (newSet) => {
-    setCompleted(newSet);
-    localStorage.setItem("spaceece_completed", JSON.stringify([...newSet]));
+  const activeAssignment = assignments.find(a => a._id === activeAssignmentId);
+  const enrichedContent  = getEnrichedCourseContent(activeAssignment);
+
+  const isVideoDone = (assign, videoId) => {
+    return assign?.completedContent?.includes(videoId) || false;
   };
 
-  const markDone = (courseId, moduleId, videoId) => {
-    const key = `${courseId}-${moduleId}-${videoId}`;
-    const next = new Set(completed);
-    next.add(key);
-    saveCompleted(next);
-  };
-
-  const isVideoDone = (courseId, moduleId, videoId) => completed.has(`${courseId}-${moduleId}-${videoId}`);
-
-  // Dynamic progress per course
-  const getCourseProgress = (courseId) => {
-    const content = COURSE_CONTENT[courseId];
-    if (!content) return 0;
-    const allVideos = content.modules.flatMap(m => m.videos.map(v => `${courseId}-${m.id}-${v.id}`));
-    if (allVideos.length === 0) return 0;
-    const done = allVideos.filter(k => completed.has(k)).length;
-    return Math.round((done / allVideos.length) * 100);
-  };
-
-  const getModuleProgress = (courseId, module) => {
-    const allKeys = module.videos.map(v => `${courseId}-${module.id}-${v.id}`);
-    const done = allKeys.filter(k => completed.has(k)).length;
+  const getModuleProgress = (assign, module) => {
+    const allKeys = module.videos.map(v => v.id);
+    const done = allKeys.filter(k => isVideoDone(assign, k)).length;
     return { done, total: allKeys.length };
   };
 
-  // ── Course list view ──
-  if (!activeCourseId) {
+  const handleMarkDone = (assign, videoId) => {
+    if (!assign) return;
+    const completedContent = [...(assign.completedContent || [])];
+    if (!completedContent.includes(videoId)) {
+      completedContent.push(videoId);
+    }
+    const allVids = enrichedContent.modules.flatMap(m => m.videos);
+    const progressPercent = Math.round((completedContent.length / allVids.length) * 100);
+    
+    onMarkDone && onMarkDone(assign._id, {
+      completedContent,
+      progressPercent,
+      status: progressPercent === 100 ? "completed" : "ongoing"
+    });
+  };
+
+  // â”€â”€ Course list view â”€â”€
+  if (!activeAssignmentId) {
     return (
       <div style={{ animation: "fadeIn 0.3s ease" }}>
         <h1 style={S.pageTitle}>My Courses</h1>
         <p style={S.pageSub}>Your enrolled courses and learning progress</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {MOCK_COURSES.map((c) => {
-            const progress = getCourseProgress(c.id);
-            const content  = COURSE_CONTENT[c.id];
-            const totalVids = content ? content.modules.reduce((a,m)=>a+m.videos.length,0) : 0;
-            const doneVids  = content ? content.modules.reduce((a,m)=>a+m.videos.filter(v=>isVideoDone(c.id,m.id,v.id)).length,0) : 0;
-            return (
-              <div key={c.id} style={{ background: "white", borderRadius: 16, padding: "22px 24px", border: "1px solid #f1f5f9", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", borderLeft: `4px solid ${content?.color || "#f59e0b"}` }}>
-                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
-                  <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-                    <div style={{ fontSize: 36 }}>{content?.icon || "📚"}</div>
-                    <div>
-                      <h3 style={{ fontSize: 16, fontWeight: 800, color: "#1c1917", margin: "0 0 6px" }}>{c.title}</h3>
-                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                        <StatusBadge status={c.status}/>
-                        <span style={{ fontSize: 11, color: "#9ca3af" }}>📅 Next: {c.nextSession}</span>
-                        <span style={{ fontSize: 11, color: "#6b7280" }}>🎬 {doneVids}/{totalVids} videos</span>
+          {assignments.length === 0 ? (
+            <div style={{ padding: 40, textAlign: "center", background: "white", borderRadius: 16, border: "1px dashed #cbd5e1", color: "#94a3b8" }}>
+              No enrolled courses found.
+            </div>
+          ) : (
+            assignments.map((c) => {
+              const progress = c.progressPercent || 0;
+              const content  = getEnrichedCourseContent(c);
+              const totalVids = content ? content.modules.reduce((a,m)=>a+m.videos.length,0) : 0;
+              const doneVids  = content ? content.modules.reduce((a,m)=>a+m.videos.filter(v=>isVideoDone(c, v.id)).length,0) : 0;
+              return (
+                <div key={c._id} style={{ background: "white", borderRadius: 16, padding: "22px 24px", border: "1px solid #f1f5f9", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", borderLeft: `4px solid ${content?.color || "#f59e0b"}` }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
+                    <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                      <div style={{ fontSize: 36 }}>{content?.icon || "ðŸ“š"}</div>
+                      <div>
+                        <h3 style={{ fontSize: 16, fontWeight: 800, color: "#1c1917", margin: "0 0 6px" }}>{c.course?.title}</h3>
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                          <StatusBadge status={c.status}/>
+                          <span style={{ fontSize: 11, color: "#9ca3af" }}>ðŸ“… Due: {c.dueDate ? new Date(c.dueDate).toLocaleDateString() : "No due date"}</span>
+                          <span style={{ fontSize: 11, color: "#6b7280" }}>ðŸŽ¬ {doneVids}/{totalVids} videos</span>
+                        </div>
                       </div>
                     </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 28, fontWeight: 900, color: content?.color || "#f59e0b" }}>{progress}%</div>
+                      <div style={{ fontSize: 11, color: "#9ca3af" }}>Complete</div>
+                    </div>
                   </div>
-                  <div style={{ textAlign: "right", flexShrink: 0 }}>
-                    <div style={{ fontSize: 28, fontWeight: 900, color: content?.color || "#f59e0b" }}>{progress}%</div>
-                    <div style={{ fontSize: 11, color: "#9ca3af" }}>Complete</div>
+                  <div style={{ height: 8, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", marginBottom: 12 }}>
+                    <div style={{ height: "100%", width: `${progress}%`, background: `linear-gradient(90deg,${content?.color||"#f59e0b"},${content?.color||"#d97706"})`, borderRadius: 4, transition: "width 0.8s ease" }}/>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 12, color: "#6b7280" }}>ðŸ“– {content?.modules?.length || 0} modules Â· {doneVids}/{totalVids} videos done</span>
+                    <button
+                      onClick={() => {
+                        setActiveAssignmentId(c._id);
+                        const firstModule = content?.modules[0];
+                        setActiveModuleId(firstModule?.id || null);
+                        setActiveVideoId(firstModule?.videos[0]?.id || null);
+                        setActiveTab("video");
+                      }}
+                      style={{ ...S.primaryBtn, padding: "8px 20px", fontSize: 12, background: `linear-gradient(135deg,${content?.color||"#f59e0b"},${content?.color||"#d97706"})` }}
+                    >
+                      {progress > 0 ? "Continue â†’" : "Start Course â†’"}
+                    </button>
                   </div>
                 </div>
-                <div style={{ height: 8, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", marginBottom: 12 }}>
-                  <div style={{ height: "100%", width: `${progress}%`, background: `linear-gradient(90deg,${content?.color||"#f59e0b"},${content?.color||"#d97706"})`, borderRadius: 4, transition: "width 0.8s ease" }}/>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 12, color: "#6b7280" }}>📖 {content?.modules?.length || 0} modules · {doneVids}/{totalVids} videos done</span>
-                  <button
-                    onClick={() => {
-                      setActiveCourseId(c.id);
-                      const firstModule = COURSE_CONTENT[c.id]?.modules[0];
-                      setActiveModuleId(firstModule?.id || null);
-                      setActiveVideoId(firstModule?.videos[0]?.id || null);
-                      setActiveTab("video");
-                    }}
-                    style={{ ...S.primaryBtn, padding: "8px 20px", fontSize: 12, background: `linear-gradient(135deg,${content?.color||"#f59e0b"},${content?.color||"#d97706"})` }}
-                  >
-                    {progress > 0 ? "Continue →" : "Start Course →"}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       </div>
     );
   }
 
-  // ── Course player view ──
-  const course        = MOCK_COURSES.find(c => c.id === activeCourseId);
-  const courseContent = COURSE_CONTENT[activeCourseId];
-  const activeModule  = courseContent?.modules.find(m => m.id === activeModuleId);
+  // â”€â”€ Course player view â”€â”€
+  const activeModule  = enrichedContent?.modules.find(m => m.id === activeModuleId);
   const activeVideo   = activeModule?.videos.find(v => v.id === activeVideoId);
-  const overallProg   = getCourseProgress(activeCourseId);
+  const overallProg   = activeAssignment?.progressPercent || 0;
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-        <button onClick={() => setActiveCourseId(null)} style={{ background: "#f3f4f6", border: "none", borderRadius: 10, padding: "8px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer", color: "#374151" }}>← Back</button>
+        <button onClick={() => setActiveAssignmentId(null)} style={{ background: "#f3f4f6", border: "none", borderRadius: 10, padding: "8px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer", color: "#374151" }}>â† Back</button>
         <div style={{ flex: 1 }}>
-          <h1 style={{ ...S.pageTitle, margin: 0 }}>{courseContent?.icon} {course?.title}</h1>
+          <h1 style={{ ...S.pageTitle, margin: 0 }}>{enrichedContent?.icon} {activeAssignment?.course?.title}</h1>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
             <div style={{ flex: 1, height: 6, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", maxWidth: 300 }}>
-              <div style={{ height: "100%", width: `${overallProg}%`, background: `linear-gradient(90deg,${courseContent?.color},${courseContent?.color})`, borderRadius: 4, transition: "width 0.6s" }}/>
+              <div style={{ height: "100%", width: `${overallProg}%`, background: `linear-gradient(90deg,${enrichedContent?.color || "#f59e0b"},${enrichedContent?.color || "#f59e0b"})`, borderRadius: 4, transition: "width 0.6s" }}/>
             </div>
-            <span style={{ fontSize: 12, fontWeight: 800, color: courseContent?.color }}>{overallProg}% complete</span>
+            <span style={{ fontSize: 12, fontWeight: 800, color: enrichedContent?.color || "#f59e0b" }}>{overallProg}% complete</span>
           </div>
         </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 20, alignItems: "start" }}>
-        {/* ── Sidebar: module/video list ── */}
+        {/* â”€â”€ Sidebar: module/video list â”€â”€ */}
         <div style={{ background: "white", borderRadius: 16, border: "1px solid #f1f5f9", overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
           <div style={{ padding: "14px 16px", background: "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
             <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1917" }}>Course Content</div>
-            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{courseContent?.modules?.length} modules</div>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{enrichedContent?.modules?.length} modules</div>
           </div>
           <div style={{ overflowY: "auto", maxHeight: 600 }}>
-            {courseContent?.modules.map((mod) => {
-              const mp = getModuleProgress(activeCourseId, mod);
+            {enrichedContent?.modules.map((mod) => {
+              const mp = getModuleProgress(activeAssignment, mod);
               const isModActive = mod.id === activeModuleId;
               return (
                 <div key={mod.id}>
                   {/* Module header */}
                   <div
                     onClick={() => { setActiveModuleId(mod.id); setActiveVideoId(mod.videos[0]?.id); setActiveTab("video"); }}
-                    style={{ padding: "12px 16px", background: isModActive ? "#fffbeb" : "white", borderBottom: "1px solid #f9fafb", cursor: "pointer", borderLeft: `3px solid ${isModActive ? courseContent?.color : "transparent"}` }}
+                    style={{ padding: "12px 16px", background: isModActive ? "#fffbeb" : "white", borderBottom: "1px solid #f9fafb", cursor: "pointer", borderLeft: `3px solid ${isModActive ? (enrichedContent?.color || "#f59e0b") : "transparent"}` }}
                   >
                     <div style={{ fontSize: 12, fontWeight: 700, color: isModActive ? "#92400e" : "#374151" }}>{mod.title}</div>
                     <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 3 }}>
                       {mp.done}/{mp.total} videos
                       <span style={{ marginLeft: 6, background: mp.done===mp.total?"#d1fae5":"#f3f4f6", color: mp.done===mp.total?"#065f46":"#9ca3af", padding: "1px 6px", borderRadius: 10, fontWeight: 700 }}>
-                        {mp.done===mp.total?"✓ Done":`${Math.round((mp.done/mp.total)*100)}%`}
+                        {mp.done===mp.total?"âœ“ Done":`${Math.round((mp.done/mp.total)*100)}%`}
                       </span>
                     </div>
                   </div>
                   {/* Videos under module */}
                   {isModActive && mod.videos.map((vid) => {
                     const isActive = vid.id === activeVideoId;
-                    const done = isVideoDone(activeCourseId, mod.id, vid.id);
+                    const done = isVideoDone(activeAssignment, vid.id);
                     return (
                       <div
                         key={vid.id}
                         onClick={() => { setActiveVideoId(vid.id); setActiveTab("video"); }}
                         style={{ padding: "9px 16px 9px 28px", background: isActive ? "#fef3c7" : "#fafafa", borderBottom: "1px solid #f3f4f6", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
                       >
-                        <div style={{ width: 20, height: 20, borderRadius: "50%", background: done ? "#10b981" : isActive ? courseContent?.color : "#e5e7eb", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "white", flexShrink: 0 }}>
-                          {done ? "✓" : isActive ? "▶" : ""}
+                        <div style={{ width: 20, height: 20, borderRadius: "50%", background: done ? "#10b981" : isActive ? (enrichedContent?.color || "#f59e0b") : "#e5e7eb", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "white", flexShrink: 0 }}>
+                          {done ? "âœ“" : isActive ? "â–¶" : ""}
                         </div>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 11, fontWeight: isActive?700:500, color: isActive?"#92400e":"#374151", lineHeight: 1.3 }}>{vid.title}</div>
-                          <div style={{ fontSize: 10, color: "#9ca3af" }}>⏱ {vid.duration}</div>
+                          <div style={{ fontSize: 10, color: "#9ca3af" }}>â± {vid.duration}</div>
                         </div>
                       </div>
                     );
@@ -434,7 +516,7 @@ function CoursesTab() {
           </div>
         </div>
 
-        {/* ── Main content area ── */}
+        {/* â”€â”€ Main content area â”€â”€ */}
         <div>
           {activeVideo ? (
             <>
@@ -443,8 +525,8 @@ function CoursesTab() {
                 {/* Tab bar */}
                 <div style={{ display: "flex", borderBottom: "1px solid #f1f5f9" }}>
                   {["video","notes"].map(t => (
-                    <button key={t} onClick={() => setActiveTab(t)} style={{ flex: 1, padding: "12px", border: "none", background: activeTab===t?"#fffbeb":"white", color: activeTab===t?"#92400e":"#6b7280", fontWeight: activeTab===t?800:600, fontSize: 13, cursor: "pointer", borderBottom: `2px solid ${activeTab===t?courseContent?.color:"transparent"}`, transition: "all 0.15s" }}>
-                      {t === "video" ? "🎬 Video Lesson" : "📝 Notes"}
+                    <button key={t} onClick={() => setActiveTab(t)} style={{ flex: 1, padding: "12px", border: "none", background: activeTab===t?"#fffbeb":"white", color: activeTab===t?"#92400e":"#6b7280", fontWeight: activeTab===t?800:600, fontSize: 13, cursor: "pointer", borderBottom: `2px solid ${activeTab===t?(enrichedContent?.color || "#f59e0b"):"transparent"}`, transition: "all 0.15s" }}>
+                      {t === "video" ? "ðŸŽ¬ Video Lesson" : "ðŸ“ Notes"}
                     </button>
                   ))}
                 </div>
@@ -463,32 +545,32 @@ function CoursesTab() {
                     </div>
                     <div style={{ padding: "16px 20px" }}>
                       <div style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", marginBottom: 4 }}>{activeVideo.title}</div>
-                      <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 16 }}>{activeModule?.title} · ⏱ {activeVideo.duration}</div>
+                      <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 16 }}>{activeModule?.title} Â· â± {activeVideo.duration}</div>
                       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                        {isVideoDone(activeCourseId, activeModuleId, activeVideoId) ? (
-                          <span style={{ background: "#d1fae5", color: "#065f46", padding: "8px 18px", borderRadius: 10, fontSize: 13, fontWeight: 800 }}>✓ Completed</span>
+                        {isVideoDone(activeAssignment, activeVideoId) ? (
+                          <span style={{ background: "#d1fae5", color: "#065f46", padding: "8px 18px", borderRadius: 10, fontSize: 13, fontWeight: 800 }}>âœ“ Completed</span>
                         ) : (
                           <button
-                            onClick={() => markDone(activeCourseId, activeModuleId, activeVideoId)}
-                            style={{ ...S.primaryBtn, background: `linear-gradient(135deg,${courseContent?.color},${courseContent?.color})`, fontSize: 13 }}
+                            onClick={() => handleMarkDone(activeAssignment, activeVideoId)}
+                            style={{ ...S.primaryBtn, background: `linear-gradient(135deg,${enrichedContent?.color || "#f59e0b"},${enrichedContent?.color || "#f59e0b"})`, fontSize: 13 }}
                           >
-                            ✅ Mark as Complete
+                            âœ… Mark as Complete
                           </button>
                         )}
-                        <button onClick={() => setActiveTab("notes")} style={{ ...S.exportBtn, fontSize: 12 }}>📝 View Notes</button>
+                        <button onClick={() => setActiveTab("notes")} style={{ ...S.exportBtn, fontSize: 12 }}>ðŸ“ View Notes</button>
                       </div>
                     </div>
                   </div>
                 ) : (
                   <div style={{ padding: "20px 24px", maxHeight: 520, overflowY: "auto" }}>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", marginBottom: 12 }}>📝 Notes — {activeModule?.title}</div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", marginBottom: 12 }}>ðŸ“ Notes â€” {activeModule?.title}</div>
                     <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.8, whiteSpace: "pre-line", fontFamily: "inherit" }}>
                       {activeModule?.notes?.split('\n').map((line, i) => {
                         if (line.startsWith('## ')) return <h3 key={i} style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", margin: "16px 0 8px" }}>{line.replace('## ','')}</h3>;
                         if (line.startsWith('**') && line.endsWith('**')) return <div key={i} style={{ fontWeight: 700, color: "#374151", margin: "8px 0 4px" }}>{line.replace(/\*\*/g,'')}</div>;
-                        if (line.startsWith('- ')) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#4b5563" }}>• {line.slice(2)}</div>;
+                        if (line.startsWith('- ')) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#4b5563" }}>â€¢ {line.slice(2)}</div>;
                         if (line.match(/^\d+\./)) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#4b5563" }}>{line}</div>;
-                        if (line.startsWith('✅')) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#059669", fontWeight: 600 }}>{line}</div>;
+                        if (line.startsWith('âœ…')) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#059669", fontWeight: 600 }}>{line}</div>;
                         if (line.startsWith('|')) return <div key={i} style={{ fontFamily: "monospace", fontSize: 12, background: "#f8fafc", padding: "3px 8px", margin: "1px 0" }}>{line}</div>;
                         if (line === '') return <div key={i} style={{ height: 6 }}/>;
                         return <div key={i} style={{ margin: "3px 0" }}>{line}</div>;
@@ -502,32 +584,32 @@ function CoursesTab() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ fontSize: 12, color: "#6b7280" }}>
                   {(() => {
-                    const allVids = courseContent.modules.flatMap(m => m.videos.map(v => ({ ...v, moduleId: m.id })));
+                    const allVids = enrichedContent.modules.flatMap(m => m.videos.map(v => ({ ...v, moduleId: m.id })));
                     const idx = allVids.findIndex(v => v.id === activeVideoId);
                     return `Video ${idx+1} of ${allVids.length}`;
                   })()}
                 </div>
                 <button
                   onClick={() => {
-                    const allVids = courseContent.modules.flatMap(m => m.videos.map(v => ({ ...v, moduleId: m.id })));
+                    const allVids = enrichedContent.modules.flatMap(m => m.videos.map(v => ({ ...v, moduleId: m.id })));
                     const idx = allVids.findIndex(v => v.id === activeVideoId);
                     if (idx < allVids.length - 1) {
-                      markDone(activeCourseId, activeModuleId, activeVideoId);
+                      handleMarkDone(activeAssignment, activeVideoId);
                       const next = allVids[idx + 1];
                       setActiveModuleId(next.moduleId);
                       setActiveVideoId(next.id);
                       setActiveTab("video");
                     }
                   }}
-                  style={{ ...S.primaryBtn, fontSize: 12, background: `linear-gradient(135deg,${courseContent?.color},${courseContent?.color})` }}
+                  style={{ ...S.primaryBtn, fontSize: 12, background: `linear-gradient(135deg,${enrichedContent?.color || "#f59e0b"},${enrichedContent?.color || "#f59e0b"})` }}
                 >
-                  Next Video →
+                  Next Video â†’
                 </button>
               </div>
             </>
           ) : (
             <div style={{ background: "white", borderRadius: 16, padding: 40, textAlign: "center", border: "1px solid #f1f5f9" }}>
-              <div style={{ fontSize: 48, marginBottom: 12 }}>👆</div>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>ðŸ‘†</div>
               <div style={{ fontSize: 14, color: "#6b7280" }}>Select a video from the left to start learning</div>
             </div>
           )}
@@ -541,8 +623,8 @@ function ScheduleTab({ user }) {
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
       <h1 style={S.pageTitle}>My Schedule</h1>
-      <p style={S.pageSub}>Subject: {user.subject} · {user.classes||6} classes today</p>
-      <SectionCard title="📅 Today's Timetable">
+      <p style={S.pageSub}>Subject: {user.subject} Â· {user.classes||6} classes today</p>
+      <SectionCard title="ðŸ“… Today's Timetable">
         {MOCK_SCHEDULE.map((cl,i)=>{
           const bg = { completed: "#f0fdf4", ongoing: "#fffbeb", upcoming: "white" };
           const dot= { completed: "#10b981", ongoing: "#f59e0b", upcoming: "#d1d5db" };
@@ -552,9 +634,9 @@ function ScheduleTab({ user }) {
               <div style={{ width: 90, fontSize: 13, fontWeight: 800, color: "#d97706", flexShrink: 0 }}>{cl.time}</div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#1c1917" }}>{cl.class}</div>
-                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 1 }}>📖 {cl.topic}</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 1 }}>ðŸ“– {cl.topic}</div>
               </div>
-              <div style={{ fontSize: 12, color: "#9ca3af" }}>🚪 Room {cl.room}</div>
+              <div style={{ fontSize: 12, color: "#9ca3af" }}>ðŸšª Room {cl.room}</div>
               <StatusBadge status={cl.status}/>
             </div>
           );
@@ -581,10 +663,10 @@ function GradesTab() {
               <div style={{ height: "100%", width: `${g.avg}%`, borderRadius: 4, background: g.avg>=85?"#10b981":g.avg>=75?"#f59e0b":"#ef4444" }}/>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#9ca3af", marginBottom: 10 }}>
-              <span>🏆 Highest: <b style={{ color: "#10b981" }}>{g.highest}%</b></span>
-              <span>📉 Lowest: <b style={{ color: "#ef4444" }}>{g.lowest}%</b></span>
+              <span>ðŸ† Highest: <b style={{ color: "#10b981" }}>{g.highest}%</b></span>
+              <span>ðŸ“‰ Lowest: <b style={{ color: "#ef4444" }}>{g.lowest}%</b></span>
             </div>
-            <div style={{ fontSize: 11, color: "#6b7280", paddingTop: 10, borderTop: "1px solid #f3f4f6" }}>📝 Assignments: {g.completed}/{g.assignments} submitted</div>
+            <div style={{ fontSize: 11, color: "#6b7280", paddingTop: 10, borderTop: "1px solid #f3f4f6" }}>ðŸ“ Assignments: {g.completed}/{g.assignments} submitted</div>
           </div>
         ))}
       </div>
@@ -592,52 +674,118 @@ function GradesTab() {
   );
 }
 
-function AssignmentsTab() {
+function AssignmentsTab({ assignments = [], onSubmitAssignment }) {
   const [uploadModal, setUploadModal] = useState(false);
+  const [selectedFileObj, setSelectedFileObj] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
+  const [note, setNote] = useState("");
+  const [title, setTitle] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef(null);
 
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      setSelectedFileObj(file);
       setSelectedFile({ name: file.name, size: (file.size / (1024 * 1024)).toFixed(2) + " MB" });
+      if (!title) {
+        setTitle(file.name.split(".")[0]);
+      }
     }
   };
 
-  const handleCloseModal = () => { setUploadModal(false); setSelectedFile(null); };
+  const handleCloseModal = () => {
+    setUploadModal(false);
+    setSelectedFile(null);
+    setSelectedFileObj(null);
+    setSelectedAssignmentId(null);
+    setNote("");
+    setTitle("");
+  };
+
+  const handleSubmit = async () => {
+    if (!selectedAssignmentId) return;
+    setSubmitting(true);
+    try {
+      let fileUrl = "";
+      if (selectedFileObj) {
+        const uploadRes = await uploadFile(selectedFileObj);
+        if (uploadRes && uploadRes.asset) {
+          fileUrl = uploadRes.asset.publicUrl;
+        }
+      }
+      
+      await onSubmitAssignment(selectedAssignmentId, {
+        status: "pending",
+        title: title || undefined,
+        feedback: note || "", // Save notes
+        score: null // Reset score
+      });
+      handleCloseModal();
+    } catch (err) {
+      alert("Failed to submit assignment: " + err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const pendingCount = assignments.filter(a => a.status === "assigned").length;
+  const revisionCount = assignments.filter(a => a.status === "revision").length;
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div>
           <h1 style={S.pageTitle}>My Assignments</h1>
-          <p style={S.pageSub}>{MOCK_ASSIGNMENTS.filter(a=>a.status==="pending").length} pending · {MOCK_ASSIGNMENTS.filter(a=>a.status==="revision").length} needs revision</p>
+          <p style={S.pageSub}>{pendingCount} assigned Â· {revisionCount} needs revision</p>
         </div>
-        <button onClick={()=>setUploadModal(true)} style={S.primaryBtn}>+ Submit Assignment</button>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {MOCK_ASSIGNMENTS.map(a=>(
-          <div key={a.id} style={{ background: "white", borderRadius: 14, padding: "16px 20px", border: "1px solid #f1f5f9", boxShadow: "0 1px 4px rgba(0,0,0,0.04)", borderLeft: `4px solid ${a.status==="approved"?"#10b981":a.status==="revision"?"#ef4444":"#f59e0b"}` }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ fontSize: 24 }}>{a.status==="approved"?"✅":a.status==="revision"?"🔁":"📝"}</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#1c1917" }}>{a.title}</div>
-                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{a.course} · Due: {a.due}</div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                {a.score && <span style={{ fontSize: 16, fontWeight: 800, color: "#10b981" }}>{a.score}/100</span>}
-                <StatusBadge status={a.status}/>
-                {(a.status==="revision"||a.status==="pending") &&
-                  <button onClick={()=>setUploadModal(true)} style={{ ...S.primaryBtn, padding: "6px 12px", fontSize: 12 }}>{a.status==="revision"?"Resubmit":"Submit"}</button>
-                }
-              </div>
-            </div>
-            {a.status==="revision" && (
-              <div style={{ marginTop: 10, padding: "8px 12px", background: "#fef2f2", borderRadius: 8, fontSize: 12, color: "#991b1b" }}>⚠️ Revision required — please review admin feedback and resubmit.</div>
-            )}
+        {assignments.length === 0 ? (
+          <div style={{ padding: 40, textAlign: "center", background: "white", borderRadius: 16, border: "1px dashed #cbd5e1", color: "#94a3b8" }}>
+            No assignments assigned yet.
           </div>
-        ))}
+        ) : (
+          assignments.map(a => (
+            <div key={a._id} style={{ background: "white", borderRadius: 14, padding: "16px 20px", border: "1px solid #f1f5f9", boxShadow: "0 1px 4px rgba(0,0,0,0.04)", borderLeft: `4px solid ${a.status==="approved"||a.status==="reviewed"?"#10b981":a.status==="revision"?"#ef4444":"#f59e0b"}` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ fontSize: 24 }}>{a.status==="approved"||a.status==="reviewed"?"âœ…":a.status==="revision"?"ðŸ”":"ðŸ“"}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1c1917" }}>{a.title || a.course?.title || "Assignment"}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{a.course?.title} Â· Due: {a.dueDate ? new Date(a.dueDate).toLocaleDateString() : "No deadline"}</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  {a.score !== null && a.score !== undefined && <span style={{ fontSize: 16, fontWeight: 800, color: "#10b981" }}>{a.score}/100</span>}
+                  <StatusBadge status={a.status}/>
+                  {(a.status==="revision"||a.status==="assigned"||a.status==="pending") &&
+                    <button
+                      onClick={() => {
+                        setSelectedAssignmentId(a._id);
+                        setTitle(a.title || "");
+                        setUploadModal(true);
+                      }}
+                      style={{ ...S.primaryBtn, padding: "6px 12px", fontSize: 12 }}
+                    >
+                      {a.status==="revision"?"Resubmit":a.status==="pending"?"Update Submission":"Submit"}
+                    </button>
+                  }
+                </div>
+              </div>
+              {a.status==="revision" && a.feedback && (
+                <div style={{ marginTop: 10, padding: "8px 12px", background: "#fef2f2", borderRadius: 8, fontSize: 12, color: "#991b1b" }}>
+                  âš ï¸ Revision required. Admin feedback: <b>{a.feedback}</b>
+                </div>
+              )}
+              {a.status==="approved" && a.feedback && (
+                <div style={{ marginTop: 10, padding: "8px 12px", background: "#f0fdf4", borderRadius: 8, fontSize: 12, color: "#166534" }}>
+                  âœ“ Feedback: <b>{a.feedback}</b>
+                </div>
+              )}
+            </div>
+          ))
+        )}
       </div>
 
       {uploadModal && (
@@ -645,17 +793,17 @@ function AssignmentsTab() {
           <div style={{ background: "white", borderRadius: 20, padding: "28px", width: "100%", maxWidth: 480, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <h3 style={{ fontSize: 17, fontWeight: 800, color: "#1c1917", margin: 0 }}>Submit Assignment</h3>
-              <button onClick={handleCloseModal} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9ca3af" }}>✕</button>
+              <button onClick={handleCloseModal} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9ca3af" }}>âœ•</button>
             </div>
             <label style={S.label}>Assignment Title</label>
-            <input style={{ ...S.input, marginBottom: 12 }} placeholder="Enter assignment title"/>
+            <input style={{ ...S.input, marginBottom: 12 }} value={title} onChange={e => setTitle(e.target.value)} placeholder="Enter assignment title"/>
             <label style={S.label}>Upload File</label>
             <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".pdf,.docx,.ppt,.pptx" style={{ display: "none" }}/>
             <div onClick={()=>fileInputRef.current?.click()} style={{ border: "2px dashed #fbbf24", borderRadius: 12, padding: "24px", textAlign: "center", marginBottom: 16, background: "#fffbeb", cursor: "pointer" }}>
-              <div style={{ fontSize: 32, marginBottom: 8 }}>📎</div>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>ðŸ“Ž</div>
               {selectedFile ? (
                 <>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#059669" }}>📄 File Added Successfully!</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#059669" }}>ðŸ“„ File Added Successfully!</div>
                   <div style={{ fontSize: 12, color: "#374151", marginTop: 4, fontWeight: 600, wordBreak: "break-all" }}>{selectedFile.name}</div>
                   <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>Size: {selectedFile.size}</div>
                 </>
@@ -667,8 +815,10 @@ function AssignmentsTab() {
               )}
             </div>
             <label style={S.label}>Notes (Optional)</label>
-            <textarea style={{ ...S.input, height: 70, resize: "none", marginBottom: 20 }} placeholder="Any notes for the reviewer..."/>
-            <button onClick={handleCloseModal} style={{ ...S.primaryBtn, width: "100%" }}>📤 Submit Assignment</button>
+            <textarea style={{ ...S.input, height: 70, resize: "none", marginBottom: 20 }} value={note} onChange={e => setNote(e.target.value)} placeholder="Any notes for the reviewer..."/>
+            <button onClick={handleSubmit} disabled={submitting} style={{ ...S.primaryBtn, width: "100%" }}>
+              {submitting ? "Uploading & Submitting..." : "ðŸ“¤ Submit Assignment"}
+            </button>
           </div>
         </div>
       )}
@@ -686,21 +836,21 @@ function CertificatesTab() {
           <div key={i} style={{ background: "linear-gradient(135deg,#fffbeb,#fef3c7)", borderRadius: 20, padding: "28px 24px", border: "2px solid #fbbf24", position: "relative", overflow: "hidden", boxShadow: "0 4px 20px rgba(245,158,11,0.15)" }}>
             <div style={{ position: "absolute", top: -20, right: -20, width: 80, height: 80, borderRadius: "50%", background: "#fbbf24", opacity: 0.15 }}/>
             <div style={{ position: "absolute", bottom: -30, left: -20, width: 100, height: 100, borderRadius: "50%", background: "#f59e0b", opacity: 0.1 }}/>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>🏆</div>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>ðŸ†</div>
             <div style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", marginBottom: 8, lineHeight: 1.4 }}>{c.title}</div>
             <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
               <Badge children={`Grade: ${c.grade}`} color="#059669" bg="#d1fae5"/>
               <Badge children={c.issued} color="#d97706" bg="#fef3c7"/>
             </div>
-            <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 16 }}>🔑 Credential ID: <span style={{ fontWeight: 700, color: "#374151" }}>{c.credentialId}</span></div>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 16 }}>ðŸ”‘ Credential ID: <span style={{ fontWeight: 700, color: "#374151" }}>{c.credentialId}</span></div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button style={{ ...S.primaryBtn, flex: 1, textAlign: "center" }}>⬇ Download PDF</button>
-              <button style={{ ...S.exportBtn, flex: 1, textAlign: "center" }}>🔗 Share</button>
+              <button style={{ ...S.primaryBtn, flex: 1, textAlign: "center" }}>â¬‡ Download PDF</button>
+              <button style={{ ...S.exportBtn, flex: 1, textAlign: "center" }}>ðŸ”— Share</button>
             </div>
           </div>
         ))}
         <div style={{ background: "#f9fafb", borderRadius: 20, padding: "28px 24px", border: "2px dashed #e5e7eb", opacity: 0.7 }}>
-          <div style={{ fontSize: 40, marginBottom: 12, filter: "grayscale(1)" }}>🔒</div>
+          <div style={{ fontSize: 40, marginBottom: 12, filter: "grayscale(1)" }}>ðŸ”’</div>
           <div style={{ fontSize: 15, fontWeight: 800, color: "#9ca3af", marginBottom: 8 }}>Curriculum Design Certificate</div>
           <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 16 }}>Complete the course to unlock this certificate</div>
           <div style={{ height: 6, background: "#e5e7eb", borderRadius: 4, overflow: "hidden" }}>
@@ -713,9 +863,9 @@ function CertificatesTab() {
   );
 }
 
-/* ─────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    PROFILE TAB  (with editable Working Center)
-───────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function ProfileTab({ user, onWorkingCenterChange }) {
   const [editing, setEditing] = useState(false);
 
@@ -755,13 +905,13 @@ function ProfileTab({ user, onWorkingCenterChange }) {
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           {editing && (
-            <button onClick={handleCancel} style={S.exportBtn}>✕ Cancel</button>
+            <button onClick={handleCancel} style={S.exportBtn}>âœ• Cancel</button>
           )}
           <button
             onClick={editing ? handleSave : () => setEditing(true)}
             style={editing ? { ...S.primaryBtn, background: "linear-gradient(135deg,#10b981,#059669)" } : S.primaryBtn}
           >
-            {editing ? "💾 Save Changes" : "✏️ Edit Profile"}
+            {editing ? "ðŸ’¾ Save Changes" : "âœï¸ Edit Profile"}
           </button>
         </div>
       </div>
@@ -788,12 +938,12 @@ function ProfileTab({ user, onWorkingCenterChange }) {
         {/* 2-column info fields */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           {[
-            { icon: "📧", label: "Email",      val: user.email,         key: "email",   editable: false },
-            { icon: "📱", label: "Phone",      val: form.phone,         key: "phone",   editable: true  },
-            { icon: "📍", label: "Address",    val: form.address,       key: "address", editable: true  },
-            { icon: "📅", label: "Joined",     val: user.joined,        key: "joined",  editable: false },
-            { icon: "📚", label: "Subject",    val: form.subject,       key: "subject", editable: true  },
-            { icon: "📊", label: "Attendance", val: `${user.attendance||90}%`, key: "", editable: false },
+            { icon: "ðŸ“§", label: "Email",      val: user.email,         key: "email",   editable: false },
+            { icon: "ðŸ“±", label: "Phone",      val: form.phone,         key: "phone",   editable: true  },
+            { icon: "ðŸ“", label: "Address",    val: form.address,       key: "address", editable: true  },
+            { icon: "ðŸ“…", label: "Joined",     val: user.joined,        key: "joined",  editable: false },
+            { icon: "ðŸ“š", label: "Subject",    val: form.subject,       key: "subject", editable: true  },
+            { icon: "ðŸ“Š", label: "Attendance", val: `${user.attendance||90}%`, key: "", editable: false },
           ].map((r,i)=>(
             <div key={i} style={{ background: "#f9fafb", borderRadius: 10, padding: "10px 14px", border: "1px solid #f3f4f6" }}>
               <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 4 }}>{r.label}</div>
@@ -806,7 +956,7 @@ function ProfileTab({ user, onWorkingCenterChange }) {
           ))}
         </div>
 
-        {/* Working Center — full-width, always visible, editable when editing */}
+        {/* Working Center â€” full-width, always visible, editable when editing */}
         <div style={{ marginTop: 12, background: editing ? "#fffbeb" : "#f9fafb", borderRadius: 10, padding: "12px 14px", border: `1px solid ${editing ? "#fbbf24" : "#f3f4f6"}`, transition: "background 0.2s, border-color 0.2s" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
             <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>Working Center</div>
@@ -822,18 +972,18 @@ function ProfileTab({ user, onWorkingCenterChange }) {
               placeholder="e.g. Dhayri, Pune, Maharashtra"
             />
           ) : (
-            <div style={{ fontSize: 13, color: "#374151", fontWeight: 600 }}>📍 {form.workingCenter}</div>
+            <div style={{ fontSize: 13, color: "#374151", fontWeight: 600 }}>ðŸ“ {form.workingCenter}</div>
           )}
         </div>
       </div>
 
       {/* Portfolio & Qualifications */}
       <div style={{ background: "white", borderRadius: 20, padding: "24px 28px", border: "1px solid #f1f5f9", boxShadow: "0 4px 20px rgba(0,0,0,0.06)", marginBottom: 20 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", margin: "0 0 16px" }}>🎓 Portfolio & Qualifications</h3>
+        <h3 style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", margin: "0 0 16px" }}>ðŸŽ“ Portfolio & Qualifications</h3>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
           <div style={{ border: "1px solid #e2e8f0", borderRadius: 12, padding: "14px 16px", background: "#f8fafc" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
-              <span style={{ fontSize: 18 }}>📜</span>
+              <span style={{ fontSize: 18 }}>ðŸ“œ</span>
               <Badge children="Highest Degree" color="#1e40af" bg="#dbeafe"/>
             </div>
             {editing ? (
@@ -850,7 +1000,7 @@ function ProfileTab({ user, onWorkingCenterChange }) {
           </div>
           <div style={{ border: "1px solid #e2e8f0", borderRadius: 12, padding: "14px 16px", background: "#f8fafc" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
-              <span style={{ fontSize: 18 }}>⚡</span>
+              <span style={{ fontSize: 18 }}>âš¡</span>
               <Badge children="National Level" color="#065f46" bg="#d1fae5"/>
             </div>
             {editing ? (
@@ -870,7 +1020,7 @@ function ProfileTab({ user, onWorkingCenterChange }) {
         <div style={{ border: "1px solid #f1f5f9", borderRadius: 12, padding: "14px 16px", background: "#fffbeb" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 16 }}>💼</span>
+              <span style={{ fontSize: 16 }}>ðŸ’¼</span>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>Professional Work Experience</div>
             </div>
             {editing ? (
@@ -888,18 +1038,18 @@ function ProfileTab({ user, onWorkingCenterChange }) {
 
         {editing && (
           <button onClick={handleSave} style={{ ...S.primaryBtn, width: "100%", marginTop: 16, background: "linear-gradient(135deg,#f59e0b,#d97706)" }}>
-            💾 Save Portfolio Details
+            ðŸ’¾ Save Portfolio Details
           </button>
         )}
       </div>
 
       {/* Change Password */}
       <div style={{ background: "white", borderRadius: 16, padding: "20px 24px", border: "1px solid #f1f5f9", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-        <h3 style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", margin: "0 0 14px" }}>🔒 Change Password</h3>
+        <h3 style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", margin: "0 0 14px" }}>ðŸ”’ Change Password</h3>
         {["Current Password","New Password","Confirm New Password"].map((label,i)=>(
           <div key={i} style={{ marginBottom: 12 }}>
             <label style={S.label}>{label}</label>
-            <input style={S.input} type="password" placeholder="••••••••"/>
+            <input style={S.input} type="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"/>
           </div>
         ))}
         <button style={{ ...S.primaryBtn, marginTop: 4 }}>Update Password</button>
@@ -908,10 +1058,8 @@ function ProfileTab({ user, onWorkingCenterChange }) {
   );
 }
 
-function NotificationsTab() {
-  const [notifications, setNotifications] = useState(MOCK_NOTIFICATIONS);
-  const icons = { session: "📹", assignment: "📝", approval: "✅", certificate: "🏆", course: "📚" };
-  const markAll = () => setNotifications(prev=>prev.map(n=>({...n,read:true})));
+function NotificationsTab({ notifications = [], onMarkRead, onMarkAllRead }) {
+  const icons = { session: "ðŸ“¹", assignment: "ðŸ“", approval: "âœ…", certificate: "ðŸ†", course: "ðŸ“š" };
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
@@ -920,66 +1068,199 @@ function NotificationsTab() {
           <h1 style={S.pageTitle}>Notifications</h1>
           <p style={S.pageSub}>{notifications.filter(n=>!n.read).length} unread</p>
         </div>
-        <button onClick={markAll} style={S.exportBtn}>✓ Mark all read</button>
+        <button onClick={onMarkAllRead} style={S.exportBtn}>âœ“ Mark all read</button>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {notifications.map(n=>(
-          <div key={n.id} onClick={()=>setNotifications(prev=>prev.map(p=>p.id===n.id?{...p,read:true}:p))} style={{ background: n.read?"white":"#fffbeb", borderRadius: 14, padding: "14px 18px", border: `1px solid ${n.read?"#f1f5f9":"#fbbf24"}`, display: "flex", alignItems: "center", gap: 14, cursor: "pointer", boxShadow: "0 1px 4px rgba(0,0,0,0.04)", borderLeft: `4px solid ${n.read?"#e5e7eb":"#f59e0b"}` }}>
-            <div style={{ width: 40, height: 40, borderRadius: 10, background: n.read?"#f3f4f6":"#fef3c7", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{icons[n.type]}</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: n.read?500:700, color: "#1c1917" }}>{n.msg}</div>
-              <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{n.time}</div>
-            </div>
-            {!n.read && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#f59e0b", flexShrink: 0 }}/>}
+        {notifications.length === 0 ? (
+          <div style={{ padding: 40, textAlign: "center", background: "white", borderRadius: 16, border: "1px dashed #cbd5e1", color: "#94a3b8" }}>
+            No notifications.
           </div>
-        ))}
+        ) : (
+          notifications.map(n=>(
+            <div key={n.id} onClick={()=>!n.read && onMarkRead(n.id)} style={{ background: n.read?"white":"#fffbeb", borderRadius: 14, padding: "14px 18px", border: `1px solid ${n.read?"#f1f5f9":"#fbbf24"}`, display: "flex", alignItems: "center", gap: 14, cursor: "pointer", boxShadow: "0 1px 4px rgba(0,0,0,0.04)", borderLeft: `4px solid ${n.read?"#e5e7eb":"#f59e0b"}` }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: n.read?"#f3f4f6":"#fef3c7", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{icons[n.type] || "ðŸ””"}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: n.read?500:700, color: "#1c1917" }}>{n.msg}</div>
+                <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{n.time}</div>
+              </div>
+              {!n.read && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#f59e0b", flexShrink: 0 }}/>}
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
 }
 
-/* ═══════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    MAIN TEACHER DASHBOARD
-═══════════════════════════════════════════ */
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 export default function TeacherDashboard({ user, onLogout }) {
   const [activeTab, setActiveTab]         = useState("overview");
   const [toast, setToast]                 = useState({ msg: "", type: "" });
-  // workingCenter lives here so OverviewTab reflects changes saved in ProfileTab
   const [workingCenter, setWorkingCenter] = useState(user.workingCenter || "Dhayri, Pune, Maharashtra");
 
-  const unreadCount = MOCK_NOTIFICATIONS.filter(n=>!n.read).length;
+  // Backend States
+  const [courses, setCourses] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [lessons, setLessons] = useState([]);
+  const [activities, setActivities] = useState([]);
+  const [summary, setSummary] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  // Chatbot States
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([
+    { sender: "bot", text: `Hello ${user.name?.split(" ")[0] || "there"}! I'm your SpaceCE AI Assistant. How can I assist you with your class, attendance, courses, or lesson plans today?` }
+  ]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+
+  const refreshData = async () => {
+    try {
+      const progressRes = await getTeacherProgress();
+      if (progressRes) {
+        setCourses(progressRes.courses || []);
+        setLessons(progressRes.lessons || []);
+        setActivities(progressRes.activities || []);
+        setSummary(progressRes.summary || {});
+      }
+      const assignmentsRes = await getCourses();
+      if (assignmentsRes && assignmentsRes.courses) {
+        setAssignments(assignmentsRes.courses);
+      }
+      const notificationsRes = await getNotifications();
+      if (notificationsRes && notificationsRes.notifications) {
+        const mapped = notificationsRes.notifications.map(n => {
+          let timeVal = "Just now";
+          if (n.createdAt) {
+            const diffMs = new Date() - new Date(n.createdAt);
+            const diffMins = Math.floor(diffMs / 60000);
+            if (diffMins < 60) timeVal = `${diffMins}m ago`;
+            else {
+              const diffHrs = Math.floor(diffMins / 60);
+              if (diffHrs < 24) timeVal = `${diffHrs}h ago`;
+              else timeVal = `${Math.floor(diffHrs / 24)}d ago`;
+            }
+          }
+          return {
+            id: n._id,
+            type: n.type || "info",
+            msg: n.message || n.title || "",
+            time: timeVal,
+            read: n.read
+          };
+        });
+        setNotifications(mapped);
+      }
+    } catch (err) {
+      console.error("Error fetching teacher dashboard data:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshData();
+  }, [user]);
+
+  const handleMarkDone = async (assignId, payload) => {
+    try {
+      await updateCourseAssignmentProgress(assignId, payload);
+      setToast({ msg: "Progress saved! âœ“", type: "success" });
+      refreshData();
+    } catch (err) {
+      setToast({ msg: "Failed to save progress.", type: "error" });
+    }
+  };
+
+  const handleSubmitAssignment = async (assignId, payload) => {
+    await updateCourseAssignmentProgress(assignId, payload);
+    setToast({ msg: "Assignment submitted successfully! ðŸ“¤", type: "success" });
+    refreshData();
+  };
+
+  const handleMarkNotifRead = async (notifId) => {
+    try {
+      await markNotificationRead(notifId);
+      refreshData();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleMarkAllNotifRead = async () => {
+    try {
+      const unread = notifications.filter(n => !n.read);
+      await Promise.all(unread.map(n => markNotificationRead(n.id)));
+      setToast({ msg: "All notifications marked as read.", type: "success" });
+      refreshData();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleSendChatMessage = async () => {
+    if (!chatInput.trim()) return;
+    const userMsg = chatInput.trim();
+    setChatMessages(prev => [...prev, { sender: "user", text: userMsg }]);
+    setChatInput("");
+    setChatLoading(true);
+    try {
+      const res = await askTeacherChatbot(userMsg);
+      if (res && res.reply) {
+        setChatMessages(prev => [...prev, { sender: "bot", text: res.reply }]);
+      } else {
+        setChatMessages(prev => [...prev, { sender: "bot", text: "I'm sorry, I'm having trouble connecting right now." }]);
+      }
+    } catch (err) {
+      setChatMessages(prev => [...prev, { sender: "bot", text: "Something went wrong. Please try again later." }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const unreadCount = notifications.filter(n=>!n.read).length;
+  const pendingAssignmentsCount = assignments.filter(a=>a.status==="assigned"||a.status==="revision").length;
 
   const navItems = [
-    { key: "overview",      label: "Teacher's Dashboard", icon: "📊" },
-    { key: "children_att",  label: "Daily Attendance",    icon: "📋" },
-    { key: "geotag",        label: "Geotag Attendance",   icon: "📍" },
-    { key: "training",      label: "Training & Lessons",  icon: "🎓" },
-    { key: "courses",       label: "My Courses",          icon: "📚" },
-    { key: "assessment",    label: "Assessments",         icon: "📝" },
-    { key: "schedule",      label: "Schedule",            icon: "📅" },
-    { key: "grades",        label: "Grades",              icon: "📊" },
-    { key: "assignments",   label: "Assignments",         icon: "✏️", badge: MOCK_ASSIGNMENTS.filter(a=>a.status==="pending"||a.status==="revision").length },
-    { key: "certificates",  label: "Certificates",        icon: "🏆" },
-    { key: "notifications", label: "Notifications",       icon: "🔔", badge: unreadCount },
-    { key: "profile",       label: "My Profile",          icon: "👤" },
+    { key: "overview",      label: "Teacher's Dashboard", icon: "ðŸ“Š" },
+    { key: "children_att",  label: "Daily Attendance",    icon: "ðŸ“‹" },
+    { key: "geotag",        label: "Geotag Attendance",   icon: "ðŸ“" },
+    { key: "training",      label: "Training & Lessons",  icon: "ðŸŽ“" },
+    { key: "courses",       label: "My Courses",          icon: "ðŸ“š" },
+    { key: "assessment",    label: "Assessments",         icon: "ðŸ“" },
+    { key: "schedule",      label: "Schedule",            icon: "ðŸ“…" },
+    { key: "grades",        label: "Grades",              icon: "ðŸ“Š" },
+    { key: "assignments",   label: "Assignments",         icon: "âœï¸", badge: pendingAssignmentsCount },
+    { key: "certificates",  label: "Certificates",        icon: "ðŸ†" },
+    { key: "notifications", label: "Notifications",       icon: "ðŸ””", badge: unreadCount },
+    { key: "profile",       label: "My Profile",          icon: "ðŸ‘¤" },
   ];
 
-  // Pass live workingCenter to every child
   const enrichedUser = { ...user, workingCenter };
 
   const renderContent = () => {
+    if (loading) {
+      return (
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "60vh", fontSize: 16, fontWeight: 700, color: "#64748b" }}>
+          ðŸ”„ Loading Portal Data...
+        </div>
+      );
+    }
     switch(activeTab) {
-      case "overview":      return <OverviewTab user={enrichedUser} setActiveTab={setActiveTab}/>;
+      case "overview":      return <OverviewTab user={enrichedUser} setActiveTab={setActiveTab} courses={courses} assignments={assignments} lessons={lessons} activities={activities} summary={summary}/>;
       case "children_att":  return <AttendanceManager user={enrichedUser}/>;
       case "geotag":        return <GeotagAttendance user={enrichedUser}/>;
       case "training":      return <TrainingAndClassroomManager user={enrichedUser}/>;
-      case "courses":       return <CoursesTab/>;
+      case "courses":       return <CoursesTab assignments={assignments} onMarkDone={handleMarkDone}/>;
       case "assessment":    return <ProctoredAssessment user={enrichedUser}/>;
       case "schedule":      return <ScheduleTab user={enrichedUser}/>;
       case "grades":        return <GradesTab/>;
-      case "assignments":   return <AssignmentsTab/>;
+      case "assignments":   return <AssignmentsTab assignments={assignments} onSubmitAssignment={handleSubmitAssignment}/>;
       case "certificates":  return <CertificatesTab/>;
-      case "notifications": return <NotificationsTab/>;
+      case "notifications": return <NotificationsTab notifications={notifications} onMarkRead={handleMarkNotifRead} onMarkAllRead={handleMarkAllNotifRead}/>;
       case "profile":       return <ProfileTab user={enrichedUser} onWorkingCenterChange={setWorkingCenter}/>;
       default:              return null;
     }
@@ -995,7 +1276,7 @@ export default function TeacherDashboard({ user, onLogout }) {
         <div style={{ padding: "20px 16px 12px" }}>
           <Logo size={120}/>
           <div style={{ textAlign: "center", padding: "4px 12px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: "#dbeafe", color: "#1e40af", border: "1px solid #bfdbfe", margin: "6px auto 0", display: "inline-block", width: "fit-content" }}>
-            🎓 Teacher Panel
+            ðŸŽ“ Teacher Panel
           </div>
         </div>
         <nav style={{ padding: "4px 10px", flex: 1 }}>
@@ -1013,7 +1294,7 @@ export default function TeacherDashboard({ user, onLogout }) {
             <div style={{ fontSize: 12, fontWeight: 700, color: "#1c1917" }}>{user.name?.split(" ")[0]}</div>
             <div style={{ fontSize: 10, color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.subject}</div>
           </div>
-          <button onClick={onLogout} title="Sign Out" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#9ca3af", padding: 4 }}>⏻</button>
+          <button onClick={onLogout} title="Sign Out" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#9ca3af", padding: 4 }}>â»</button>
         </div>
       </div>
 
@@ -1021,6 +1302,93 @@ export default function TeacherDashboard({ user, onLogout }) {
       <div style={{ flex: 1, width: "0px", minWidth: "0px", padding: "28px 32px", overflowY: "auto", maxHeight: "100vh" }}>
         {renderContent()}
       </div>
+
+      {/* Floating Chatbot Widget */}
+      <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 1000, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+        {chatOpen && (
+          <div style={{ width: 340, height: 460, background: "rgba(255, 255, 255, 0.95)", backdropFilter: "blur(12px)", border: "1px solid #fbbf24", borderRadius: 20, boxShadow: "0 10px 40px rgba(0,0,0,0.12)", marginBottom: 16, display: "flex", flexDirection: "column", overflow: "hidden", animation: "slideUp 0.3s ease" }}>
+            {/* Header */}
+            <div style={{ background: "linear-gradient(135deg,#f59e0b 0%,#d97706 100%)", padding: "16px 20px", color: "white", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 24 }}>ðŸ¤–</span>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 900, letterSpacing: "-0.2px" }}>SpaceCE Assistant</div>
+                  <div style={{ fontSize: 10, opacity: 0.85, fontWeight: 700 }}>Online Â· Portal Helper</div>
+                </div>
+              </div>
+              <button onClick={() => setChatOpen(false)} style={{ background: "none", border: "none", color: "white", fontSize: 18, cursor: "pointer", padding: 0 }}>âœ•</button>
+            </div>
+            {/* Messages Area */}
+            <div style={{ flex: 1, padding: 16, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, background: "#fafbfc" }}>
+              {chatMessages.map((msg, idx) => (
+                <div key={idx} style={{ display: "flex", justifyContent: msg.sender === "user" ? "flex-end" : "flex-start" }}>
+                  <div style={{
+                    maxWidth: "80%",
+                    padding: "10px 14px",
+                    borderRadius: msg.sender === "user" ? "16px 16px 0 16px" : "16px 16px 16px 0",
+                    background: msg.sender === "user" ? "linear-gradient(135deg,#f59e0b 0%,#d97706 100%)" : "white",
+                    color: msg.sender === "user" ? "white" : "#1c1917",
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    lineHeight: 1.45,
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.03)",
+                    border: msg.sender === "user" ? "none" : "1px solid #f1f5f9"
+                  }}>
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+              {chatLoading && (
+                <div style={{ display: "flex", justifyContent: "flex-start" }}>
+                  <div style={{ background: "white", padding: "12px 18px", borderRadius: "16px 16px 16px 0", border: "1px solid #f1f5f9", display: "flex", gap: 4, alignItems: "center" }}>
+                    <span style={{ width: 6, height: 6, background: "#d97706", borderRadius: "50%", display: "inline-block", animation: "bounce 1.4s infinite ease-in-out both" }} />
+                    <span style={{ width: 6, height: 6, background: "#d97706", borderRadius: "50%", display: "inline-block", animation: "bounce 1.4s infinite ease-in-out both 0.2s" }} />
+                    <span style={{ width: 6, height: 6, background: "#d97706", borderRadius: "50%", display: "inline-block", animation: "bounce 1.4s infinite ease-in-out both 0.4s" }} />
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* Input Area */}
+            <div style={{ padding: 12, background: "white", borderTop: "1px solid #f1f5f9", display: "flex", gap: 8 }}>
+              <input
+                type="text"
+                placeholder="Ask about attendance, courses..."
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleSendChatMessage()}
+                style={{ flex: 1, border: "1px solid #cbd5e1", borderRadius: 10, padding: "8px 12px", fontSize: 12, outline: "none", fontWeight: 600 }}
+              />
+              <button
+                onClick={handleSendChatMessage}
+                style={{ background: "linear-gradient(135deg,#f59e0b 0%,#d97706 100%)", border: "none", color: "white", borderRadius: 10, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 2px 6px rgba(217,119,6,0.3)" }}
+              >
+                âž”
+              </button>
+            </div>
+          </div>
+        )}
+        <button
+          onClick={() => setChatOpen(!chatOpen)}
+          style={{
+            width: 54,
+            height: 54,
+            borderRadius: "50%",
+            background: "linear-gradient(135deg,#f59e0b 0%,#d97706 100%)",
+            border: "none",
+            color: "white",
+            fontSize: 24,
+            cursor: "pointer",
+            boxShadow: "0 4px 16px rgba(217,119,6,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            transition: "transform 0.2s ease"
+          }}
+        >
+          ðŸ’¬
+        </button>
+      </div>
     </div>
   );
 }
+
