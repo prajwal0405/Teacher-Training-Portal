@@ -467,13 +467,26 @@ export function updatePortalSettings(settings) {
 }
 
 // Notifications APIs
-export function getNotifications() {
-  return request("/api/notifications");
+export function getNotifications(params = {}) {
+  const searchParams = new URLSearchParams(params);
+  return request(`/api/notifications?${searchParams.toString()}`);
 }
 
 export function markNotificationRead(id) {
   return request(`/api/notifications/${id}/read`, {
     method: "PATCH"
+  });
+}
+
+export function markAllNotificationsRead() {
+  return request("/api/notifications/read-all", {
+    method: "PATCH"
+  });
+}
+
+export function deleteTeacherNotification(id) {
+  return request(`/api/notifications/${id}`, {
+    method: "DELETE"
   });
 }
 
@@ -491,6 +504,33 @@ export function sendAdminNotification(payload) {
 export function deleteNotification(id) {
   return request(`/api/admin/notifications/${id}`, {
     method: "DELETE"
+  });
+}
+
+// Certificates APIs
+export function getCertificates(params = {}) {
+  const searchParams = new URLSearchParams(params);
+  return request(`/api/certificates?${searchParams.toString()}`);
+}
+
+export function getCertificateById(id) {
+  return request(`/api/certificates/${id}`);
+}
+
+// Assignments APIs
+export function getAssignments(params = {}) {
+  const searchParams = new URLSearchParams(params);
+  return request(`/api/assignments?${searchParams.toString()}`);
+}
+
+export function getAssignmentById(id) {
+  return request(`/api/assignments/${id}`);
+}
+
+export function submitAssignment(id, payload) {
+  return request(`/api/assignments/${id}/submit`, {
+    method: "POST",
+    body: JSON.stringify(payload)
   });
 }
 

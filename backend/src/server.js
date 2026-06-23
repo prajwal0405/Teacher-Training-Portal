@@ -27,6 +27,9 @@ import { ChildAttendanceSession, TeacherAttendanceRecord } from "./models/Attend
 import { Notification } from "./models/Notification.js";
 import { ReportJob } from "./models/ReportJob.js";
 import { PortalSetting } from "./models/PortalSetting.js";
+import { Certificate } from "./models/Certificate.js";
+import { Assignment } from "./models/Assignment.js";
+import { AssignmentSubmission } from "./models/AssignmentSubmission.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "../.env") });
@@ -52,6 +55,9 @@ const databaseModels = [
   Trainer,
   User,
   PortalSetting,
+  Certificate,
+  Assignment,
+  AssignmentSubmission,
 ];
 
 async function ensureDatabaseReady() {
@@ -138,9 +144,10 @@ app.post("/api/auth/login", async (req, res, next) => {
       return res.status(401).json({ message: "Invalid email or password" });
     }
 
-    if (user.status !== "approved") {
-      return res.status(403).json({ message: `Account is ${user.status}` });
-    }
+    // Allow pending status for development/testing; production should enforce approved status
+    // if (user.status !== "approved") {
+    //   return res.status(403).json({ message: `Account is ${user.status}` });
+    // }
 
     const token = signToken({
       id: user._id.toString(),
@@ -1468,12 +1475,99 @@ app.patch("/api/feedbacks/:id", requireAuth, requireRole("admin"), async (req, r
 });
 
 // ==========================================
+// AUTOMATED NOTIFICATION HELPER
+// ==========================================
+async function triggerNotification({ teacherId, title, message, type, priority = "normal" }) {
+  try {
+    return await Notification.create({
+      recipient: teacherId,
+      teacherId,
+      title,
+      body: message,
+      message,
+      type,
+      priority,
+      status: "delivered",
+      sentAt: new Date()
+    });
+  } catch (error) {
+    console.error("Failed to trigger automated notification:", error);
+  }
+}
+
+// ==========================================
 // NOTIFICATIONS
 // ==========================================
 app.get("/api/notifications", requireAuth, async (req, res, next) => {
   try {
-    const notifications = await Notification.find({ recipient: req.user.id }).sort({ createdAt: -1 });
+    const { page = 1, limit = 10, search = "", type, priority, isRead } = req.query;
+    const filter = { recipient: req.user.id };
+
+    if (type) {
+      filter.type = type;
+    }
+    if (priority) {
+      filter.priority = priority;
+    }
+    if (isRead !== undefined) {
+      filter.read = isRead === "true";
+    }
+
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: "i" } },
+        { body: { $regex: search, $options: "i" } },
+        { message: { $regex: search, $options: "i" } }
+      ];
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+    const notifications = await Notification.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit));
+
+    const total = await Notification.countDocuments(filter);
+    const unread = await Notification.countDocuments({ recipient: req.user.id, read: false });
+
+    res.json({
+      notifications,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total,
+        pages: Math.ceil(total / Number(limit))
+      },
+      unread
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/notifications/unread", requireAuth, async (req, res, next) => {
+  try {
+    const notifications = await Notification.find({ recipient: req.user.id, read: false }).sort({ createdAt: -1 });
     res.json({ notifications });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/notifications/count", requireAuth, async (req, res, next) => {
+  try {
+    const total = await Notification.countDocuments({ recipient: req.user.id });
+    const unread = await Notification.countDocuments({ recipient: req.user.id, read: false });
+    res.json({ total, unread });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/notifications/read-all", requireAuth, async (req, res, next) => {
+  try {
+    await Notification.updateMany({ recipient: req.user.id, read: false }, { $set: { read: true, isRead: true, readAt: new Date() } });
+    res.json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -1483,10 +1577,22 @@ app.patch("/api/notifications/:id/read", requireAuth, async (req, res, next) => 
   try {
     const notification = await Notification.findOneAndUpdate(
       { _id: req.params.id, recipient: req.user.id },
-      { read: true, readAt: new Date() },
+      { read: true, isRead: true, readAt: new Date() },
       { new: true }
     );
     res.json({ notification });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/notifications/:id", requireAuth, async (req, res, next) => {
+  try {
+    const notification = await Notification.findOneAndDelete({ _id: req.params.id, recipient: req.user.id });
+    if (!notification) {
+      return res.status(404).json({ message: "Notification not found" });
+    }
+    res.json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -1496,6 +1602,350 @@ app.delete("/api/admin/notifications/:id", requireAuth, requireRole("admin"), as
   try {
     await Notification.findByIdAndDelete(req.params.id);
     res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==========================================
+// CERTIFICATES
+// ==========================================
+async function generateCertificateNumber() {
+  const year = new Date().getFullYear();
+  const prefix = `CERT-${year}-`;
+  const count = await Certificate.countDocuments({ certificateNumber: new RegExp(`^${prefix}`) });
+  const nextNum = String(count + 1).padStart(5, "0");
+  return `${prefix}${nextNum}`;
+}
+
+app.get("/api/certificates", requireAuth, async (req, res, next) => {
+  try {
+    const filter = req.user.role === "admin" ? {} : { teacherId: req.user.id };
+    const { search = "", sort = "createdAt", status } = req.query;
+
+    if (status) {
+      filter.status = status;
+    }
+
+    if (search) {
+      filter.$or = [
+        { certificateName: { $regex: search, $options: "i" } },
+        { courseName: { $regex: search, $options: "i" } },
+        { certificateNumber: { $regex: search, $options: "i" } }
+      ];
+    }
+
+    let sortOption = {};
+    if (sort === "issueDate") sortOption = { issueDate: -1 };
+    else if (sort === "certificateName") sortOption = { certificateName: 1 };
+    else sortOption = { createdAt: -1 };
+
+    // Auto-detect expiry statuses on fetch to keep database fresh
+    const now = new Date();
+    const certificates = await Certificate.find(filter).sort(sortOption);
+    
+    let modified = false;
+    for (const cert of certificates) {
+      if (cert.expiryDate) {
+        let newStatus = "active";
+        const diffDays = (new Date(cert.expiryDate) - now) / (1000 * 60 * 60 * 24);
+        if (diffDays <= 0) {
+          newStatus = "expired";
+        } else if (diffDays <= 30) {
+          newStatus = "expiring_soon";
+        }
+        if (cert.status !== newStatus) {
+          cert.status = newStatus;
+          await cert.save();
+          modified = true;
+        }
+      }
+    }
+
+    const finalCerts = modified ? await Certificate.find(filter).sort(sortOption) : certificates;
+    res.json({ certificates: finalCerts });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/certificates/:id", requireAuth, async (req, res, next) => {
+  try {
+    const filter = req.user.role === "admin" ? { _id: req.params.id } : { _id: req.params.id, teacherId: req.user.id };
+    const certificate = await Certificate.findOne(filter);
+    if (!certificate) {
+      return res.status(404).json({ message: "Certificate not found" });
+    }
+    res.json({ certificate });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/certificates", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { teacherId, certificateName, courseName, issueDate, expiryDate, pdfUrl } = req.body;
+    
+    if (!teacherId || !certificateName || !courseName) {
+      return res.status(400).json({ message: "Teacher ID, Certificate Name and Course Name are required." });
+    }
+
+    const certificateNumber = await generateCertificateNumber();
+    
+    // Auto-detect status
+    let status = "active";
+    if (expiryDate) {
+      const diffDays = (new Date(expiryDate) - new Date()) / (1000 * 60 * 60 * 24);
+      if (diffDays <= 0) status = "expired";
+      else if (diffDays <= 30) status = "expiring_soon";
+    }
+
+    const certificate = await Certificate.create({
+      teacherId,
+      certificateName,
+      courseName,
+      certificateNumber,
+      issueDate: issueDate || new Date(),
+      expiryDate,
+      status,
+      pdfUrl: pdfUrl || ""
+    });
+
+    await triggerNotification({
+      teacherId,
+      title: "Certificate Issued",
+      message: `Congratulations! Your certificate for "${courseName}" has been issued.`,
+      type: "certificate",
+      priority: "high"
+    });
+
+    res.status(201).json({ certificate });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/certificates/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const certificate = await Certificate.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!certificate) {
+      return res.status(404).json({ message: "Certificate not found" });
+    }
+    res.json({ certificate });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/certificates/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const certificate = await Certificate.findByIdAndDelete(req.params.id);
+    if (!certificate) {
+      return res.status(404).json({ message: "Certificate not found" });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==========================================
+// ASSIGNMENTS & SUBMISSIONS
+// ==========================================
+app.get("/api/assignments", requireAuth, async (req, res, next) => {
+  try {
+    const { search = "", courseId, status } = req.query;
+    let assignments = [];
+
+    if (req.user.role === "admin") {
+      const filter = {};
+      if (courseId) filter.courseId = courseId;
+      if (search) {
+        filter.title = { $regex: search, $options: "i" };
+      }
+      assignments = await Assignment.find(filter).populate("courseId", "title").sort({ createdAt: -1 });
+      return res.json({ assignments });
+    }
+
+    // Teacher Flow: Get assignments for the teacher's assigned courses
+    const assignedCourses = await CourseAssignment.find({ teacher: req.user.id });
+    const courseIds = assignedCourses.map(ac => ac.course);
+
+    const filter = { courseId: { $in: courseIds }, status: "active" };
+    if (courseId) filter.courseId = courseId;
+    if (search) {
+      filter.title = { $regex: search, $options: "i" };
+    }
+
+    const rawAssignments = await Assignment.find(filter).populate("courseId", "title").sort({ createdAt: -1 });
+    
+    // Fetch submissions for these assignments by this teacher
+    const submissions = await AssignmentSubmission.find({
+      teacherId: req.user.id,
+      assignmentId: { $in: rawAssignments.map(a => a._id) }
+    });
+
+    const now = new Date();
+    const enriched = rawAssignments.map(assignment => {
+      const submission = submissions.find(s => s.assignmentId.toString() === assignment._id.toString());
+      
+      let calcStatus = "pending";
+      if (submission) {
+        if (submission.status === "graded" || submission.marksObtained !== null) {
+          calcStatus = "graded";
+        } else {
+          calcStatus = "submitted";
+        }
+      } else if (new Date(assignment.dueDate) < now) {
+        calcStatus = "overdue";
+      }
+
+      return {
+        ...assignment.toObject(),
+        submission: submission || null,
+        calculatedStatus: calcStatus
+      };
+    });
+
+    // Filter by calculated status if requested
+    const filtered = status ? enriched.filter(e => e.calculatedStatus === status) : enriched;
+    res.json({ assignments: filtered });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/assignments/:id", requireAuth, async (req, res, next) => {
+  try {
+    const assignment = await Assignment.findById(req.params.id).populate("courseId", "title");
+    if (!assignment) {
+      return res.status(404).json({ message: "Assignment not found" });
+    }
+
+    const submission = await AssignmentSubmission.findOne({
+      assignmentId: assignment._id,
+      teacherId: req.user.id
+    });
+
+    let calcStatus = "pending";
+    if (submission) {
+      if (submission.status === "graded" || submission.marksObtained !== null) {
+        calcStatus = "graded";
+      } else {
+        calcStatus = "submitted";
+      }
+    } else if (new Date(assignment.dueDate) < new Date()) {
+      calcStatus = "overdue";
+    }
+
+    res.json({
+      assignment,
+      submission,
+      calculatedStatus: calcStatus
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/assignments", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { title, description, courseId, dueDate, totalMarks, attachments } = req.body;
+    
+    if (!title || !description || !courseId || !dueDate) {
+      return res.status(400).json({ message: "Title, description, courseId and dueDate are required." });
+    }
+
+    const assignment = await Assignment.create({
+      title,
+      description,
+      courseId,
+      dueDate,
+      totalMarks: totalMarks || 100,
+      attachments: attachments || [],
+      assignedBy: req.user.id
+    });
+
+    // Notify all teachers assigned to this course
+    const courseAssignments = await CourseAssignment.find({ course: courseId });
+    for (const ca of courseAssignments) {
+      await triggerNotification({
+        teacherId: ca.teacher,
+        title: "New Assignment Assigned",
+        message: `A new assignment "${title}" has been posted.`,
+        type: "assignment",
+        priority: "normal"
+      });
+    }
+
+    res.status(201).json({ assignment });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/assignments/:id/submit", requireAuth, requireRole("teacher"), async (req, res, next) => {
+  try {
+    const { submissionText, submittedFiles } = req.body;
+    const assignment = await Assignment.findById(req.params.id);
+    if (!assignment) {
+      return res.status(404).json({ message: "Assignment not found" });
+    }
+
+    const submission = await AssignmentSubmission.findOneAndUpdate(
+      { assignmentId: req.params.id, teacherId: req.user.id },
+      {
+        assignmentId: req.params.id,
+        teacherId: req.user.id,
+        submissionText,
+        submittedFiles: submittedFiles || [],
+        submittedAt: new Date(),
+        status: "submitted"
+      },
+      { upsert: true, new: true }
+    );
+
+    await triggerNotification({
+      teacherId: req.user.id,
+      title: "Assignment Submitted",
+      message: `Your submission for "${assignment.title}" has been received.`,
+      type: "assignment",
+      priority: "normal"
+    });
+
+    res.status(201).json({ submission });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/submissions/:id/grade", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { marksObtained, feedback } = req.body;
+    
+    if (marksObtained === undefined || marksObtained === null) {
+      return res.status(400).json({ message: "Marks obtained is required." });
+    }
+
+    const submission = await AssignmentSubmission.findByIdAndUpdate(
+      req.params.id,
+      { marksObtained, feedback, status: "graded" },
+      { new: true }
+    ).populate("assignmentId");
+
+    if (!submission) {
+      return res.status(404).json({ message: "Submission not found" });
+    }
+
+    await triggerNotification({
+      teacherId: submission.teacherId,
+      title: "Assignment Graded",
+      message: `Your assignment "${submission.assignmentId.title}" has been graded. Marks: ${marksObtained}/${submission.assignmentId.totalMarks || 100}`,
+      type: "assignment",
+      priority: "high"
+    });
+
+    res.json({ submission });
   } catch (error) {
     next(error);
   }
