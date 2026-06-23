@@ -78,14 +78,86 @@ function getYoutubeId(url) {
   return match ? match[1] : null;
 }
 
+/* ── Verify a YouTube video actually exists/is embeddable before we save it.
+     Uses the public oEmbed endpoint — no API key required.
+     Returns true if the video is real, false if it's invalid/private/deleted. ── */
+async function verifyYoutubeVideo(youtubeId) {
+  if (!youtubeId) return false;
+  try {
+    const res = await fetch(
+      `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${youtubeId}&format=json`
+    );
+    return res.ok;
+  } catch {
+    // If the check itself fails (e.g. offline), don't block saving —
+    // just skip verification rather than wrongly rejecting a valid video.
+    return true;
+  }
+}
+
+/* ── Build a YouTube search URL as a fallback when no valid video is on file ── */
+function youtubeSearchUrl(query) {
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+}
+
 /* ── YouTube Thumbnail ── */
-function YoutubeThumbnail({ youtubeId, title }) {
+function YoutubeThumbnail({ youtubeId, title, fallbackQuery }) {
   const [playing, setPlaying] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [invalid, setInvalid] = useState(false);
+
+  // Reset state whenever the video actually changes
+  // (e.g. after a "Refresh Video" re-fetch), so the new thumbnail shows up.
+  useEffect(() => {
+    setPlaying(false);
+    setChecking(false);
+    setInvalid(false);
+  }, [youtubeId]);
+
   if (!youtubeId) return null;
+
+  const handlePlayClick = async () => {
+    if (checking) return;
+    setChecking(true);
+    const ok = await verifyYoutubeVideo(youtubeId);
+    setChecking(false);
+    if (ok) {
+      setPlaying(true);
+    } else {
+      setInvalid(true);
+    }
+  };
+
+  // The stored video turned out to be unavailable/private/deleted —
+  // show a clear message + a direct link to search YouTube for the topic,
+  // instead of a broken embedded player.
+  if (invalid) {
+    return (
+      <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", borderRadius: "12px 12px 0 0",
+        overflow: "hidden", background: "#111827", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center", gap: 10, padding: 16, textAlign: "center" }}>
+          <div style={{ fontSize: 28 }}>⚠️</div>
+          <div style={{ color: "white", fontSize: 13, fontWeight: 700 }}>Video unavailable</div>
+          <div style={{ color: "#9ca3af", fontSize: 11 }}>This video has been removed or is invalid.</div>
+          <a
+            href={youtubeSearchUrl(fallbackQuery || title)}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: "white",
+              background: "rgba(255,255,255,0.15)", padding: "6px 12px", borderRadius: 20, textDecoration: "none" }}
+          >
+            🔎 Search YouTube for this topic
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", borderRadius: "12px 12px 0 0", overflow: "hidden", background: "#000", cursor: "pointer" }}
-      onClick={() => setPlaying(true)}>
+      onClick={handlePlayClick}>
       {playing ? (
         <iframe
           style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none" }}
@@ -106,14 +178,20 @@ function YoutubeThumbnail({ youtubeId, title }) {
             <div style={{ width: 56, height: 56, borderRadius: "50%", background: "rgba(255,0,0,0.9)",
               display: "flex", alignItems: "center", justifyContent: "center",
               boxShadow: "0 4px 16px rgba(0,0,0,0.4)" }}>
-              <div style={{ width: 0, height: 0, borderTop: "10px solid transparent",
-                borderBottom: "10px solid transparent", borderLeft: "18px solid white", marginLeft: 4 }}/>
+              {checking ? (
+                <div style={{ width: 22, height: 22, border: "3px solid rgba(255,255,255,0.4)",
+                  borderTopColor: "white", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+              ) : (
+                <div style={{ width: 0, height: 0, borderTop: "10px solid transparent",
+                  borderBottom: "10px solid transparent", borderLeft: "18px solid white", marginLeft: 4 }}/>
+              )}
             </div>
           </div>
           <div style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.8)",
             color: "white", fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4 }}>
             🎥 YouTube
           </div>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </>
       )}
     </div>
@@ -267,9 +345,11 @@ function AICourseGeneratorModal({ onClose, onSave, setToast }) {
       setToast({ msg: "Please enter a course topic", type: "error" });
       return;
     }
-    
+
     setLoading(true);
     try {
+      // The AI (generateCourseFromAI) is responsible for picking a topic-relevant
+      // YouTube video — it returns contentLink / youtubeId as part of the course.
       const response = await generateCourseFromAI(form);
       if (response.course) {
         setToast({ msg: "Course generated successfully!", type: "success" });
@@ -312,7 +392,7 @@ function AICourseGeneratorModal({ onClose, onSave, setToast }) {
         </div>
 
         <div style={{ background: "#f0f9ff", padding: "12px", borderRadius: 8, marginBottom: 16, fontSize: 12, color: "#0c4a6e" }}>
-          💡 <b>AI Magic:</b> Enter a topic and we'll create a full training course with title, description, objectives, and YouTube content!
+          💡 <b>AI Magic:</b> Enter a topic and we'll create a full training course with title, description, objectives, and a matching YouTube video!
         </div>
 
         <button type="submit" disabled={loading} style={{ ...S.primaryBtn, width: "100%", opacity: loading ? 0.6 : 1 }}>
@@ -390,6 +470,31 @@ function CourseTrackingModal({ course, assignments = [], onClose, setToast }) {
   );
 }
 
+/* ── Delete Confirmation Modal ── */
+function DeleteConfirmModal({ course, onConfirm, onClose, deleting }) {
+  return (
+    <Modal title="🗑️ Delete Course" onClose={onClose}>
+      <p style={{ fontSize: 13, color: "#374151", marginBottom: 16, lineHeight: 1.6 }}>
+        Are you sure you want to delete <b>{course.title}</b>? This will permanently remove the
+        course{course.assignedCount > 0 ? ` and its ${course.assignedCount} teacher assignment(s)` : ""} from the database.
+        This action cannot be undone.
+      </p>
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={onClose} style={{ ...S.tblBtn, flex: 1 }} disabled={deleting}>
+          Cancel
+        </button>
+        <button
+          onClick={onConfirm}
+          disabled={deleting}
+          style={{ ...S.primaryBtn, flex: 1, background: "#ef4444", opacity: deleting ? 0.6 : 1 }}
+        >
+          {deleting ? "Deleting..." : "Delete Course"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 export default function CurriculumTrainingTab({ setToast }) {
   const [courses, setCourses] = useState([]);
   const [assignments, setAssignments] = useState([]);
@@ -400,8 +505,11 @@ export default function CurriculumTrainingTab({ setToast }) {
   const [formModal, setFormModal] = useState(false);
   const [aiModal, setAiModal] = useState(false);
   const [trackingModal, setTrackingModal] = useState(false);
+  const [deleteModal, setDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshingId, setRefreshingId] = useState(null);
   const [toast, setLocalToast] = useState({ msg: "", type: "" });
 
   const showToast = setToast || setLocalToast;
@@ -476,16 +584,74 @@ export default function CurriculumTrainingTab({ setToast }) {
     setSelectedCourse(null);
   };
 
-  const handleDelete = (id) => {
-    deleteCourse(id)
+  /* Open the confirm-delete modal instead of deleting immediately */
+  const handleDeleteClick = (course) => {
+    setSelectedCourse(course);
+    setDeleteModal(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!selectedCourse) return;
+    setDeleting(true);
+    deleteCourse(selectedCourse.id)
       .then(() => {
         showToast({ msg: "Course deleted successfully.", type: "success" });
+        setDeleteModal(false);
+        setSelectedCourse(null);
         loadCourses();
       })
       .catch(err => {
         console.error("Error deleting course:", err);
         showToast({ msg: "Failed to delete course: " + err.message, type: "error" });
-      });
+      })
+      .finally(() => setDeleting(false));
+  };
+
+  /* Re-fetch a topic-relevant video for an existing course via the AI generator,
+     keeping all other course fields (title/description/objectives/etc.) untouched.
+     The returned video is verified against YouTube's oEmbed endpoint before saving,
+     so we never overwrite a working video with a broken/hallucinated one. */
+  const handleRefreshVideo = (course) => {
+    setRefreshingId(course.id);
+    generateCourseFromAI({
+      topic: course.title,
+      duration: course.duration,
+      level: course.level,
+      category: course.category,
+    })
+      .then(async (response) => {
+        const aiCourse = response.course || {};
+        const newLink = aiCourse.contentLink || "";
+        const newYoutubeId = aiCourse.youtubeId || getYoutubeId(newLink);
+
+        if (!newLink && !newYoutubeId) {
+          showToast({ msg: "AI couldn't find a matching video for this topic.", type: "error" });
+          return;
+        }
+
+        const isValid = await verifyYoutubeVideo(newYoutubeId);
+        if (!isValid) {
+          showToast({ msg: "AI suggested a video that no longer exists. Try again.", type: "error" });
+          return;
+        }
+
+        const payload = mapCourseToApi({
+          ...course,
+          contentType: "Video",
+          contentLink: newLink || course.contentLink,
+          youtubeId: newYoutubeId || course.youtubeId,
+        });
+
+        return updateCourse(course.id, payload).then(() => {
+          showToast({ msg: `Video refreshed for "${course.title}"!`, type: "success" });
+          loadCourses();
+        });
+      })
+      .catch(err => {
+        console.error("Error refreshing video:", err);
+        showToast({ msg: "Failed to refresh video: " + err.message, type: "error" });
+      })
+      .finally(() => setRefreshingId(null));
   };
 
   if (loading) {
@@ -515,6 +681,14 @@ export default function CurriculumTrainingTab({ setToast }) {
       {trackingModal && selectedCourse && (
         <CourseTrackingModal course={selectedCourse} assignments={assignments}
           onClose={() => { setTrackingModal(false); setSelectedCourse(null); }} setToast={showToast} />
+      )}
+      {deleteModal && selectedCourse && (
+        <DeleteConfirmModal
+          course={selectedCourse}
+          deleting={deleting}
+          onConfirm={handleConfirmDelete}
+          onClose={() => { if (!deleting) { setDeleteModal(false); setSelectedCourse(null); } }}
+        />
       )}
 
       {/* Header */}
@@ -550,7 +724,7 @@ export default function CurriculumTrainingTab({ setToast }) {
         </select>
         <select style={{ ...S.input, width: 150, marginBottom: 0 }} value={levelFilter} onChange={e => setLevelFilter(e.target.value)}>
           <option value="all">All Levels</option>
-          <option>Beginer</option><option>Beginner</option><option>Intermediate</option><option>Advanced</option>
+          <option>Beginner</option><option>Intermediate</option><option>Advanced</option>
         </select>
         <select style={{ ...S.input, width: 150, marginBottom: 0 }} value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
           <option value="all">All Formats</option>
@@ -574,6 +748,7 @@ export default function CurriculumTrainingTab({ setToast }) {
           const lc = LEVEL_COLORS[c.level] || LEVEL_COLORS.Beginner;
           const pct = c.assignedCount > 0 ? Math.round((c.completedCount / c.assignedCount) * 100) : 0;
           const catColor = CAT_COLORS[c.category] || "#f59e0b";
+          const isRefreshing = refreshingId === c.id;
 
           return (
             <div key={c.id} style={{ background: "white", borderRadius: 14,
@@ -581,7 +756,25 @@ export default function CurriculumTrainingTab({ setToast }) {
               overflow: "hidden", display: "flex", flexDirection: "column",
               transition: "box-shadow 0.2s" }}>
 
-              <YoutubeThumbnail youtubeId={c.youtubeId} title={c.title} />
+              <div style={{ position: "relative" }}>
+                <YoutubeThumbnail youtubeId={c.youtubeId} title={c.title} fallbackQuery={`${c.title} ECE training`} />
+                {c.contentType === "Video" && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleRefreshVideo(c); }}
+                    disabled={isRefreshing}
+                    title="Re-fetch a topic-matched video for this course"
+                    style={{
+                      position: "absolute", top: 8, right: 8, zIndex: 2,
+                      background: "rgba(0,0,0,0.75)", color: "white", border: "none",
+                      borderRadius: 8, padding: "4px 8px", fontSize: 11, fontWeight: 700,
+                      cursor: isRefreshing ? "default" : "pointer", opacity: isRefreshing ? 0.6 : 1,
+                      display: "flex", alignItems: "center", gap: 4
+                    }}
+                  >
+                    {isRefreshing ? "⏳ Refreshing..." : "🔄 Refresh Video"}
+                  </button>
+                )}
+              </div>
 
               <div style={{ padding: "14px 16px", flex: 1, display: "flex", flexDirection: "column" }}>
                 <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
@@ -631,7 +824,7 @@ export default function CurriculumTrainingTab({ setToast }) {
                     📊 Track
                   </button>
                   <button onClick={() => { setSelectedCourse(c); setFormModal(true); }} style={S.tblBtn}>✏️</button>
-                  <button onClick={() => handleDelete(c.id)}
+                  <button onClick={() => handleDeleteClick(c)}
                     style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>🗑️</button>
                 </div>
               </div>

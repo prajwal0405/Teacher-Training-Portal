@@ -1593,6 +1593,35 @@ export default function TeacherDashboard({ user, onLogout }) {
 
       {/* Main Content */}
       <div style={{ flex: 1, width: "0px", minWidth: "0px", padding: "28px 32px", overflowY: "auto", maxHeight: "100vh" }}>
+        {/* Top bar with logout button, top-right corner */}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+          <button
+            onClick={onLogout}
+            title="Sign Out"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "8px 16px",
+              borderRadius: 10,
+              border: "1px solid #fbbf24",
+              background: "#fef3c7",
+              color: "#92400e",
+              fontSize: 12,
+              fontWeight: 700,
+              fontFamily: "inherit",
+              cursor: "pointer",
+              transition: "all 0.18s",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "#fde68a"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "#fef3c7"; }}
+          >
+            <span style={{ fontSize: 14, lineHeight: 1 }}>⎋</span>
+            Logout
+          </button>
+        </div>
+
         {renderContent()}
       </div>
 
@@ -1684,4 +1713,3 @@ export default function TeacherDashboard({ user, onLogout }) {
     </div>
   );
 }
-
