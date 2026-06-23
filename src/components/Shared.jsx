@@ -50,6 +50,7 @@ export function StatusBadge({ status }) {
     approved:    { label:"Active",       color:"#059669", bg:"#d1fae5" },
     pending:     { label:"Pending",      color:"#d97706", bg:"#fef3c7" },
     rejected:    { label:"Rejected",     color:"#dc2626", bg:"#fee2e2" },
+    blocked:     { label:"Blocked",      color:"#991b1b", bg:"#fecaca" },
     published:   { label:"Published",    color:"#059669", bg:"#d1fae5" },
     draft:       { label:"Draft",        color:"#6b7280", bg:"#f3f4f6" },
     coming_soon: { label:"Coming Soon",  color:"#2563eb", bg:"#dbeafe" },

@@ -198,6 +198,26 @@ export function getAdminUsers(params = {}) {
   return request(`/api/admin/users?${searchParams.toString()}`);
 }
 
+export function updateUserRole(id, role) {
+  return request(`/api/admin/users/${id}/role`, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export function updateUserStatus(id, status) {
+  return request(`/api/admin/users/${id}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function deleteUser(id) {
+  return request(`/api/admin/users/${id}`, {
+    method: "DELETE",
+  });
+}
+
 // Teacher Management APIs
 export function getAdminTeachers() {
   return request("/api/admin/teachers");
@@ -234,6 +254,18 @@ export function sendDirectMessageToTeacher(teacherId, payload) {
 export function deleteTeacher(id) {
   return request(`/api/admin/teachers/${id}`, {
     method: "DELETE"
+  });
+}
+
+export function blockTeacher(id) {
+  return request(`/api/admin/teachers/${id}/block`, {
+    method: "PATCH"
+  });
+}
+
+export function unblockTeacher(id) {
+  return request(`/api/admin/teachers/${id}/unblock`, {
+    method: "PATCH"
   });
 }
 
@@ -591,6 +623,14 @@ export function deleteNotification(id) {
     method: "DELETE"
   });
 }
+
+export function testSmtpEmail(to) {
+  return request("/api/admin/settings/test-email", {
+    method: "POST",
+    body: JSON.stringify({ to }),
+  });
+}
+
 
 // Reports/Analytics API
 export function getAdminDashboard() {

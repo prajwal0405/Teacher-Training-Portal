@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal, S, SearchBar, StatCard, StatusBadge, Toast } from "../components/Shared";
 import { t } from "../services/i18n";
 import { createCourse, updateCourse, deleteCourse as deleteCourseApi } from "../services/api";
@@ -40,6 +40,206 @@ const AI_DURATIONS = ["2 Weeks", "4 Weeks", "6 Weeks", "8 Weeks", "3 Months", "6
 // Backend base URL — point this at your Express server.
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 const getCourseId = (course) => course?._id || course?.id;
+
+/* ══════════════════════════════════════════
+   COURSE PREVIEW MODAL — Watch all lessons/videos in a course
+══════════════════════════════════════════ */
+function CoursePreviewModal({ course, onClose, onProgress }) {
+  const [activeModuleIdx, setActiveModuleIdx] = useState(0);
+  const [activeLessonIdx, setActiveLessonIdx] = useState(0);
+  const [watchedLessons, setWatchedLessons] = useState(() => new Set());
+
+  const modules = course?.modules || [];
+  const activeModule = modules[activeModuleIdx];
+  const lessons = activeModule?.lessons || activeModule?.contents || [];
+  const activeLesson = lessons[activeLessonIdx];
+
+  // Resolve YouTube ID from videoUrl or externalUrl
+  const resolveYtId = (url) => {
+    if (!url) return null;
+    const m = url.match(/(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?\/\s]{11})/);
+    return m ? m[1] : null;
+  };
+
+  const ytId = resolveYtId(activeLesson?.videoUrl || activeLesson?.externalUrl || activeLesson?.url || "");
+  const directUrl = activeLesson?.videoUrl || activeLesson?.externalUrl || activeLesson?.url || "";
+
+  const totalLessons = modules.reduce((a, m) => a + ((m.lessons || m.contents || []).length), 0);
+  const watchedCount = watchedLessons.size;
+  const completion = totalLessons > 0 ? Math.round((watchedCount / totalLessons) * 100) : 0;
+
+  useEffect(() => {
+    if (!activeLesson) return;
+    const lessonKey = `${activeModuleIdx}:${activeLessonIdx}`;
+    setWatchedLessons((prev) => {
+      if (prev.has(lessonKey)) return prev;
+      const next = new Set(prev);
+      next.add(lessonKey);
+      return next;
+    });
+  }, [activeLesson, activeLessonIdx, activeModuleIdx]);
+
+  useEffect(() => {
+    if (!course || typeof onProgress !== "function") {
+      return;
+    }
+    if (completion > 0) {
+      onProgress(completion);
+    }
+  }, [completion, course, onProgress]);
+
+  if (!course) return null;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(4px)" }}>
+      <div style={{ background: "white", borderRadius: 20, width: "94%", maxWidth: 900, maxHeight: "92vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,0.25)" }}>
+        {/* Header */}
+        <div style={{ padding: "18px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 900, color: "#1c1917" }}>🎬 {course.title}</div>
+            <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>{modules.length} modules · {totalLessons} lessons</div>
+          </div>
+          <div style={{ minWidth: 180, marginLeft: "auto", marginRight: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 4 }}>
+              <span>Completion</span>
+              <span>{completion}%</span>
+            </div>
+            <div style={{ height: 6, background: "#e2e8f0", borderRadius: 6, overflow: "hidden" }}>
+              <div style={{ width: `${completion}%`, height: "100%", background: completion >= 75 ? "#10b981" : completion >= 50 ? "#f59e0b" : "#ef4444", borderRadius: 6 }} />
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#9ca3af" }}>✕</button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", flex: 1, overflow: "hidden" }}>
+          {/* Sidebar — module/lesson list */}
+          <div style={{ borderRight: "1px solid #f1f5f9", overflowY: "auto", background: "#fafafa" }}>
+            {modules.length === 0 ? (
+              <div style={{ padding: 20, color: "#9ca3af", fontSize: 13, textAlign: "center" }}>No modules found in this course.</div>
+            ) : (
+              modules.map((mod, mi) => {
+                const modLessons = mod.lessons || mod.contents || [];
+                return (
+                  <div key={mi}>
+                    <div
+                      onClick={() => { setActiveModuleIdx(mi); setActiveLessonIdx(0); }}
+                      style={{ padding: "12px 16px", background: mi === activeModuleIdx ? "#fffbeb" : "white", borderBottom: "1px solid #f1f5f9", cursor: "pointer", borderLeft: `3px solid ${mi === activeModuleIdx ? "#f59e0b" : "transparent"}` }}
+                    >
+                      <div style={{ fontSize: 12, fontWeight: 700, color: mi === activeModuleIdx ? "#92400e" : "#374151" }}>M{mi + 1}: {mod.title}</div>
+                      <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>{modLessons.length} lessons</div>
+                    </div>
+                    {mi === activeModuleIdx && modLessons.map((lesson, li) => (
+                      <div
+                        key={li}
+                        onClick={() => setActiveLessonIdx(li)}
+                        style={{ padding: "9px 16px 9px 28px", background: li === activeLessonIdx ? "#fef3c7" : "#fafafa", borderBottom: "1px solid #f3f4f6", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+                      >
+                        <span style={{ fontSize: 14 }}>{lesson.type === "video" ? "🎬" : lesson.type === "live" ? "📡" : "📄"}</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 11, fontWeight: li === activeLessonIdx ? 700 : 500, color: li === activeLessonIdx ? "#92400e" : "#374151", lineHeight: 1.3 }}>{lesson.title || `Lesson ${li + 1}`}</div>
+                          <div style={{ fontSize: 10, color: "#9ca3af" }}>⏱ {lesson.duration || lesson.suggestedDuration || "—"}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Main content area */}
+          <div style={{ overflowY: "auto", padding: "0" }}>
+            {!activeLesson ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", color: "#9ca3af", gap: 12, padding: 40 }}>
+                <div style={{ fontSize: 48 }}>📚</div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>Select a lesson from the left sidebar</div>
+                {modules.length === 0 && <div style={{ fontSize: 12 }}>No modules have been added to this course yet.</div>}
+              </div>
+            ) : (
+              <div>
+                {/* Video Player */}
+                {ytId ? (
+                  <div style={{ position: "relative", paddingBottom: "56.25%", height: 0, background: "#000" }}>
+                    <iframe
+                      src={`https://www.youtube.com/embed/${ytId}?rel=0&modestbranding=1&autoplay=0`}
+                      title={activeLesson.title}
+                      style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none" }}
+                      allowFullScreen
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    />
+                  </div>
+                ) : directUrl ? (
+                  <div style={{ background: "#1c1917", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 220, gap: 14, padding: 30 }}>
+                    <div style={{ fontSize: 40 }}>🔗</div>
+                    <div style={{ fontSize: 14, color: "#f3f4f6", fontWeight: 700 }}>{activeLesson.title}</div>
+                    <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 8 }}>External video / resource link</div>
+                    <a
+                      href={directUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ background: "#f59e0b", color: "#1c1917", padding: "10px 24px", borderRadius: 10, fontSize: 13, fontWeight: 800, textDecoration: "none" }}
+                    >
+                      ▶ Open Video / Resource
+                    </a>
+                  </div>
+                ) : (
+                  <div style={{ background: "#1c1917", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 220, gap: 10, padding: 30 }}>
+                    <div style={{ fontSize: 40 }}>🎬</div>
+                    <div style={{ fontSize: 14, color: "#f3f4f6", fontWeight: 700 }}>{activeLesson.title}</div>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>No video URL has been added for this lesson.</div>
+                    <div style={{ fontSize: 11, color: "#4b5563", marginTop: 4 }}>Edit the course to add a YouTube URL or external link.</div>
+                  </div>
+                )}
+
+                {/* Lesson info */}
+                <div style={{ padding: "16px 20px" }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", marginBottom: 4 }}>{activeLesson.title}</div>
+                  <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 12 }}>
+                    {activeModule?.title} · ⏱ {activeLesson.duration || activeLesson.suggestedDuration || "N/A"}
+                    {activeLesson.type && <span style={{ marginLeft: 10, background: "#dbeafe", color: "#1d4ed8", padding: "2px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700 }}>{activeLesson.type}</span>}
+                  </div>
+                  {(activeLesson.notes || activeLesson.description) && (
+                    <div style={{ background: "#f9fafb", borderRadius: 10, padding: "12px 14px", border: "1px solid #f1f5f9", fontSize: 13, color: "#374151", lineHeight: 1.7, whiteSpace: "pre-line" }}>
+                      {activeLesson.notes || activeLesson.description}
+                    </div>
+                  )}
+                  {/* Navigation buttons */}
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 16 }}>
+                    <button
+                      disabled={activeLessonIdx === 0 && activeModuleIdx === 0}
+                      onClick={() => {
+                        if (activeLessonIdx > 0) { setActiveLessonIdx(activeLessonIdx - 1); }
+                        else if (activeModuleIdx > 0) {
+                          const prevMod = modules[activeModuleIdx - 1];
+                          const prevLessons = prevMod.lessons || prevMod.contents || [];
+                          setActiveModuleIdx(activeModuleIdx - 1);
+                          setActiveLessonIdx(Math.max(0, prevLessons.length - 1));
+                        }
+                      }}
+                      style={{ ...S.tblBtn, opacity: activeLessonIdx === 0 && activeModuleIdx === 0 ? 0.4 : 1 }}
+                    >← Previous</button>
+                    <button
+                      onClick={() => {
+                        const nextLi = activeLessonIdx + 1;
+                        if (nextLi < lessons.length) { setActiveLessonIdx(nextLi); }
+                        else if (activeModuleIdx + 1 < modules.length) {
+                          setActiveModuleIdx(activeModuleIdx + 1);
+                          setActiveLessonIdx(0);
+                        }
+                      }}
+                      disabled={activeLessonIdx === lessons.length - 1 && activeModuleIdx === modules.length - 1}
+                      style={{ ...S.primaryBtn, opacity: activeLessonIdx === lessons.length - 1 && activeModuleIdx === modules.length - 1 ? 0.4 : 1 }}
+                    >Next →</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function AICourseGenerator({ onApply, categories = [] }) {
   const [topic,      setTopic]      = useState("");
@@ -935,6 +1135,8 @@ function AICourseGenerator({ onApply, categories = [] }) {
   );
 }
 
+
+
 /* ══════════════════════════════════════════
    CATEGORY MANAGEMENT — A3.3
 ══════════════════════════════════════════ */
@@ -1111,6 +1313,8 @@ export default function CourseManagementTab({ courses, setCourses, categories, s
   const [formModal,   setFormModal]   = useState(false);
   const [editCourse,  setEditCourse]  = useState(null);
   const [catModal,    setCatModal]    = useState(false);
+  const [watchCourse, setWatchCourse] = useState(null);
+  const [previewProgress, setPreviewProgress] = useState({});
 
   /* Filter */
   const filtered = courses.filter(c => {
@@ -1221,6 +1425,20 @@ export default function CourseManagementTab({ courses, setCourses, categories, s
           onClose={() => setCatModal(false)}
         />
       )}
+      {watchCourse && (
+        <CoursePreviewModal
+          course={watchCourse}
+          onProgress={(pct) => {
+            const courseId = getCourseId(watchCourse);
+            setPreviewProgress((prev) => ({ ...prev, [courseId]: Math.max(prev[courseId] || 0, pct) }));
+            setCourses((prev) => prev.map((course) => {
+              if (getCourseId(course) !== courseId) return course;
+              return { ...course, completion: Math.max(course.completion || 0, pct) };
+            }));
+          }}
+          onClose={() => setWatchCourse(null)}
+        />
+      )}
 
       {/* Header */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
@@ -1296,19 +1514,26 @@ export default function CourseManagementTab({ courses, setCourses, categories, s
                   <span style={{ padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
                     background:`${categories.find(cat=>cat.name===c.category)?.color||"#f59e0b"}20`,
                     color:categories.find(cat=>cat.name===c.category)?.color||"#92400e" }}>
-                    {categories.find(cat=>cat.name===c.category)?.icon||"📚"} {c.category}
+                    {categories.find(cat=>cat.name===c.category)?.icon||"\uD83D\uDCDA"} {c.category}
                   </span>
                 </td>
                 {/* Enrolled */}
-                <td style={{ padding:"12px 16px", fontSize:13, fontWeight:600, color:"#374151" }}>{c.enrolled}</td>
+                <td style={{ padding:"12px 16px", fontSize:13, fontWeight:600, color:"#374151" }}>{c.enrolled || 0}</td>
                 {/* Completion */}
                 <td style={{ padding:"12px 16px" }}>
+                  {(() => {
+                    const progress = typeof c.completion === "number"
+                      ? c.completion
+                      : (previewProgress[getCourseId(c)] || 0);
+                    return (
                   <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                     <div style={{ width:52, height:5, background:"#f3f4f6", borderRadius:3, overflow:"hidden" }}>
-                      <div style={{ height:"100%", width:`${c.completion}%`, background:c.completion>=70?"#10b981":"#f59e0b" }}/>
+                      <div style={{ height:"100%", width:`${progress}%`, background:progress>=70?"#10b981":"#f59e0b", transition:"width 0.4s" }}/>
                     </div>
-                    <span style={{ fontSize:11, fontWeight:700, color:c.completion>=70?"#10b981":"#f59e0b" }}>{c.completion}%</span>
+                    <span style={{ fontSize:11, fontWeight:700, color:progress>=70?"#10b981":"#f59e0b" }}>{progress}%</span>
                   </div>
+                    );
+                  })()}
                 </td>
                 {/* Revenue */}
                 <td style={{ padding:"12px 16px", fontSize:13, fontWeight:600, color:"#374151" }}>
@@ -1316,22 +1541,29 @@ export default function CourseManagementTab({ courses, setCourses, categories, s
                 </td>
                 {/* Rating */}
                 <td style={{ padding:"12px 16px", fontSize:13, color:"#f59e0b", fontWeight:700 }}>
-                  {c.rating > 0 ? `⭐ ${c.rating}` : "—"}
+                  {c.rating > 0 ? `\u2B50 ${c.rating}` : "\u2014"}
                 </td>
                 {/* Status */}
                 <td style={{ padding:"12px 16px" }}><StatusBadge status={c.status}/></td>
                 {/* Actions */}
                 <td style={{ padding:"12px 16px" }}>
                   <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                    <button
+                      onClick={() => setWatchCourse(c)}
+                      style={{ ...S.tblBtn, color:"#7c3aed", borderColor:"#c4b5fd" }}
+                      title="Preview course videos"
+                    >
+                      \uD83C\uDFAC Watch
+                    </button>
                     <button onClick={() => toggleStatus(getCourseId(c))}
                       style={{ ...S.tblBtn, color:c.status==="published"?"#dc2626":"#059669", borderColor:c.status==="published"?"#fca5a5":"#86efac" }}>
                       {c.status==="published" ? "Unpublish" : "Publish"}
                     </button>
-                    <button onClick={() => openEdit(c)} style={S.tblBtn}>✏️ Edit</button>
+                    <button onClick={() => openEdit(c)} style={S.tblBtn}>\u270F\uFE0F Edit</button>
                     {c.status !== "archived" && (
-                      <button onClick={() => archiveCourse(getCourseId(c))} style={S.tblBtn}>🗄️</button>
+                      <button onClick={() => archiveCourse(getCourseId(c))} style={S.tblBtn}>\uD83D\uDDC4\uFE0F</button>
                     )}
-                    <button onClick={() => deleteCourse(getCourseId(c))} style={{ ...S.tblBtn, color:"#dc2626", borderColor:"#fca5a5" }}>🗑️</button>
+                    <button onClick={() => deleteCourse(getCourseId(c))} style={{ ...S.tblBtn, color:"#dc2626", borderColor:"#fca5a5" }}>\uD83D\uDDD1\uFE0F</button>
                   </div>
                 </td>
               </tr>

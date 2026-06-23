@@ -1,4 +1,5 @@
 import express from "express";
+import jwt from "jsonwebtoken";
 import http from "http";
 import net from "net";
 import cors from "cors";
@@ -9,7 +10,7 @@ import { fileURLToPath } from "url";
 import multer from "multer";
 import mongoose from "mongoose";
 import { connectDb } from "./db.js";
-import { hashPassword, requireAuth, requireRole, signToken, verifyPassword } from "./auth.js";
+import { hashPassword, requireAuth, requireRole, signToken, verifyPassword, validatePasswordAgainstPolicy, createPasswordResetToken, verifyPasswordResetToken } from "./auth.js";
 import { autoSeed } from "./auto-seed.js";
 import { generateAICourse } from "./services/aiCourseGenerator.js";
 import { User } from "./models/User.js";
@@ -31,6 +32,7 @@ import { ChildAttendanceSession, TeacherAttendanceRecord } from "./models/Attend
 import { Notification } from "./models/Notification.js";
 import { ReportJob } from "./models/ReportJob.js";
 import { PortalSetting } from "./models/PortalSetting.js";
+import { sendBulkEmails, sendEmail, getTwilioConfig } from "./email.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "../.env") });
@@ -224,6 +226,48 @@ app.use(
 );
 app.use(express.json({ limit: "2mb" }));
 
+const bypassRoutes = [
+  "/health",
+  "/api/auth/login",
+  "/api/auth/register-teacher",
+  "/api/auth/forgot-password",
+  "/api/auth/reset-password",
+  "/api/auth/reset-password/verify"
+];
+
+app.use(async (req, res, next) => {
+  // Allow health check, login, register, reset-password, and static uploads
+  if (bypassRoutes.includes(req.path) || req.path.startsWith("/uploads/") || req.path.startsWith("/assets/")) {
+    return next();
+  }
+
+  try {
+    const maintenanceDoc = await PortalSetting.findOne({ key: "maintenanceMode" });
+    const isMaintenance = maintenanceDoc ? (maintenanceDoc.value === true || maintenanceDoc.value === "true") : false;
+
+    if (isMaintenance) {
+      const authHeader = req.headers.authorization || "";
+      const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+      let userRole = null;
+      if (token) {
+        try {
+          const payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET || "dev_access_secret_change_me");
+          userRole = payload.role;
+        } catch (e) {
+          // Token invalid, let it pass to requireAuth middleware to handle normally
+        }
+      }
+
+      if (userRole !== "admin" && userRole !== "super_admin") {
+        return res.status(503).json({ message: "The portal is currently undergoing maintenance. Please try again later." });
+      }
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "teacher-training-portal-api", database: "mongodb" });
 });
@@ -266,6 +310,12 @@ app.post("/api/auth/login", async (req, res, next) => {
 app.post("/api/auth/register-teacher", async (req, res, next) => {
   try {
     const { name, email, phone, password, qualification, subject, experience, address, center, class: classId } = req.body;
+    
+    const policyResult = await validatePasswordAgainstPolicy(password);
+    if (!policyResult.valid) {
+      return res.status(400).json({ message: policyResult.message });
+    }
+
     const passwordHash = await hashPassword(password);
 
     const teacher = await User.create({
@@ -292,6 +342,115 @@ app.post("/api/auth/register-teacher", async (req, res, next) => {
     if (error.code === 11000) {
       return res.status(409).json({ message: "Email already registered" });
     }
+    next(error);
+  }
+});
+
+app.post("/api/auth/forgot-password", async (req, res, next) => {
+  try {
+    const email = String(req.body.email || "").toLowerCase().trim();
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const user = await User.findOne({ email }).select("_id email");
+    const response = {
+      success: true,
+      message: "If the account exists, a password reset link has been generated.",
+    };
+
+    if (!user) {
+      return res.json(response);
+    }
+
+    const resetToken = createPasswordResetToken(user.email);
+    res.json({
+      ...response,
+      resetToken,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/auth/reset-password/verify", async (req, res, next) => {
+  try {
+    const token = String(req.body.token || "");
+    if (!token) {
+      return res.status(400).json({ message: "Reset token is required" });
+    }
+
+    const payload = verifyPasswordResetToken(token);
+    const user = await User.findOne({ email: payload.email }).select("email");
+
+    if (!user) {
+      return res.status(404).json({ message: "Account not found" });
+    }
+
+    res.json({ valid: true, email: user.email });
+  } catch (error) {
+    res.status(400).json({ message: "Reset link is invalid or expired" });
+  }
+});
+
+app.post("/api/auth/reset-password", async (req, res, next) => {
+  try {
+    const token = String(req.body.token || "");
+    const password = String(req.body.password || "");
+
+    if (!token || !password) {
+      return res.status(400).json({ message: "Reset token and password are required" });
+    }
+
+    const policyResult = await validatePasswordAgainstPolicy(password);
+    if (!policyResult.valid) {
+      return res.status(400).json({ message: policyResult.message });
+    }
+
+    const payload = verifyPasswordResetToken(token);
+    const user = await User.findOne({ email: payload.email });
+
+    if (!user) {
+      return res.status(404).json({ message: "Account not found" });
+    }
+
+    user.passwordHash = await hashPassword(password);
+    await user.save();
+
+    res.json({ success: true, message: "Password updated successfully" });
+  } catch (error) {
+    res.status(400).json({ message: "Reset link is invalid or expired" });
+  }
+});
+
+app.post("/api/teacher/change-password", requireAuth, async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Current password and new password are required" });
+    }
+
+    const policyResult = await validatePasswordAgainstPolicy(newPassword);
+    if (!policyResult.valid) {
+      return res.status(400).json({ message: policyResult.message });
+    }
+
+    const user = await User.findById(req.user.id).select("passwordHash");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const isCurrentPasswordValid = await verifyPassword(currentPassword, user.passwordHash);
+    if (!isCurrentPasswordValid) {
+      return res.status(401).json({ message: "Current password is incorrect" });
+    }
+
+    const newPasswordHash = await hashPassword(newPassword);
+    await User.findByIdAndUpdate(req.user.id, { $set: { passwordHash: newPasswordHash } });
+
+    res.json({ message: "Password changed successfully" });
+  } catch (error) {
     next(error);
   }
 });
@@ -448,9 +607,17 @@ app.post("/api/admin/children", requireAuth, requireRole("admin"), async (req, r
       ...childPayload,
       center: centerId,
       class: classId,
+      rollNo: req.body.rollNo || await getNextChildRollNo(classId),
+      status: req.body.status || "active",
     });
     res.status(201).json({ child });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({ message: "A child with this roll number already exists in this class. Please try again." });
+    }
+    if (error.name === "ValidationError") {
+      return res.status(400).json({ message: error.message });
+    }
     if (error.status === 400) {
       return res.status(400).json({ message: error.message });
     }
@@ -461,8 +628,54 @@ app.post("/api/admin/children", requireAuth, requireRole("admin"), async (req, r
 app.get("/api/courses", requireAuth, async (req, res, next) => {
   try {
     if (req.user.role === "admin") {
-      const courses = await Course.find().sort({ createdAt: -1 });
-      return res.json({ courses });
+      const [courses, assignmentStats] = await Promise.all([
+        Course.find().sort({ createdAt: -1 }),
+        CourseAssignment.aggregate([
+          {
+            $group: {
+              _id: "$course",
+              assignedCount: { $sum: 1 },
+              completedCount: {
+                $sum: {
+                  $cond: [
+                    {
+                      $or: [
+                        { $eq: ["$status", "completed"] },
+                        { $eq: ["$status", "approved"] },
+                        { $eq: ["$status", "reviewed"] },
+                        { $eq: ["$progressPercent", 100] },
+                      ],
+                    },
+                    1,
+                    0,
+                  ],
+                },
+              },
+            },
+          },
+        ]),
+      ]);
+
+      const statsByCourseId = new Map(
+        assignmentStats.map((item) => [
+          String(item._id),
+          {
+            assignedCount: item.assignedCount || 0,
+            completedCount: item.completedCount || 0,
+            completion: item.assignedCount > 0 ? Math.round((item.completedCount / item.assignedCount) * 100) : 0,
+          },
+        ])
+      );
+
+      const decoratedCourses = courses.map((course) => {
+        const stats = statsByCourseId.get(String(course._id)) || { assignedCount: 0, completedCount: 0, completion: 0 };
+        return {
+          ...course.toObject(),
+          ...stats,
+        };
+      });
+
+      return res.json({ courses: decoratedCourses });
     }
 
     const assignments = await CourseAssignment.find({ teacher: req.user.id })
@@ -903,6 +1116,49 @@ app.delete("/api/admin/teachers/:id", requireAuth, requireRole("admin"), async (
   }
 });
 
+app.patch("/api/admin/teachers/:id/block", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const teacher = await User.findOneAndUpdate(
+      { _id: req.params.id, role: "teacher" },
+      { status: "blocked" },
+      { new: true }
+    ).select("-passwordHash");
+    if (!teacher) return res.status(404).json({ message: "Teacher not found." });
+    res.json({ teacher });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/admin/teachers/:id/unblock", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const teacher = await User.findOneAndUpdate(
+      { _id: req.params.id, role: "teacher" },
+      { status: "approved" },
+      { new: true }
+    ).select("-passwordHash");
+    if (!teacher) return res.status(404).json({ message: "Teacher not found." });
+    res.json({ teacher });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/admin/teachers/:id/assign-center", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { centerId } = req.body;
+    const updateData = { "teacherProfile.center": centerId || null };
+    const teacher = await User.findByIdAndUpdate(req.params.id, updateData, { new: true })
+      .select("-passwordHash")
+      .populate("teacherProfile.center", "name city")
+      .populate("teacherProfile.class", "name ageGroup");
+    if (!teacher) return res.status(404).json({ message: "Teacher not found." });
+    res.json({ teacher });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ==========================================
 // COURSE MANAGEMENT
 // ==========================================
@@ -956,7 +1212,8 @@ app.get("/api/admin/courses/assignments", requireAuth, requireRole("admin"), asy
   try {
     const assignments = await CourseAssignment.find()
       .populate("course")
-      .populate("teacher", "name email");
+      .populate("teacher", "name email")
+      .populate("reviewedBy", "name email");
     res.json({ assignments });
   } catch (error) {
     next(error);
@@ -965,21 +1222,29 @@ app.get("/api/admin/courses/assignments", requireAuth, requireRole("admin"), asy
 
 app.patch("/api/admin/courses/assignments/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    const { status, feedback, score, rubric, trainer, notified, annotations } = req.body;
+    const { status, feedback, score, rubric, trainer, reviewedBy, reviewedAt, notified, annotations } = req.body;
     const update = {};
     if (status !== undefined) update.status = status;
     if (feedback !== undefined) update.feedback = feedback;
     if (score !== undefined) update.score = score;
     if (rubric !== undefined) update.rubric = rubric;
     if (trainer !== undefined) update.trainer = trainer;
+    if (reviewedBy !== undefined && mongoose.isValidObjectId(reviewedBy)) update.reviewedBy = reviewedBy;
+    if (reviewedAt !== undefined) update.reviewedAt = reviewedAt;
     if (notified !== undefined) update.notified = notified;
     if (annotations !== undefined) update.annotations = annotations;
+    if (status && ["reviewed", "approved", "revision"].includes(status) && !update.reviewedAt) {
+      update.reviewedAt = new Date();
+    }
+    if (status && ["reviewed", "approved", "revision"].includes(status) && !update.reviewedBy) {
+      update.reviewedBy = req.user.id;
+    }
 
     const assignment = await CourseAssignment.findByIdAndUpdate(
       req.params.id,
       update,
       { new: true }
-    ).populate("course").populate("teacher", "name email");
+    ).populate("course").populate("teacher", "name email").populate("reviewedBy", "name email");
     
     res.json({ assignment });
   } catch (error) {
@@ -1423,7 +1688,26 @@ app.get("/api/trainers", requireAuth, async (req, res, next) => {
 
 app.post("/api/trainers", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    const trainer = await Trainer.create(req.body);
+    const trainerData = req.body;
+    const trainer = await Trainer.create(trainerData);
+
+    // Synchronize to User collection if not already present
+    if (trainer.email) {
+      const emailLower = trainer.email.toLowerCase().trim();
+      const existingUser = await User.findOne({ email: emailLower });
+      if (!existingUser) {
+        const passwordHash = await hashPassword("Trainer@123");
+        await User.create({
+          role: "trainer",
+          name: trainer.name,
+          email: emailLower,
+          phone: trainer.phone || "",
+          passwordHash,
+          status: trainer.status === "inactive" ? "inactive" : "approved",
+        });
+      }
+    }
+
     res.status(201).json({ trainer });
   } catch (error) {
     next(error);
@@ -1432,7 +1716,39 @@ app.post("/api/trainers", requireAuth, requireRole("admin"), async (req, res, ne
 
 app.patch("/api/trainers/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
+    const oldTrainer = await Trainer.findById(req.params.id);
+    const oldEmail = oldTrainer?.email ? oldTrainer.email.toLowerCase().trim() : null;
+
     const trainer = await Trainer.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    
+    // Synchronize with User collection
+    if (trainer.email) {
+      const emailLower = trainer.email.toLowerCase().trim();
+      const userStatus = trainer.status === "inactive" ? "inactive" : "approved";
+      
+      const userQuery = oldEmail ? { email: oldEmail } : { email: emailLower };
+      const user = await User.findOne(userQuery);
+      
+      if (user) {
+        user.name = trainer.name;
+        user.email = emailLower;
+        user.phone = trainer.phone || user.phone;
+        user.status = userStatus;
+        user.role = "trainer";
+        await user.save();
+      } else {
+        const passwordHash = await hashPassword("Trainer@123");
+        await User.create({
+          role: "trainer",
+          name: trainer.name,
+          email: emailLower,
+          phone: trainer.phone || "",
+          passwordHash,
+          status: userStatus,
+        });
+      }
+    }
+
     res.json({ trainer });
   } catch (error) {
     next(error);
@@ -1441,7 +1757,13 @@ app.patch("/api/trainers/:id", requireAuth, requireRole("admin"), async (req, re
 
 app.delete("/api/trainers/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    await Trainer.findByIdAndDelete(req.params.id);
+    const trainer = await Trainer.findById(req.params.id);
+    if (trainer) {
+      if (trainer.email) {
+        await User.findOneAndDelete({ email: trainer.email.toLowerCase().trim() });
+      }
+      await Trainer.findByIdAndDelete(req.params.id);
+    }
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -1580,6 +1902,94 @@ app.get("/api/admin/users", requireAuth, requireRole("admin"), async (req, res, 
   }
 });
 
+app.patch("/api/admin/users/:id/role", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { role } = req.body;
+    if (!["admin", "teacher", "trainer", "super_admin"].includes(role)) {
+      return res.status(400).json({ message: "Invalid role specified" });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const oldRole = user.role;
+    user.role = role;
+    await user.save();
+
+    // Promoted to trainer: ensure a Trainer document exists
+    if (role === "trainer" && oldRole !== "trainer") {
+      const emailLower = user.email ? user.email.toLowerCase().trim() : "";
+      const existingTrainer = await Trainer.findOne({ email: emailLower });
+      if (!existingTrainer) {
+        await Trainer.create({
+          name: user.name,
+          email: emailLower,
+          phone: user.phone || "",
+          subject: "General ECCE",
+          qualification: "N/A",
+          status: user.status === "inactive" ? "inactive" : "active",
+        });
+      }
+    }
+
+    // Demoted from trainer: delete Trainer document
+    if (oldRole === "trainer" && role !== "trainer") {
+      const emailLower = user.email ? user.email.toLowerCase().trim() : "";
+      await Trainer.findOneAndDelete({ email: emailLower });
+    }
+
+    res.json({ success: true, user });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/admin/users/:id/status", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { status } = req.body;
+    if (!["pending", "approved", "rejected", "inactive"].includes(status)) {
+      return res.status(400).json({ message: "Invalid status specified" });
+    }
+
+    const user = await User.findByIdAndUpdate(req.params.id, { $set: { status } }, { new: true }).select("-passwordHash");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // If user is trainer, sync status to Trainer collection
+    if (user.role === "trainer") {
+      const emailLower = user.email ? user.email.toLowerCase().trim() : "";
+      const trainerStatus = status === "approved" ? "active" : "inactive";
+      await Trainer.findOneAndUpdate({ email: emailLower }, { $set: { status: trainerStatus } });
+    }
+
+    res.json({ success: true, user });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/admin/users/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (user.role === "trainer") {
+      const emailLower = user.email ? user.email.toLowerCase().trim() : "";
+      await Trainer.findOneAndDelete({ email: emailLower });
+    }
+
+    await User.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ==========================================
 // PORTAL SETTINGS
 // ==========================================
@@ -1623,6 +2033,40 @@ app.put("/api/admin/settings", requireAuth, requireRole("admin"), async (req, re
 });
 
 // ==========================================
+// ADMIN SETTINGS — TEST EMAIL
+// ==========================================
+app.post("/api/admin/settings/test-email", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { to } = req.body;
+    if (!to) {
+      return res.status(400).json({ success: false, message: "Recipient email address (to) is required." });
+    }
+
+    const result = await sendEmail({
+      to,
+      subject: "✅ SpacECE Portal — Test Email",
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px;">
+          <h2 style="color:#f59e0b;">🎉 Test Email Successful!</h2>
+          <p>This is a test email sent from the <strong>SpacECE Teacher Training Portal</strong>.</p>
+          <p>If you received this message, your SMTP configuration is working correctly.</p>
+          <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">
+          <p style="font-size:12px;color:#9ca3af;">Sent at ${new Date().toISOString()} · SpacECE Admin Panel</p>
+        </div>
+      `,
+    });
+
+    if (result.success) {
+      return res.json({ success: true, message: `Test email sent to ${to} successfully.`, messageId: result.messageId });
+    } else {
+      return res.status(500).json({ success: false, message: result.error || "Failed to send test email." });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==========================================
 // ADMIN NOTIFICATIONS
 // ==========================================
 app.get("/api/admin/notifications", requireAuth, requireRole("admin"), async (_req, res, next) => {
@@ -1639,10 +2083,96 @@ app.get("/api/admin/notifications", requireAuth, requireRole("admin"), async (_r
 
 app.post("/api/admin/notifications/broadcast", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    const { subject, body, channel = "in_app", audience = "all", teacherIds = [], scheduledFor } = req.body;
+    const {
+      subject,
+      body,
+      channel = "in_app",
+      audience = "all",
+      teacherIds = [],
+      scheduledFor,
+      isRetry,
+      originalNotificationId,
+    } = req.body;
+
     if (!subject || !body) {
       return res.status(400).json({ message: "Subject and message are required" });
     }
+
+    const now = new Date();
+
+    // ─── RETRY LOGIC ───
+    if (isRetry && originalNotificationId) {
+      const originalNotif = await Notification.findById(originalNotificationId).populate("recipient", "_id name email phone status");
+      if (!originalNotif) {
+        return res.status(404).json({ message: "Original notification not found" });
+      }
+
+      const recipient = originalNotif.recipient;
+      if (!recipient) {
+        return res.status(404).json({ message: "Recipient not found" });
+      }
+
+      let success = false;
+      let errorMsg = null;
+
+      if (channel === "email") {
+        if (!recipient.email) {
+          errorMsg = "Recipient has no email address";
+        } else {
+          const result = await sendEmail({
+            to: recipient.email,
+            subject,
+            html: `<h2>${subject}</h2><p>${body}</p><p><a href="${process.env.FRONTEND_URL || "http://localhost:5173"}">Open SpacECE Portal</a></p>`,
+          });
+          success = result.success;
+          errorMsg = result.error || null;
+        }
+      } else if (channel === "sms" || channel === "whatsapp") {
+        const twilioConf = await getTwilioConfig();
+        if (!twilioConf) {
+          errorMsg = "Twilio credentials are not configured in settings.";
+        } else if (!recipient.phone) {
+          errorMsg = "Recipient has no phone number";
+        } else {
+          const cleanPhone = recipient.phone.replace(/\s+/g, "");
+          const toNumber = channel === "whatsapp" ? `whatsapp:${cleanPhone}` : cleanPhone;
+          const fromNumber = channel === "whatsapp" ? `whatsapp:${twilioConf.from}` : twilioConf.from;
+          const twilioBase = `https://api.twilio.com/2010-04-01/Accounts/${twilioConf.sid}/Messages.json`;
+
+          try {
+            const resp = await fetch(twilioBase, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                Authorization: "Basic " + Buffer.from(`${twilioConf.sid}:${twilioConf.token}`).toString("base64"),
+              },
+              body: new URLSearchParams({ To: toNumber, From: fromNumber, Body: `${subject}\n\n${body}` }).toString(),
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+              success = true;
+            } else {
+              errorMsg = data.message || "Twilio delivery failed";
+            }
+          } catch (err) {
+            errorMsg = err.message || "Twilio network error";
+          }
+        }
+      } else {
+        success = true;
+      }
+
+      originalNotif.status = success ? "delivered" : "failed";
+      originalNotif.error = errorMsg;
+      originalNotif.sentAt = success ? now : undefined;
+      originalNotif.read = false;
+      originalNotif.readAt = null;
+      await originalNotif.save();
+
+      return res.status(200).json({ notifications: [originalNotif], recipientCount: 1 });
+    }
+
+    // ─── REGULAR BROADCAST LOGIC ───
     let filter = { role: "teacher" };
     if (Array.isArray(teacherIds) && teacherIds.length > 0) {
       filter._id = { $in: teacherIds };
@@ -1651,44 +2181,104 @@ app.post("/api/admin/notifications/broadcast", requireAuth, requireRole("admin")
     } else if (audience === "pending") {
       filter.status = "pending";
     }
+
     const recipients = await User.find(filter).select("_id name email phone status");
     if (recipients.length === 0) {
-      return res.status(200).json({ notifications: [], recipientCount: 0, emailResults: [] });
+      return res.status(200).json({ notifications: [], recipientCount: 0 });
     }
 
-    const now = new Date();
-    const docs = recipients.map((teacher) => ({
-      recipient: teacher._id,
-      channel,
+    const meta = { subject, priority: "normal", category: "system" };
+    const buildDoc = (recipientId, notifChannel, notifStatus, opts = {}) => ({
+      recipient: recipientId,
+      channel: notifChannel,
       title: subject,
       body,
-      status: "pending",
-      metadata: { subject, priority: "normal", category: "system" },
-    }));
-    const notifications = await Notification.insertMany(docs);
+      status: notifStatus,
+      metadata: meta,
+      scheduledFor: scheduledFor ? new Date(scheduledFor) : undefined,
+      sentAt: opts.sentAt || (notifStatus === "delivered" ? now : undefined),
+      error: opts.error || null,
+    });
 
-    // Send emails if SMTP is enabled or channel is email
-    const emailResults = [];
-    if (channel === "email" || channel === "all") {
-      const { sendBulkEmails } = await import("./email.js");
-      const emailRecipients = recipients.filter(r => r.email);
-      const results = await sendBulkEmails({
-        recipients: emailRecipients,
-        subject,
-        body: `<h2>${subject}</h2><p>${body}</p><p><a href="${process.env.FRONTEND_URL || "http://localhost:5173"}">Open SpacECE Portal</a></p>`,
-      });
-      emailResults.push(...results);
-    }
+    let notifications = [];
 
-    // Update in-app notifications as delivered
+    // For in_app, immediately insert as delivered
     if (channel === "in_app" || channel === "all") {
-      await Notification.updateMany(
-        { _id: { $in: notifications.map(n => n._id) } },
-        { $set: { status: "delivered", sentAt: now } }
-      );
+      const docs = recipients.map((teacher) => buildDoc(teacher._id, "in_app", "delivered"));
+      const created = await Notification.insertMany(docs);
+      notifications.push(...created);
     }
 
-    res.status(201).json({ notifications, recipientCount: recipients.length, emailResults });
+    // For email, send via SMTP
+    if (channel === "email" || channel === "all") {
+      const emailRecipients = recipients.filter(r => r.email);
+      const emailResults = await sendBulkEmails({
+        recipients: emailRecipients.map((r) => ({ _id: r._id, email: r.email, name: r.name })),
+        subject,
+        body,
+      });
+
+      const docs = emailResults.map((result) =>
+        buildDoc(result.recipientId, "email", result.success ? "delivered" : "failed", {
+          error: result.error || null,
+          sentAt: result.success ? now : undefined
+        })
+      );
+      const created = docs.length ? await Notification.insertMany(docs) : [];
+      notifications.push(...created);
+    }
+
+    // For SMS/WhatsApp, send via Twilio
+    if (channel === "sms" || channel === "whatsapp") {
+      const twilioConf = await getTwilioConfig();
+
+      if (!twilioConf) {
+        const docs = recipients.map((teacher) =>
+          buildDoc(teacher._id, channel, "failed", {
+            error: `${channel.toUpperCase()} provider is not configured. Add Twilio credentials in Settings & Roles.`
+          })
+        );
+        const created = docs.length ? await Notification.insertMany(docs) : [];
+        notifications.push(...created);
+      } else {
+        const twilioBase = `https://api.twilio.com/2010-04-01/Accounts/${twilioConf.sid}/Messages.json`;
+        const messageResults = await Promise.allSettled(
+          recipients.map(async (r) => {
+            if (!r.phone) return { recipientId: r._id, success: false, error: "No phone number on record" };
+            const cleanPhone = r.phone.replace(/\s+/g, "");
+            const toNumber = channel === "whatsapp" ? `whatsapp:${cleanPhone}` : cleanPhone;
+            const fromNumber = channel === "whatsapp" ? `whatsapp:${twilioConf.from}` : twilioConf.from;
+
+            const resp = await fetch(twilioBase, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                Authorization: "Basic " + Buffer.from(`${twilioConf.sid}:${twilioConf.token}`).toString("base64"),
+              },
+              body: new URLSearchParams({ To: toNumber, From: fromNumber, Body: `${subject}\n\n${body}` }).toString(),
+            });
+            const data = await resp.json();
+            if (!resp.ok) return { recipientId: r._id, success: false, error: data.message || "Twilio error" };
+            return { recipientId: r._id, success: true };
+          })
+        );
+
+        const results = messageResults.map((r, i) =>
+          r.status === "fulfilled" ? r.value : { recipientId: recipients[i]?._id, success: false, error: r.reason?.message }
+        );
+
+        const docs = results.map((result) =>
+          buildDoc(result.recipientId, channel, result.success ? "delivered" : "failed", {
+            error: result.error || null,
+            sentAt: result.success ? now : undefined
+          })
+        );
+        const created = docs.length ? await Notification.insertMany(docs) : [];
+        notifications.push(...created);
+      }
+    }
+
+    res.status(201).json({ notifications, recipientCount: recipients.length });
   } catch (error) {
     next(error);
   }

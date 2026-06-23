@@ -383,14 +383,14 @@ function AddClassModal({ centers, onSave, onClose, setToast }) {
 
 /* ── Classes Management Modal ── */
 function ClassManagementModal({ centerId, centerName, classes, onSave, onClose, setToast }) {
-  const [centerClasses, setCenterClasses] = useState(classes.filter(c => c.center === centerId || c.center?._id === centerId));
+  const [centerClasses, setCenterClasses] = useState(classes.filter(c => String(c.center) === String(centerId) || String(c.center?._id) === String(centerId)));
   const [showAddForm, setShowAddForm] = useState(false);
   const [showLogsModal, setShowLogsModal] = useState(false);
   const [editClass, setEditClass] = useState(null);
   const [classLogs, setClassLogs] = useState([]);
   const [formData, setFormData] = useState({ name: "", ageGroup: "", curriculumLevel: "", schedule: "" });
 
-  const filteredClasses = classes.filter(c => c.center === centerId || c.center?._id === centerId);
+  const filteredClasses = classes.filter(c => String(c.center) === String(centerId) || String(c.center?._id) === String(centerId));
 
   useEffect(() => {
     setCenterClasses(filteredClasses);
@@ -646,7 +646,7 @@ export default function CenterManagementTab({ setToast }) {
       setClasses((classesRes.classes || []).map(c => ({
         id: c._id || c.id,
         name: c.name,
-        center: c.center?._id || c.center,
+        center: String(c.center?._id || c.center || ""),
         ageGroup: c.ageGroup || "",
         curriculumLevel: c.curriculumLevel || "",
         schedule: c.schedule || "",
@@ -736,7 +736,7 @@ export default function CenterManagementTab({ setToast }) {
       setClasses((res.classes || []).map(c => ({
         id: c._id || c.id,
         name: c.name,
-        center: c.center?._id || c.center,
+        center: String(c.center?._id || c.center || ""),
         ageGroup: c.ageGroup || "",
         curriculumLevel: c.curriculumLevel || "",
         schedule: c.schedule || "",

@@ -73,6 +73,8 @@ export default function AdminDashboard({ user, onLogout }) {
       score: assignment.score,
       rubric,
       trainer: assignment.trainer || "",
+      reviewedBy: assignment.reviewedBy || "",
+      reviewedAt: assignment.reviewedAt || "",
       notified: assignment.notified || false,
       annotations: assignment.annotations || [],
     };
@@ -121,7 +123,7 @@ export default function AdminDashboard({ user, onLogout }) {
       case "lessonplans": return <LessonPlanManagementTab setToast={setToast} />;
       case "children": return <ChildrenManagementTab setToast={setToast}/>;
       case "trainers": return <TrainerManagementTab batches={[]} setToast={setToast}/>;
-      case "assignments":  return <AssignmentReviewTab assignments={assignments} setAssignments={setAssignments} setToast={setToast}/>;
+      case "assignments":  return <AssignmentReviewTab assignments={assignments} setAssignments={setAssignments} setToast={setToast} teachers={teachers} user={user}/>;
       case "attendance":   return <AttendanceTab teachers={teachers} sessions={[]}/>;
       case "reports":      return <ReportsTab teachers={teachers} courses={courses} batches={[]}/>;
       case "notifications":return <NotificationsTab teachers={teachers} setToast={setToast}/>;

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Modal, S, SectionCard, StatCard, StatusBadge } from "../components/Shared";
-import { getAdminDashboard, getAdminTeachers, getTrainers, getCourses, getAdminUsers, getPortalSettings, updatePortalSettings } from "../services/api";
+import { getAdminDashboard, getAdminTeachers, getTrainers, getCourses, getAdminUsers, getPortalSettings, updatePortalSettings, testSmtpEmail } from "../services/api";
 import { setLanguage, getCurrentLanguage } from "../services/i18n";
 
 const safeBool = (val, defaultVal = false) => {
@@ -41,6 +41,9 @@ export default function SettingsTab({ setToast }) {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadErrors, setLoadErrors] = useState([]);
+  const [testEmailTo, setTestEmailTo] = useState("");
+  const [testEmailSending, setTestEmailSending] = useState(false);
+  const [testEmailResult, setTestEmailResult] = useState(null);
   const [roleUsers, setRoleUsers] = useState([]);
   const [showUserModal, setShowUserModal] = useState(false);
   const [selectedRole, setSelectedRole] = useState("");
@@ -182,7 +185,6 @@ export default function SettingsTab({ setToast }) {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      // Coerce booleans properly before sending
       const payload = {
         portalName: settings.portalName,
         adminLanguage: settings.adminLanguage,
@@ -217,6 +219,30 @@ export default function SettingsTab({ setToast }) {
   }, [settings, passwordPolicy, emailConfig, twilioConfig, setToast]);
 
   const markDirty = useCallback(() => setDirty(true), []);
+
+  const handleTestEmail = useCallback(async () => {
+    if (!testEmailTo.trim()) {
+      setTestEmailResult({ success: false, message: "Please enter a recipient email address." });
+      return;
+    }
+    setTestEmailSending(true);
+    setTestEmailResult(null);
+    try {
+      const data = await testSmtpEmail(testEmailTo.trim());
+      setTestEmailResult({ success: data.success, message: data.message });
+      if (data.success) {
+        setToast?.({ msg: `✅ Test email sent to ${testEmailTo}!`, type: "success" });
+      } else {
+        setToast?.({ msg: data.message || "Test email failed.", type: "error" });
+      }
+    } catch (error) {
+      const msg = error.message || "Failed to send test email.";
+      setTestEmailResult({ success: false, message: msg });
+      setToast?.({ msg, type: "error" });
+    } finally {
+      setTestEmailSending(false);
+    }
+  }, [testEmailTo, setToast]);
 
   const roleCards = [
     {
@@ -262,7 +288,6 @@ export default function SettingsTab({ setToast }) {
     setShowUserModal(true);
   };
 
-  // Find users matching the selected role label
   const modalUsers = (() => {
     const roleMap = {
       "Super Admin": "admin",
@@ -273,7 +298,6 @@ export default function SettingsTab({ setToast }) {
     const roleKey = roleMap[selectedRole] || "";
     const matched = roleUsers.find((r) => r.role === roleKey);
     if (!matched) return [];
-
     if (selectedRole === "Pending Teachers") {
       return matched.users.filter((u) => u.status === "pending");
     }
@@ -395,6 +419,123 @@ export default function SettingsTab({ setToast }) {
             </div>
           )}
 
+          {/* Email Configuration */}
+          {activeSection === "email" && (
+            <SectionCard title="📧 Email (SMTP) Configuration">
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16, lineHeight: 1.5 }}>
+                Configure SMTP settings to send real emails to registered teacher email addresses. Used for notifications, password resets, and system alerts.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div>
+                  <label style={S.label}>SMTP Host</label>
+                  <input type="text" style={S.input} placeholder="smtp.gmail.com" value={emailConfig.smtpHost} onChange={(e) => { setEmailConfig((p) => ({ ...p, smtpHost: e.target.value })); markDirty(); }} />
+                </div>
+                <div>
+                  <label style={S.label}>SMTP Port</label>
+                  <input type="number" style={S.input} placeholder="587" value={emailConfig.smtpPort} onChange={(e) => { setEmailConfig((p) => ({ ...p, smtpPort: Number(e.target.value) })); markDirty(); }} />
+                </div>
+                <div>
+                  <label style={S.label}>SMTP Username</label>
+                  <input type="text" style={S.input} placeholder="your-email@gmail.com" value={emailConfig.smtpUser} onChange={(e) => { setEmailConfig((p) => ({ ...p, smtpUser: e.target.value })); markDirty(); }} />
+                </div>
+                <div>
+                  <label style={S.label}>SMTP Password / App Password</label>
+                  <input type="password" style={S.input} placeholder="••••••••" value={emailConfig.smtpPass} onChange={(e) => { setEmailConfig((p) => ({ ...p, smtpPass: e.target.value })); markDirty(); }} />
+                </div>
+                <div>
+                  <label style={S.label}>From Email</label>
+                  <input type="email" style={S.input} placeholder="noreply@portal.com" value={emailConfig.fromEmail} onChange={(e) => { setEmailConfig((p) => ({ ...p, fromEmail: e.target.value })); markDirty(); }} />
+                </div>
+                <div>
+                  <label style={S.label}>From Name</label>
+                  <input type="text" style={S.input} placeholder="SpacECE Portal" value={emailConfig.fromName} onChange={(e) => { setEmailConfig((p) => ({ ...p, fromName: e.target.value })); markDirty(); }} />
+                </div>
+              </div>
+
+              <div style={{ background: "#fef3c7", padding: "12px 16px", borderRadius: 10, border: "1px solid #fbbf24", fontSize: 12, color: "#92400e", marginBottom: 20 }}>
+                💡 <strong>Gmail users:</strong> Use host <code>smtp.gmail.com</code>, port <code>587</code>, and generate an <strong>App Password</strong> (not your regular password) from Google Account → Security → 2-Step Verification → App passwords.
+              </div>
+
+              {/* ─── Test Email ─── */}
+              <div style={{ borderTop: "1px solid #f3f4f6", paddingTop: 18 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#1c1917", marginBottom: 4 }}>🧪 Test Email Delivery</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12, lineHeight: 1.5 }}>
+                  Save your SMTP settings first, then send a test email to verify delivery is working. You can use your own email address to confirm receipt.
+                </div>
+                <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <div style={{ flex: 1 }}>
+                    <input
+                      id="test-email-recipient"
+                      type="email"
+                      style={{ ...S.input, marginBottom: 0 }}
+                      placeholder="Enter recipient email to test (e.g. your@email.com)"
+                      value={testEmailTo}
+                      onChange={(e) => { setTestEmailTo(e.target.value); setTestEmailResult(null); }}
+                    />
+                  </div>
+                  <button
+                    id="btn-send-test-email"
+                    onClick={handleTestEmail}
+                    disabled={testEmailSending}
+                    style={{
+                      ...S.primaryBtn,
+                      whiteSpace: "nowrap",
+                      opacity: testEmailSending ? 0.7 : 1,
+                      minWidth: 130,
+                    }}
+                  >
+                    {testEmailSending ? "Sending..." : "📤 Send Test"}
+                  </button>
+                </div>
+
+                {testEmailResult && (
+                  <div style={{
+                    marginTop: 12,
+                    padding: "12px 16px",
+                    borderRadius: 10,
+                    background: testEmailResult.success ? "#d1fae5" : "#fee2e2",
+                    border: `1px solid ${testEmailResult.success ? "#6ee7b7" : "#fca5a5"}`,
+                    fontSize: 13,
+                    color: testEmailResult.success ? "#065f46" : "#991b1b",
+                    fontWeight: 600,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}>
+                    <span>{testEmailResult.success ? "✅" : "❌"}</span>
+                    <span>{testEmailResult.message}</span>
+                  </div>
+                )}
+              </div>
+            </SectionCard>
+          )}
+
+          {/* SMS / WhatsApp Configuration */}
+          {activeSection === "messaging" && (
+            <SectionCard title="💬 SMS & WhatsApp (Twilio) Configuration">
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16, lineHeight: 1.5 }}>
+                Configure Twilio credentials to send real SMS and WhatsApp messages to registered teacher phone numbers.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div>
+                  <label style={S.label}>Twilio Account SID</label>
+                  <input type="text" style={S.input} placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxx" value={twilioConfig.twilioSid} onChange={(e) => { setTwilioConfig((p) => ({ ...p, twilioSid: e.target.value })); markDirty(); }} />
+                </div>
+                <div>
+                  <label style={S.label}>Twilio Auth Token</label>
+                  <input type="password" style={S.input} placeholder="••••••••••••••••••••••••••••" value={twilioConfig.twilioToken} onChange={(e) => { setTwilioConfig((p) => ({ ...p, twilioToken: e.target.value })); markDirty(); }} />
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={S.label}>Twilio From Number</label>
+                  <input type="text" style={S.input} placeholder="+1234567890 (for WhatsApp: whatsapp:+1234567890)" value={twilioConfig.twilioFrom} onChange={(e) => { setTwilioConfig((p) => ({ ...p, twilioFrom: e.target.value })); markDirty(); }} />
+                </div>
+              </div>
+              <div style={{ background: "#fef3c7", padding: "12px 16px", borderRadius: 10, border: "1px solid #fbbf24", fontSize: 12, color: "#92400e" }}>
+                Get credentials from <a href="https://console.twilio.com" target="_blank" rel="noopener noreferrer" style={{ color: "#2563eb" }}>Twilio Console</a>. For WhatsApp, enable the WhatsApp sandbox and use <code>whatsapp:+14155238886</code> as the from number.
+              </div>
+            </SectionCard>
+          )}
+
           {/* Security / Password Policy */}
           {activeSection === "security" && (
             <SectionCard title="🔒 Password & Security Policy">
@@ -436,7 +577,7 @@ export default function SettingsTab({ setToast }) {
           {activeSection === "roles" && (
             <SectionCard title="🛡️ Role-Based Access Control">
               <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 14, lineHeight: 1.5 }}>
-                Live user counts from the database. Click "View Users" to see the actual users assigned to each role.
+                Live user counts from the database. Click &quot;View Users&quot; to see the actual users assigned to each role.
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {roleCards.map((r, i) => (
@@ -460,124 +601,6 @@ export default function SettingsTab({ setToast }) {
                     <p style={{ fontSize: 11, color: "#9ca3af", margin: 0, paddingLeft: 18 }}>{r.access}</p>
                   </div>
                 ))}
-              </div>
-            </SectionCard>
-          )}
-
-          {/* Email Configuration */}
-          {activeSection === "email" && (
-            <SectionCard title="📧 Email (SMTP) Configuration">
-              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16, lineHeight: 1.5 }}>
-                Configure SMTP settings to send real emails to registered teacher email addresses. Used for notifications, password resets, and system alerts.
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <div>
-                  <label style={S.label}>SMTP Host</label>
-                  <input
-                    type="text"
-                    style={S.input}
-                    placeholder="smtp.gmail.com"
-                    value={emailConfig.smtpHost}
-                    onChange={(e) => { setEmailConfig((p) => ({ ...p, smtpHost: e.target.value })); markDirty(); }}
-                  />
-                </div>
-                <div>
-                  <label style={S.label}>SMTP Port</label>
-                  <input
-                    type="number"
-                    style={S.input}
-                    placeholder="587"
-                    value={emailConfig.smtpPort}
-                    onChange={(e) => { setEmailConfig((p) => ({ ...p, smtpPort: Number(e.target.value) })); markDirty(); }}
-                  />
-                </div>
-                <div>
-                  <label style={S.label}>SMTP Username</label>
-                  <input
-                    type="text"
-                    style={S.input}
-                    placeholder="your-email@gmail.com"
-                    value={emailConfig.smtpUser}
-                    onChange={(e) => { setEmailConfig((p) => ({ ...p, smtpUser: e.target.value })); markDirty(); }}
-                  />
-                </div>
-                <div>
-                  <label style={S.label}>SMTP Password</label>
-                  <input
-                    type="password"
-                    style={S.input}
-                    placeholder="••••••••"
-                    value={emailConfig.smtpPass}
-                    onChange={(e) => { setEmailConfig((p) => ({ ...p, smtpPass: e.target.value })); markDirty(); }}
-                  />
-                </div>
-                <div>
-                  <label style={S.label}>From Email</label>
-                  <input
-                    type="email"
-                    style={S.input}
-                    placeholder="noreply@portal.com"
-                    value={emailConfig.fromEmail}
-                    onChange={(e) => { setEmailConfig((p) => ({ ...p, fromEmail: e.target.value })); markDirty(); }}
-                  />
-                </div>
-                <div>
-                  <label style={S.label}>From Name</label>
-                  <input
-                    type="text"
-                    style={S.input}
-                    placeholder="SpacECE Portal"
-                    value={emailConfig.fromName}
-                    onChange={(e) => { setEmailConfig((p) => ({ ...p, fromName: e.target.value })); markDirty(); }}
-                  />
-                </div>
-              </div>
-              <div style={{ background: "#fef3c7", padding: "12px 16px", borderRadius: 10, border: "1px solid #fbbf24", fontSize: 12, color: "#92400e" }}>
-                Example: For Gmail, use host smtp.gmail.com, port 587, and an app-specific password. Changes are saved to the database and take effect immediately.
-              </div>
-            </SectionCard>
-          )}
-
-          {/* SMS / WhatsApp Configuration */}
-          {activeSection === "messaging" && (
-            <SectionCard title="💬 SMS & WhatsApp (Twilio) Configuration">
-              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16, lineHeight: 1.5 }}>
-                Configure Twilio credentials to send real SMS and WhatsApp messages to registered teacher phone numbers.
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <div>
-                  <label style={S.label}>Twilio Account SID</label>
-                  <input
-                    type="text"
-                    style={S.input}
-                    placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxx"
-                    value={twilioConfig.twilioSid}
-                    onChange={(e) => { setTwilioConfig((p) => ({ ...p, twilioSid: e.target.value })); markDirty(); }}
-                  />
-                </div>
-                <div>
-                  <label style={S.label}>Twilio Auth Token</label>
-                  <input
-                    type="password"
-                    style={S.input}
-                    placeholder="••••••••••••••••••••••••••••"
-                    value={twilioConfig.twilioToken}
-                    onChange={(e) => { setTwilioConfig((p) => ({ ...p, twilioToken: e.target.value })); markDirty(); }}
-                  />
-                </div>
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <label style={S.label}>Twilio From Number</label>
-                  <input
-                    type="text"
-                    style={S.input}
-                    placeholder="+1234567890 (for WhatsApp: whatsapp:+1234567890)"
-                    value={twilioConfig.twilioFrom}
-                    onChange={(e) => { setTwilioConfig((p) => ({ ...p, twilioFrom: e.target.value })); markDirty(); }}
-                  />
-                </div>
-              </div>
-              <div style={{ background: "#fef3c7", padding: "12px 16px", borderRadius: 10, border: "1px solid #fbbf24", fontSize: 12, color: "#92400e" }}>
-                Get credentials from <a href="https://console.twilio.com" target="_blank" rel="noopener noreferrer" style={{ color: "#2563eb" }}>Twilio Console</a>. For WhatsApp, enable the WhatsApp sandbox and use <code>whatsapp:+14155238886</code> as the from number.
               </div>
             </SectionCard>
           )}

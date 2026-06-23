@@ -144,16 +144,6 @@ export async function sendNotificationEmail({ recipient, title, body, category =
   return { success: false, error: "SMTP not configured" };
 }
 
-  return {
-    host: String(map.smtpHost),
-    port: Number(map.smtpPort) || 587,
-    user: String(map.smtpUser),
-    pass: String(map.smtpPass),
-    fromEmail: String(map.fromEmail || map.smtpUser),
-    fromName: String(map.fromName || "SpacECE Notifications"),
-  };
-}
-
 /**
  * Load Twilio config — first from env vars, then from DB as fallback.
  */
@@ -180,58 +170,4 @@ export async function getTwilioConfig() {
     token: String(map.twilioToken),
     from: String(map.twilioFrom),
   };
-}
-
-/**
- * Send an email to a single recipient using the portal's SMTP config.
- * Returns { success: boolean, error?: string }.
- */
-export async function sendEmail({ to, subject, html }) {
-  try {
-    const config = await getSmtpConfig();
-    if (!config) {
-      return { success: false, error: "SMTP not configured. Set SMTP settings in Settings & Roles > Email." };
-    }
-
-    const transporter = nodemailer.createTransport({
-      host: config.host,
-      port: config.port,
-      secure: config.port === 465,
-      auth: { user: config.user, pass: config.pass },
-    });
-
-    await transporter.sendMail({
-      from: `"${config.fromName}" <${config.fromEmail}>`,
-      to,
-      subject,
-      html: html || subject,
-    });
-
-    return { success: true };
-  } catch (error) {
-    return { success: false, error: error.message || "Unknown email error" };
-  }
-}
-
-/**
- * Send bulk emails to multiple recipients.
- * Returns an array of results, one per recipient.
- */
-export async function sendBulkEmails({ recipients, subject, body }) {
-  const html = body
-    .replace(/\n/g, "<br>")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-
-  const results = await Promise.allSettled(
-    recipients.map(async (r) => {
-      const result = await sendEmail({ to: r.email, subject, html });
-      return { recipientId: r._id, ...result };
-    })
-  );
-
-  return results.map((r) =>
-    r.status === "fulfilled"
-      ? r.value
-      : { recipientId: null, success: false, error: r.reason?.message || "Failed to send" }
-  );
 }

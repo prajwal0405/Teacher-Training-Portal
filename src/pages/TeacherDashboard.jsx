@@ -199,25 +199,31 @@ const getCourseContent = (assignment, notes = []) => {
   const baseNotesText = courseNotes.map(n => n.content).join('\n\n').trim();
   const dbNotes = dbCourse.description || "";
 
+  const mapContentItem = (content, moduleIndex, contentIndex) => {
+    const id = content._id || `content-${moduleIndex}-${contentIndex}`;
+    // Support both externalUrl (from DB contents) and videoUrl (from admin form lessons)
+    const url = content.externalUrl || content.videoUrl || content.url || content.file?.publicUrl || "";
+    const youtubeMatch = url.match(/(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?\/\s]{11})/);
+    const contentNotes = notes.filter(n => n.moduleIndex === moduleIndex && n.contentIndex === contentIndex);
+    return {
+      id,
+      title: content.title || `Content ${contentIndex + 1}`,
+      type: content.type || (url ? "video" : "document"),
+      url,
+      ytId: youtubeMatch?.[1] || "",
+      duration: content.suggestedDuration || content.duration || (content.type === "video" ? "Video" : content.type || "Content"),
+      notes: contentNotes.map(n => n.content).join('\n\n').trim() || content.notes || content.description || ""
+    };
+  };
+
   let modules;
   if (rawModules.length > 0) {
     modules = rawModules.map((module, moduleIndex) => {
-      const contents = (module.contents || []).map((content, contentIndex) => {
-        const id = content._id || `content-${moduleIndex}-${contentIndex}`;
-        const url = content.externalUrl || content.file?.publicUrl || "";
-        const youtubeMatch = url.match(/(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?\/\s]{11})/);
-        const moduleNotes = notes.filter(n => n.moduleIndex === moduleIndex && !n.contentIndex);
-        const contentNotes = notes.filter(n => n.moduleIndex === moduleIndex && n.contentIndex === contentIndex);
-        return {
-          id,
-          title: content.title || `Content ${contentIndex + 1}`,
-          type: content.type || "document",
-          url,
-          ytId: youtubeMatch?.[1] || "",
-          duration: content.type === "video" ? "Video" : content.type || "Content",
-          notes: contentNotes.map(n => n.content).join('\n\n').trim() || ""
-        };
-      });
+      // Support both module.contents (DB schema) and module.lessons (admin form schema)
+      const rawItems = module.contents?.length ? module.contents
+        : module.lessons?.length ? module.lessons
+        : [];
+      const contents = rawItems.map((content, ci) => mapContentItem(content, moduleIndex, ci));
 
       const moduleNotesList = notes.filter(n => n.moduleIndex === moduleIndex && !n.contentIndex);
       const notesText = moduleNotesList.map(n => n.content).join('\n\n').trim();
@@ -238,26 +244,28 @@ const getCourseContent = (assignment, notes = []) => {
       return m ? m[1] : null;
     })();
 
+    const singleItem = ytId ? [{
+      id: `content-0`,
+      title: dbCourse.title || "Course Video",
+      type: "video",
+      url: dbCourse.contentLink || `https://www.youtube.com/watch?v=${ytId}`,
+      ytId: ytId || "",
+      duration: "Video"
+    }] : [{
+      id: `content-0`,
+      title: dbCourse.title || "Course Material",
+      type: "document",
+      url: dbCourse.contentLink || "",
+      ytId: "",
+      duration: "Document"
+    }];
+
     modules = [{
       id: `module-0`,
       title: dbCourse.title || "Course Content",
       description: dbCourse.description || "",
-      contents: ytId ? [{
-        id: `content-0`,
-        title: dbCourse.title || "Course Video",
-        type: "video",
-        url: dbCourse.contentLink || `https://www.youtube.com/watch?v=${ytId}`,
-        ytId: ytId || "",
-        duration: "Video"
-      }] : [{
-        id: `content-0`,
-        title: dbCourse.title || "Course Material",
-        type: "document",
-        url: dbCourse.contentLink || "",
-        ytId: "",
-        duration: "Document"
-      }],
-      items: [],
+      contents: singleItem,
+      items: singleItem,
       notes: baseNotesText || dbCourse.description || "No content has been added to this course yet. Please contact your administrator."
     }];
   } else {
@@ -310,7 +318,10 @@ function CoursesTab({ assignments = [], onMarkDone }) {
       completedContent.push(videoId);
     }
     const allVids = enrichedContent.modules.flatMap(m => m.items);
-    const progressPercent = Math.round((completedContent.length / allVids.length) * 100);
+    // Guard against division by zero
+    const progressPercent = allVids.length > 0
+      ? Math.round((completedContent.length / allVids.length) * 100)
+      : completedContent.length > 0 ? 100 : 0;
 
     onMarkDone && onMarkDone(assign._id, {
       completedContent,

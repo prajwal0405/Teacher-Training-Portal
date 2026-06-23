@@ -1,6 +1,47 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { User } from "./models/User.js";
+import { PortalSetting } from "./models/PortalSetting.js";
+
+export async function validatePasswordAgainstPolicy(password) {
+  try {
+    const keys = ["minLength", "requireUppercase", "requireNumbers", "requireSpecial"];
+    const docs = await PortalSetting.find({ key: { $in: keys } });
+    const policy = {
+      minLength: 8,
+      requireUppercase: true,
+      requireNumbers: true,
+      requireSpecial: false,
+    };
+    docs.forEach((doc) => {
+      if (doc.key === "minLength") {
+        policy.minLength = Number(doc.value) || 8;
+      } else {
+        policy[doc.key] = doc.value === true || doc.value === "true";
+      }
+    });
+
+    if (password.length < policy.minLength) {
+      return { valid: false, message: `Password must be at least ${policy.minLength} characters long.` };
+    }
+    if (policy.requireUppercase && !/[A-Z]/.test(password)) {
+      return { valid: false, message: "Password must contain at least one uppercase letter." };
+    }
+    if (policy.requireNumbers && !/[0-9]/.test(password)) {
+      return { valid: false, message: "Password must contain at least one number." };
+    }
+    if (policy.requireSpecial && !/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+      return { valid: false, message: "Password must contain at least one special character." };
+    }
+    return { valid: true };
+  } catch (error) {
+    console.error("Error validating password against policy:", error);
+    if (password.length < 8) {
+      return { valid: false, message: "Password must be at least 8 characters long." };
+    }
+    return { valid: true };
+  }
+}
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {

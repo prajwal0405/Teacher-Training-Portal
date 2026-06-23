@@ -10,8 +10,8 @@ const mapChildFromApi = (c) => ({
   parentName: c.guardianName || c.parentName || "",
   phone: c.guardianPhone || c.phone || "",
   email: c.email || "",
-  centerId: c.center?._id || c.center || "",
-  classId: c.class?._id || c.class || "",
+  centerId: String(c.center?._id || c.center || ""),
+  classId: String(c.class?._id || c.class || ""),
   status: c.status || "active",
   attendanceRate: "95%",
   activities: c.activities || [
@@ -62,38 +62,39 @@ function ChildFormModal({ child, centers = [], classes = [], onSave, onClose, se
     }
     return { ...EMPTY_FORM };
   });
+  const [saving, setSaving] = useState(false);
+  const selectedClass = classes.find(cls => String(cls._id || cls.id) === String(form.classId));
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name || !form.parentName || !form.phone || !form.centerId || !form.classId) {
-      setToast({ msg: "Please fill all required fields.", type: "error" });
+    const classCenterId = selectedClass ? String(selectedClass.center?._id || selectedClass.center?.id || selectedClass.center || "") : "";
+    const resolvedCenterId = form.centerId || classCenterId;
+
+    if (!form.name || !form.parentName || !form.phone || !resolvedCenterId || !form.classId) {
+      setToast({ msg: "Please fill all required fields including center and class.", type: "error" });
       return;
     }
-    onSave(form);
+    setSaving(true);
+    try {
+      await onSave({ ...form, centerId: resolvedCenterId });
+    } finally {
+      setSaving(false);
+    }
   };
 
-  // Filter classes by selected center in the form - use string comparison for ObjectId compatibility
-  const formClasses = classes.filter(cls => {
-    const cid = cls.center?._id || cls.center?.id || cls.center;
-    return form.centerId ? String(cid) === String(form.centerId) : true;
-  });
-
-  // When editing, show all classes (user can re-assign); when adding, show only center classes
-  const classesToShow = isEdit ? classes : formClasses;
-
   return (
-    <Modal title={isEdit ? "✏️ Edit Child Profile" : "👶 Enroll New Child"} onClose={onClose}>
+    <Modal title={isEdit ? "?? Edit Child Profile" : "?? Enroll New Child"} onClose={onClose}>
       <form onSubmit={handleSubmit}>
         <label style={S.label}>Child's Full Name *</label>
         <input style={{ ...S.input, marginBottom: 12 }} value={form.name}
           onChange={e => setForm({ ...form, name: e.target.value })}
-          placeholder="e.g. Aarav Sharma" />
+          placeholder="e.g. Aarav Sharma" required />
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
           <div>
             <label style={S.label}>Age *</label>
-            <input style={S.input} type="number" value={form.age}
-              onChange={e => setForm({ ...form, age: e.target.value })} placeholder="e.g. 4" />
+            <input style={S.input} type="number" min={1} max={18} value={form.age}
+              onChange={e => setForm({ ...form, age: e.target.value })} placeholder="e.g. 4" required />
           </div>
           <div>
             <label style={S.label}>Gender</label>
@@ -109,19 +110,61 @@ function ChildFormModal({ child, centers = [], classes = [], onSave, onClose, se
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
           <div>
             <label style={S.label}>Assigned Center *</label>
-            <select style={S.input} value={form.centerId}
-              onChange={e => setForm({ ...form, centerId: e.target.value, classId: "" })}>
-              <option value="">Select Center</option>
-              {centers.map(c => <option key={c._id || c.id} value={c._id || c.id}>{c.name}</option>)}
+            <select
+              style={S.input}
+              value={form.centerId}
+              onChange={e => setForm({ ...form, centerId: e.target.value })}
+              required
+            >
+              <option value="">-- Select Center --</option>
+              {centers.map(c => (
+                <option key={c._id || c.id} value={c._id || c.id}>{c.name}</option>
+              ))}
             </select>
+            {centers.length === 0 && (
+              <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>
+                No centers found. Please create a center first.
+              </div>
+            )}
           </div>
           <div>
             <label style={S.label}>Assigned Class *</label>
-            <select style={S.input} value={form.classId}
-              onChange={e => setForm({ ...form, classId: e.target.value })} disabled={!form.centerId}>
-              <option value="">Select Class</option>
-              {classesToShow.map(cls => <option key={cls._id || cls.id} value={cls._id || cls.id}>{cls.name}</option>)}
+            <select
+              style={S.input}
+              value={form.classId}
+              onChange={e => {
+                const nextClassId = e.target.value;
+                const nextClass = classes.find(cls => String(cls._id || cls.id) === String(nextClassId));
+                const nextCenterId = String(nextClass?.center?._id || nextClass?.center?.id || nextClass?.center || "");
+                setForm(prev => ({
+                  ...prev,
+                  classId: nextClassId,
+                  centerId: nextCenterId || prev.centerId,
+                }));
+              }}
+              required
+            >
+              <option value="">-- Select Class --</option>
+              {classes.map(cls => {
+                const clsCenterId = String(cls.center?._id || cls.center?.id || cls.center || "");
+                const clsCenterName = centers.find(c => String(c._id || c.id) === clsCenterId)?.name || "Unknown Center";
+                return (
+                  <option key={cls._id || cls.id} value={cls._id || cls.id}>
+                    {cls.name} ({clsCenterName})
+                  </option>
+                );
+              })}
             </select>
+            {classes.length === 0 && (
+              <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>
+                No classes found. Please create a class first.
+              </div>
+            )}
+            {classes.length > 0 && !form.centerId && (
+              <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
+                Choose a class to auto-fill the center, or select a center manually.
+              </div>
+            )}
           </div>
         </div>
 
@@ -130,13 +173,13 @@ function ChildFormModal({ child, centers = [], classes = [], onSave, onClose, se
         <label style={S.label}>Parent / Guardian Name *</label>
         <input style={{ ...S.input, marginBottom: 12 }} value={form.parentName}
           onChange={e => setForm({ ...form, parentName: e.target.value })}
-          placeholder="e.g. Rajesh Sharma" />
+          placeholder="e.g. Rajesh Sharma" required />
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
           <div>
             <label style={S.label}>Parent Phone *</label>
             <input style={S.input} value={form.phone}
-              onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="9876543211" />
+              onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="9876543211" required />
           </div>
           <div>
             <label style={S.label}>Parent Email</label>
@@ -152,18 +195,17 @@ function ChildFormModal({ child, centers = [], classes = [], onSave, onClose, se
           <option value="inactive">Inactive</option>
         </select>
 
-        <button type="submit" style={{ ...S.primaryBtn, width: "100%" }}>
-          {isEdit ? "Update Profile →" : "Enroll Child →"}
+        <button type="submit" disabled={saving} style={{ ...S.primaryBtn, width: "100%", opacity: saving ? 0.7 : 1 }}>
+          {saving ? "Saving..." : isEdit ? "Update Profile ?" : "Enroll Child ?"}
         </button>
       </form>
     </Modal>
   );
 }
 
-/* ── Child Detail & History View ── */
 function ChildDetailModal({ child, centers = [], classes = [], onClose }) {
-  const centerName = centers.find(c => (c._id || c.id) === child.centerId)?.name || "Unassigned Center";
-  const className = classes.find(c => (c._id || c.id) === child.classId)?.name || "Unassigned Class";
+  const centerName = centers.find(c => String(c._id || c.id) === String(child.centerId))?.name || "Unassigned Center";
+  const className = classes.find(c => String(c._id || c.id) === String(child.classId))?.name || "Unassigned Class";
 
   return (
     <Modal title={`👶 Profile: ${child.name}`} onClose={onClose}>
@@ -224,7 +266,7 @@ export default function ChildrenManagementTab({ setToast }) {
   const [editChild, setEditChild] = useState(null);
   const [detailChild, setDetailChild] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [toast, setLocalToast] = useState({ msg: "", type: "" });
+  const [localToast, setLocalToast] = useState({ msg: "", type: "" });
 
   const showToast = setToast || setLocalToast;
 
@@ -234,7 +276,16 @@ export default function ChildrenManagementTab({ setToast }) {
       .then(([childrenRes, centersRes, classesRes]) => {
         const dbChildren = (childrenRes.children || []).map(mapChildFromApi);
         const dbCenters = centersRes.centers || [];
-        const dbClasses = classesRes.classes || [];
+        const dbClasses = (classesRes.classes || []).map(c => ({
+          _id: c._id || c.id,
+          id: c._id || c.id,
+          name: c.name,
+          // Normalize center reference to string ID
+          center: String(c.center?._id || c.center?.id || c.center || ""),
+          ageGroup: c.ageGroup || "",
+          curriculumLevel: c.curriculumLevel || "",
+          schedule: c.schedule || "",
+        }));
 
         setChildren(dbChildren);
         setCenters(dbCenters);
@@ -242,7 +293,7 @@ export default function ChildrenManagementTab({ setToast }) {
 
         // Pre-select first center if none selected
         if (dbCenters.length > 0 && !selectedCenterId) {
-          setSelectedCenterId(dbCenters[0]._id || dbCenters[0].id);
+          setSelectedCenterId(String(dbCenters[0]._id || dbCenters[0].id));
         }
         setLoading(false);
       })
@@ -254,61 +305,20 @@ export default function ChildrenManagementTab({ setToast }) {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const filteredChildren = children.filter(c => {
-    const q = search.toLowerCase();
-    const matchSearch = c.name.toLowerCase().includes(q) || c.parentName.toLowerCase().includes(q);
-    const matchCenter = !selectedCenterId || c.centerId === selectedCenterId;
-    const matchClass = !selectedClassId || c.classId === selectedClassId;
-    return matchSearch && matchCenter && matchClass;
-  });
+  /* ── Handlers ── */
+  const handleCenterSelect = (cid) => {
+    setSelectedCenterId(String(cid));
+    setSelectedClassId(null); // reset class filter
+  };
 
-  const handleSave = (saved) => {
-    let payload;
-    try {
-      payload = mapChildToApi(saved);
-    } catch (validationError) {
-      showToast({ msg: validationError.message, type: "error" });
-      return;
-    }
-    if (editChild) {
-      updateChild(editChild.id, payload)
-        .then(() => {
-          showToast({ msg: "Child profile updated!", type: "success" });
-          loadData();
-        })
-        .catch(err => showToast({ msg: err.message, type: "error" }));
-    } else {
-      createChild(payload)
-        .then(() => {
-          showToast({ msg: "Child enrolled successfully in database!", type: "success" });
-          loadData();
-        })
-        .catch(err => showToast({ msg: err.message, type: "error" }));
-    }
-    setFormModal(false);
+  const openAdd = () => {
     setEditChild(null);
-  };
-
-  const handleDeactivate = (id) => {
-    updateChild(id, { status: "inactive" })
-      .then(() => {
-        showToast({ msg: "Child profile marked as inactive.", type: "success" });
-        loadData();
-      })
-      .catch(err => showToast({ msg: err.message, type: "error" }));
-  };
-
-  const handleDeleteChild = (id) => {
-    if (!window.confirm("Are you sure you want to permanently delete this child's enrollment?")) return;
-    deleteChild(id)
-      .then(() => {
-        showToast({ msg: "Child enrollment permanently deleted.", type: "success" });
-        loadData();
-      })
-      .catch(err => showToast({ msg: err.message, type: "error" }));
+    setFormModal(true);
   };
 
   const openEdit = (child) => {
@@ -316,51 +326,89 @@ export default function ChildrenManagementTab({ setToast }) {
     setFormModal(true);
   };
 
-  const openAdd = () => {
-    setEditChild({ ...EMPTY_FORM, centerId: selectedCenterId || "" });
-    setFormModal(true);
+  const handleSaveChild = async (form) => {
+    try {
+      const payload = mapChildToApi(form);
+      if (editChild && editChild.id) {
+        const res = await updateChild(editChild.id, payload);
+        const updated = mapChildFromApi(res.child || res);
+        setChildren(prev => prev.map(c => c.id === updated.id ? updated : c));
+        showToast({ msg: "Child profile updated!", type: "success" });
+      } else {
+        const res = await createChild(payload);
+        const created = mapChildFromApi(res.child || res);
+        setChildren(prev => [created, ...prev]);
+        showToast({ msg: "Child enrolled successfully!", type: "success" });
+      }
+      setFormModal(false);
+      setEditChild(null);
+    } catch (err) {
+      showToast({ msg: err.message || "Failed to save child.", type: "error" });
+      // Re-throw so the modal's saving state resets correctly
+      throw err;
+    }
   };
 
-  const handleCenterSelect = (centerId) => {
-    setSelectedCenterId(centerId);
-    setSelectedClassId(null);
+  const handleDeleteChild = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this child profile?")) return;
+    try {
+      await deleteChild(id);
+      setChildren(prev => prev.filter(c => c.id !== id));
+      showToast({ msg: "Child profile deleted.", type: "error" });
+    } catch (err) {
+      showToast({ msg: err.message || "Failed to delete child.", type: "error" });
+    }
   };
 
-  const getClassStudentCount = (classId) => {
-    return children.filter(c => c.centerId === selectedCenterId && c.classId === classId).length;
-  };
+  /* ── Computed values ── */
+  const active = children.filter(c => c.status === "active").length;
+  const inactive = children.filter(c => c.status === "inactive").length;
+
+  // Classes belonging to the currently selected center
+  const activeCenterClasses = classes.filter(cls => {
+    const cid = String(cls.center?._id || cls.center?.id || cls.center || "");
+    return selectedCenterId ? cid === String(selectedCenterId) : true;
+  });
+
+  // Count children enrolled in a given class
+  const getClassStudentCount = (classId) =>
+    children.filter(c => String(c.classId) === String(classId)).length;
+
+  // Multi-level filter: center → class → search
+  const filteredChildren = children.filter(c => {
+    const q = search.toLowerCase();
+    const matchSearch = c.name.toLowerCase().includes(q) || c.parentName.toLowerCase().includes(q);
+    const matchCenter = selectedCenterId ? String(c.centerId) === String(selectedCenterId) : true;
+    const matchClass = selectedClassId ? String(c.classId) === String(selectedClassId) : true;
+    return matchSearch && matchCenter && matchClass;
+  });
 
   if (loading) {
     return (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "40vh", fontSize: 14, fontWeight: 600, color: "#d97706" }}>
-        🔄 Loading Children & Classes...
+      <div style={{ textAlign: "center", padding: "60px 20px", color: "#9ca3af" }}>
+        <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>Loading children data...</div>
       </div>
     );
   }
 
-  const active = children.filter(c => c.status === "active").length;
-  const inactive = children.filter(c => c.status === "inactive").length;
-
-  const activeCenterClasses = classes.filter(cls => {
-    const cid = cls.center?._id || cls.center?.id || cls.center;
-    return cid === selectedCenterId;
-  });
-
   return (
-    <div style={{ animation: "fadeIn 0.3s ease", fontFamily: "inherit" }}>
-      {!setToast && <Toast msg={toast.msg} type={toast.type} onClose={() => setLocalToast({ msg: "", type: "" })} />}
+    <div style={{ animation: "fadeIn 0.3s ease" }}>
+      {localToast.msg && <Toast msg={localToast.msg} type={localToast.type} onClose={() => setLocalToast({ msg: "", type: "" })} />}
 
+      {/* Form Modal */}
       {formModal && (
         <ChildFormModal
           child={editChild}
           centers={centers}
           classes={classes}
-          onSave={handleSave}
+          onSave={handleSaveChild}
           onClose={() => { setFormModal(false); setEditChild(null); }}
           setToast={showToast}
         />
       )}
 
+      {/* Detail Modal */}
       {detailChild && (
         <ChildDetailModal
           child={detailChild}
@@ -373,7 +421,7 @@ export default function ChildrenManagementTab({ setToast }) {
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div>
-          <h1 style={S.pageTitle}>Children & Class Management</h1>
+          <h1 style={S.pageTitle}>Children &amp; Class Management</h1>
           <p style={S.pageSub}>{active} active enrolled · {inactive} inactive · {children.length} total profiles</p>
         </div>
         <button onClick={openAdd} style={S.primaryBtn}>+ Enroll Child</button>
@@ -391,44 +439,50 @@ export default function ChildrenManagementTab({ setToast }) {
         <div style={{ fontSize: 13, fontWeight: 700, color: "#475569", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>
           📍 Select Center
         </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {centers.map(center => {
-            const cid = center._id || center.id;
-            const isSelected = selectedCenterId === cid;
-            const centerCount = children.filter(c => c.centerId === cid).length;
-            return (
-              <button
-                key={cid}
-                onClick={() => handleCenterSelect(cid)}
-                style={{
-                  padding: "12px 18px",
-                  borderRadius: 12,
-                  border: isSelected ? "2px solid #8b5cf6" : "1px solid #e2e8f0",
-                  background: isSelected ? "#f5f3ff" : "white",
-                  color: isSelected ? "#6d28d9" : "#475569",
-                  fontWeight: 700,
-                  fontSize: 13,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  transition: "all 0.2s"
-                }}
-              >
-                🏢 {center.name}
-                <span style={{ 
-                  background: isSelected ? "#8b5cf6" : "#f1f5f9", 
-                  color: isSelected ? "white" : "#64748b",
-                  padding: "2px 7px", 
-                  borderRadius: 8, 
-                  fontSize: 11 
-                }}>
-                  {centerCount}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        {centers.length === 0 ? (
+          <div style={{ fontSize: 13, color: "#9ca3af", padding: "12px", background: "#f9fafb", borderRadius: 10, border: "1px dashed #e2e8f0" }}>
+            No centers found. Please create a center from Center Management first.
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {centers.map(center => {
+              const cid = center._id || center.id;
+              const isSelected = String(selectedCenterId) === String(cid);
+              const centerCount = children.filter(c => String(c.centerId) === String(cid)).length;
+              return (
+                <button
+                  key={cid}
+                  onClick={() => handleCenterSelect(cid)}
+                  style={{
+                    padding: "12px 18px",
+                    borderRadius: 12,
+                    border: isSelected ? "2px solid #8b5cf6" : "1px solid #e2e8f0",
+                    background: isSelected ? "#f5f3ff" : "white",
+                    color: isSelected ? "#6d28d9" : "#475569",
+                    fontWeight: 700,
+                    fontSize: 13,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    transition: "all 0.2s"
+                  }}
+                >
+                  🏢 {center.name}
+                  <span style={{
+                    background: isSelected ? "#8b5cf6" : "#f1f5f9",
+                    color: isSelected ? "white" : "#64748b",
+                    padding: "2px 7px",
+                    borderRadius: 8,
+                    fontSize: 11
+                  }}>
+                    {centerCount}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* ── STEP 2: CLASSES CHIPS ROW ── */}
@@ -437,60 +491,66 @@ export default function ChildrenManagementTab({ setToast }) {
           <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>
             🎒 Select Class Room
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button
-              onClick={() => setSelectedClassId(null)}
-              style={{
-                padding: "8px 14px",
-                borderRadius: 20,
-                border: "1px solid",
-                borderColor: !selectedClassId ? "#8b5cf6" : "#cbd5e1",
-                background: !selectedClassId ? "#8b5cf6" : "white",
-                color: !selectedClassId ? "white" : "#64748b",
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: "pointer"
-              }}
-            >
-              All Classes ({children.filter(c => c.centerId === selectedCenterId).length})
-            </button>
-            {activeCenterClasses.map(cls => {
-              const clid = cls._id || cls.id;
-              const isSelected = selectedClassId === clid;
-              const count = getClassStudentCount(clid);
-              return (
-                <button
-                  key={clid}
-                  onClick={() => setSelectedClassId(clid)}
-                  style={{
-                    padding: "8px 14px",
-                    borderRadius: 20,
-                    border: "1px solid",
-                    borderColor: isSelected ? "#8b5cf6" : "#cbd5e1",
-                    background: isSelected ? "#8b5cf6" : "white",
-                    color: isSelected ? "white" : "#64748b",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6
-                  }}
-                >
-                  {cls.name}
-                  <span style={{ 
-                    background: isSelected ? "rgba(255,255,255,0.25)" : "#f1f5f9",
-                    color: isSelected ? "white" : "#64748b",
-                    padding: "1px 5px",
-                    borderRadius: 6,
-                    fontSize: 10
-                  }}>
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          {activeCenterClasses.length === 0 ? (
+            <div style={{ fontSize: 12, color: "#9ca3af" }}>
+              No classes found for this center. Add classes from the Batch/Class Management section.
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                onClick={() => setSelectedClassId(null)}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 20,
+                  border: "1px solid",
+                  borderColor: !selectedClassId ? "#8b5cf6" : "#cbd5e1",
+                  background: !selectedClassId ? "#8b5cf6" : "white",
+                  color: !selectedClassId ? "white" : "#64748b",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer"
+                }}
+              >
+                All Classes ({children.filter(c => String(c.centerId) === String(selectedCenterId)).length})
+              </button>
+              {activeCenterClasses.map(cls => {
+                const clid = cls._id || cls.id;
+                const isSelected = String(selectedClassId) === String(clid);
+                const count = getClassStudentCount(clid);
+                return (
+                  <button
+                    key={clid}
+                    onClick={() => setSelectedClassId(clid)}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: 20,
+                      border: "1px solid",
+                      borderColor: isSelected ? "#8b5cf6" : "#cbd5e1",
+                      background: isSelected ? "#8b5cf6" : "white",
+                      color: isSelected ? "white" : "#64748b",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6
+                    }}
+                  >
+                    {cls.name}
+                    <span style={{
+                      background: isSelected ? "rgba(255,255,255,0.25)" : "#f1f5f9",
+                      color: isSelected ? "white" : "#64748b",
+                      padding: "1px 5px",
+                      borderRadius: 6,
+                      fontSize: 10
+                    }}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -502,12 +562,12 @@ export default function ChildrenManagementTab({ setToast }) {
       {/* ── STEP 3: ENROLLED STUDENTS GRID DISPLAY ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))", gap: 16 }}>
         {filteredChildren.map((c) => {
-          const centerObj = centers.find(cen => (cen._id || cen.id) === c.centerId);
-          const classObj = classes.find(cls => (cls._id || cls.id) === c.classId);
+          const centerObj = centers.find(cen => String(cen._id || cen.id) === String(c.centerId));
+          const classObj = classes.find(cls => String(cls._id || cls.id) === String(c.classId));
 
           return (
             <div key={c.id} style={{ background: "white", borderRadius: 18, padding: "20px", border: "1px solid #f1f5f9", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", borderTop: `3px solid ${c.status === "active" ? "#8b5cf6" : "#e5e7eb"}` }}>
-              
+
               <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
                 <div style={{ width: 48, height: 48, borderRadius: 14, background: "linear-gradient(135deg,#ede9fe,#8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>👶</div>
                 <div style={{ flex: 1 }}>
@@ -545,7 +605,9 @@ export default function ChildrenManagementTab({ setToast }) {
         <div style={{ textAlign: "center", padding: "60px 20px", color: "#9ca3af" }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>👶</div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>No children found</div>
-          <div style={{ fontSize: 12, marginTop: 4 }}>No child is currently matching this filter choice layout.</div>
+          <div style={{ fontSize: 12, marginTop: 4 }}>
+            {search ? "No child matches your search." : "Click \"+ Enroll Child\" to add a child."}
+          </div>
         </div>
       )}
     </div>

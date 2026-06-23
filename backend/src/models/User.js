@@ -2,14 +2,14 @@ import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema(
   {
-    role: { type: String, enum: ["admin", "teacher"], required: true, index: true },
+    role: { type: String, enum: ["admin", "teacher", "trainer", "super_admin"], required: true, index: true },
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     phone: { type: String, trim: true },
     passwordHash: { type: String, required: true },
     status: {
       type: String,
-      enum: ["pending", "approved", "rejected", "inactive"],
+      enum: ["pending", "approved", "rejected", "blocked", "inactive"],
       default: "pending",
       index: true,
     },

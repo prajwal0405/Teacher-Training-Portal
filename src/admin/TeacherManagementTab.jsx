@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { AttendanceBar, Modal, S, SearchBar, SectionCard, StatCard, StatusBadge, Toast } from "../components/Shared";
-import { getAdminTeachers, updateTeacherStatus, updateTeacherProfile, registerTeacher, getCenters, sendDirectMessageToTeacher } from "../services/api";
+import { getAdminTeachers, updateTeacherStatus, updateTeacherProfile, registerTeacher, getCenters, sendDirectMessageToTeacher, blockTeacher, unblockTeacher, deleteTeacher } from "../services/api";
 import { t } from "../services/i18n";
 
 // Reuse same base URL pattern as ActivityMonitoringTab
@@ -29,7 +29,7 @@ const mapTeacherFromApi = (t) => ({
   address: t.teacherProfile?.address || "N/A",
   qualification: t.teacherProfile?.qualification || "N/A",
   experience: t.teacherProfile?.experience || "N/A",
-  status: t.status || "pending",
+  status: t.status === "blocked" ? "blocked" : (t.status || "pending"),
   joined: t.createdAt ? new Date(t.createdAt).toLocaleDateString("en-IN") : "—",
   attendance: t.teacherProfile?.performanceRating ? Math.round(t.teacherProfile.performanceRating * 20) : 0,
   classes: t.teacherProfile?.lessonsCompleted || 0,
@@ -212,6 +212,7 @@ function TeacherProfileView({ teacher, centers = [], onBack, onUpdate, setToast 
   const isPending  = teacher.status === "pending";
   const isApproved = teacher.status === "approved";
   const isRejected = teacher.status === "rejected";
+  const isBlocked  = teacher.status === "blocked";
 
   const doApprove = () =>
     updateTeacherStatus(teacher.id, "approved")
@@ -224,9 +225,21 @@ function TeacherProfileView({ teacher, centers = [], onBack, onUpdate, setToast 
       .catch(err => setToast({ msg: err.message, type: "error" }));
 
   const doBlock = () =>
-    updateTeacherStatus(teacher.id, "rejected")
+    blockTeacher(teacher.id)
       .then(() => { onUpdate(); setShowBlock(false); setToast({ msg: "Teacher blocked.", type: "error" }); })
       .catch(err => setToast({ msg: err.message, type: "error" }));
+
+  const doUnblock = () =>
+    unblockTeacher(teacher.id)
+      .then(() => { onUpdate(); setToast({ msg: "Teacher unblocked!", type: "success" }); })
+      .catch(err => setToast({ msg: err.message, type: "error" }));
+
+  const doDelete = () => {
+    if (!window.confirm(`Are you sure you want to permanently delete ${teacher.name}?`)) return;
+    deleteTeacher(teacher.id)
+      .then(() => { onBack(); setToast({ msg: "Teacher deleted.", type: "success" }); })
+      .catch(err => setToast({ msg: err.message, type: "error" }));
+  };
 
   const doChangeCenter = (centerId) =>
     updateTeacherProfile(teacher.id, { teacherProfile: { center: centerId } })
@@ -317,7 +330,9 @@ function TeacherProfileView({ teacher, centers = [], onBack, onUpdate, setToast 
         <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
           {isPending  && <><button onClick={doApprove} style={S.primaryBtn}>✓ Approve</button><button onClick={() => setShowReject(true)} style={S.btnRed}>✕ Reject</button></>}
           {isApproved && <button onClick={() => setShowBlock(true)} style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>🚫 Block</button>}
+          {isBlocked  && <button onClick={doUnblock} style={S.primaryBtn}>✓ Unblock</button>}
           {isRejected && <button onClick={doApprove} style={S.primaryBtn}>✓ Reactivate</button>}
+          <button onClick={doDelete} style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>🗑️ Delete</button>
         </div>
       </div>
 
@@ -544,7 +559,7 @@ export default function TeacherManagementTab({ setToast }) {
         <StatCard icon="👩‍🏫" label="Total Registered" val={teachers.length}  color="#3b82f6" bg="#dbeafe" />
         <StatCard icon="✅" label="Approved"            val={teachers.filter(t=>t.status==="approved").length} color="#10b981" bg="#d1fae5" />
         <StatCard icon="⏳" label="Pending Approval"   val={pending}          color="#f59e0b" bg="#fef3c7" />
-        <StatCard icon="🚫" label="Rejected/Blocked"   val={teachers.filter(t=>t.status==="rejected").length} color="#ef4444" bg="#fee2e2" />
+        <StatCard icon="🚫" label="Rejected/Blocked"   val={teachers.filter(t=>t.status==="rejected"||t.status==="blocked").length} color="#ef4444" bg="#fee2e2" />
         {/* NEW: how many have uploaded a real photo */}
         <StatCard icon="📷" label="Photos Uploaded"    val={teachers.filter(t=>t.photoUrl).length} color="#8b5cf6" bg="#ede9fe" />
       </div>
@@ -558,6 +573,7 @@ export default function TeacherManagementTab({ setToast }) {
           <option value="all">All Statuses</option>
           <option value="approved">Approved</option>
           <option value="pending">Pending</option>
+          <option value="blocked">Blocked</option>
           <option value="rejected">Rejected</option>
         </select>
         <select style={{ ...S.input, width: 180, padding: "8px 12px", marginBottom: 0 }} value={centerFilter} onChange={e => setCenterFilter(e.target.value)}>
@@ -602,7 +618,7 @@ export default function TeacherManagementTab({ setToast }) {
                 <td style={{ padding: "12px 14px", fontSize: 12, color: "#9ca3af" }}>{t.joined}</td>
                 <td style={{ padding: "12px 14px" }}><StatusBadge status={t.status} /></td>
                 <td style={{ padding: "12px 14px" }}>
-                  <div style={{ display: "flex", gap: 5 }}>
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
                     <button onClick={() => setSelected(t)}
                       style={{ ...S.tblBtn, color: "#3b82f6", borderColor: "#93c5fd" }}>👁 View</button>
                     {t.status === "pending" && (
@@ -613,10 +629,21 @@ export default function TeacherManagementTab({ setToast }) {
                     )}
                     {t.status === "approved" && (
                       <button onClick={async () => {
-                        try { await updateTeacherStatus(t.id, "rejected"); await loadData(); showToast({ msg: `${t.name} blocked.`, type: "error" }); }
+                        try { await blockTeacher(t.id); await loadData(); showToast({ msg: `${t.name} blocked.`, type: "error" }); }
                         catch (err) { showToast({ msg: err.message, type: "error" }); }
                       }} style={{ ...S.btnRed }}>🚫 Block</button>
                     )}
+                    {t.status === "blocked" && (
+                      <button onClick={async () => {
+                        try { await unblockTeacher(t.id); await loadData(); showToast({ msg: `${t.name} unblocked!`, type: "success" }); }
+                        catch (err) { showToast({ msg: err.message, type: "error" }); }
+                      }} style={{ ...S.btnGreen }}>✓ Unblock</button>
+                    )}
+                    <button onClick={async () => {
+                      if (!window.confirm(`Delete ${t.name} permanently?`)) return;
+                      try { await deleteTeacher(t.id); await loadData(); showToast({ msg: `${t.name} deleted.`, type: "success" }); }
+                      catch (err) { showToast({ msg: err.message, type: "error" }); }
+                    }} style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }} title="Delete teacher">🗑️</button>
                   </div>
                 </td>
               </tr>

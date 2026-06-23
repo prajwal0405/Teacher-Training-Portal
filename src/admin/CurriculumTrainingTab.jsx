@@ -2,6 +2,27 @@ import { useState, useEffect } from "react";
 import { Modal, S, SearchBar, StatCard, Toast } from "../components/Shared";
 import { getCourses, createCourse, updateCourse, deleteCourse, getCourseAssignments, getAdminTeachers, generateCourseFromAI, assignCourse, getCourseNotes, createCourseNote, updateCourseNote, deleteCourseNote } from "../services/api";
 
+const YOUTUBE_ID_RE = /(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?/\s]{11})/;
+
+function extractVideoUrl(course) {
+  const candidates = [
+    course?.contentLink,
+    course?.youtubeUrl,
+    course?.youtubeLink,
+    ...(course?.modules || []).flatMap((module) => [
+      ...(module?.contents || []).flatMap((item) => [item?.externalUrl, item?.videoUrl, item?.url]),
+      ...(module?.lessons || []).flatMap((item) => [item?.externalUrl, item?.videoUrl, item?.url]),
+    ]),
+  ].filter(Boolean);
+  return candidates.find((url) => YOUTUBE_ID_RE.test(String(url))) || candidates[0] || "";
+}
+
+function extractYoutubeId(url) {
+  if (!url) return null;
+  const match = String(url).match(YOUTUBE_ID_RE);
+  return match ? match[1] : null;
+}
+
 const mapCourseFromApi = (c) => ({
   id: String(c._id || c.id),
   title: c.title,
@@ -11,22 +32,13 @@ const mapCourseFromApi = (c) => ({
   description: c.description || "",
   objectives: c.objectives || "",
   contentType: c.contentType || "Video",
-  contentLink: c.contentLink || (c.modules?.[0]?.contents?.[0]?.externalUrl) || "",
-  youtubeId: c.youtubeId || (() => {
-    const url = c.contentLink || c.modules?.[0]?.contents?.[0]?.externalUrl || "";
-    const m = url.match(/(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?\/\s]{11})/);
-    return m ? m[1] : null;
-  })(),
+  contentLink: extractVideoUrl(c),
+  youtubeId: c.youtubeId || extractYoutubeId(extractVideoUrl(c)),
   assignedCount: c.assignedCount || 0,
   completedCount: c.completedCount || 0,
+  completion: c.completion || (c.assignedCount ? Math.round((c.completedCount / c.assignedCount) * 100) : 0),
   modules: c.modules && c.modules.length ? c.modules : undefined,
 });
-
-function extractYoutubeId(url) {
-  if (!url) return null;
-  const match = url.match(/(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?\/\s]{11})/);
-  return match ? match[1] : null;
-}
 
 const mapCourseToApi = (c) => ({
   title: c.title,
@@ -192,6 +204,7 @@ function CourseFormModal({ course, onSave, onClose, setToast }) {
 
   useEffect(() => {
     if (!course?.id) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoadingNotes(true);
     getCourseNotes(course.id)
       .then(res => setNotes(res.notes || []))
@@ -547,7 +560,9 @@ function CourseTrackingModal({ course, assignments = [], onClose, setToast }) {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchNotes();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [course?.id]);
 
   const resetNoteForm = () => {
@@ -800,7 +815,9 @@ export default function CurriculumTrainingTab({ setToast }) {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadCourses();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = courses.filter(c => {
@@ -819,6 +836,12 @@ export default function CurriculumTrainingTab({ setToast }) {
     if (selectedCourse) {
       course = await updateCourse(selectedCourse.id, payload);
       showToast({ msg: "Course updated in database!", type: "success" });
+    } else if (saved?._id || saved?.course?._id) {
+      showToast({ msg: "AI course generated successfully.", type: "success" });
+      loadCourses();
+      setFormModal(false);
+      setSelectedCourse(null);
+      return saved;
     } else {
       course = await createCourse(payload);
       showToast({ msg: "Course created in database!", type: "success" });
