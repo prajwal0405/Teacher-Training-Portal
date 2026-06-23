@@ -7,6 +7,9 @@ import ProctoredAssessment from "./Proctoredassessment";
 import {
   getTeacherProgress,
   getNotifications,
+  getTeacherGrades,
+  getTeacherMe,
+  getTeacherSchedules,
   markNotificationRead,
   askTeacherChatbot,
   updateCourseAssignmentProgress,
@@ -461,7 +464,7 @@ const getAssignmentTitle = (item) => item.title || item.course?.title || "Assign
 const isReviewedAssignment = (item) => item.score !== null && item.score !== undefined;
 const isCertificateReady = (item) => item.status === "completed" || item.progressPercent === 100 || item.status === "approved" || item.status === "reviewed";
 
-function ScheduleTab({ user, lessons = [] }) {
+function ScheduleTab({ user, lessons = [], schedules = [] }) {
   const [filter, setFilter] = useState("all");
   const items = lessons
     .map((item) => ({
@@ -473,11 +476,23 @@ function ScheduleTab({ user, lessons = [] }) {
       objectives: item.lessonPlan?.objectives || item.lessonPlan?.description || ""
     }))
     .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+
+  // Map schedule documents into same display shape and merge
+  const scheduleItems = (schedules || []).map(s => ({
+    id: s._id,
+    title: s.topic || "Scheduled Lesson",
+    course: s.className || "Class",
+    date: s.time || s.createdAt,
+    status: s.status || "upcoming",
+    objectives: s.notes || ""
+  })).sort((a,b)=> new Date(a.date||0)-new Date(b.date||0));
+
+  const merged = [...items, ...scheduleItems].sort((a,b)=> new Date(a.date||0)-new Date(b.date||0));
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const upcoming = items.filter((item) => item.date && new Date(item.date) >= today && item.status !== "completed");
-  const completed = items.filter((item) => item.status === "completed").length;
-  const visibleItems = items.filter((item) => {
+  const upcoming = merged.filter((item) => item.date && new Date(item.date) >= today && item.status !== "completed");
+  const completed = merged.filter((item) => item.status === "completed").length;
+  const visibleItems = merged.filter((item) => {
     if (filter === "upcoming") return item.date && new Date(item.date) >= today && item.status !== "completed";
     if (filter === "completed") return item.status === "completed";
     if (filter === "pending") return item.status !== "completed";
@@ -523,9 +538,9 @@ function ScheduleTab({ user, lessons = [] }) {
   );
 }
 
-function GradesTab({ assignments = [] }) {
+function GradesTab({ assignments = [], grades = [] }) {
   const [filter, setFilter] = useState("all");
-  const graded = assignments.filter(isReviewedAssignment);
+  const graded = grades || [];
   const average = graded.length ? Math.round(graded.reduce((sum, item) => sum + Number(item.score || 0), 0) / graded.length) : 0;
   const topScore = graded.length ? Math.max(...graded.map((item) => Number(item.score || 0))) : 0;
   const revisions = assignments.filter((item) => item.status === "revision").length;
@@ -1387,6 +1402,8 @@ export default function TeacherDashboard({ user, onLogout }) {
   const [assignments, setAssignments] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [lessons, setLessons] = useState([]);
+  const [grades, setGrades] = useState([]);
+  const [schedules, setSchedules] = useState([]);
   const [activities, setActivities] = useState([]);
   const [summary, setSummary] = useState({});
   const [loading, setLoading] = useState(true);
@@ -1413,6 +1430,10 @@ export default function TeacherDashboard({ user, onLogout }) {
         setActivities(progressRes.activities || []);
         setSummary(progressRes.summary || {});
       }
+      const gradesRes = await getTeacherGrades();
+      if (gradesRes && gradesRes.grades) setGrades(gradesRes.grades);
+      const schedRes = await getTeacherSchedules();
+      if (schedRes && schedRes.schedules) setSchedules(schedRes.schedules);
       const assignmentsRes = await getCourses();
       if (assignmentsRes && assignmentsRes.courses) {
         setAssignments(assignmentsRes.courses);
@@ -1549,8 +1570,8 @@ export default function TeacherDashboard({ user, onLogout }) {
       case "training":      return <TrainingAndClassroomManager user={enrichedUser}/>;
       case "courses":       return <CoursesTab assignments={assignments} onMarkDone={handleMarkDone}/>;
       case "assessment":    return <ProctoredAssessment user={enrichedUser}/>;
-      case "schedule":      return <ScheduleTab user={enrichedUser} lessons={lessons}/>;
-      case "grades":        return <GradesTab assignments={assignments}/>;
+      case "schedule":      return <ScheduleTab user={enrichedUser} lessons={lessons} schedules={schedules}/>;
+      case "grades":        return <GradesTab assignments={assignments} grades={grades}/>;
       case "assignments":   return <AssignmentsTab assignments={assignments} onSubmitAssignment={handleSubmitAssignment}/>;
       case "certificates":  return <CertificatesTab assignments={assignments}/>;
       case "notifications": return <NotificationsTab notifications={notifications} onMarkRead={handleMarkNotifRead} onMarkAllRead={handleMarkAllNotifRead}/>;

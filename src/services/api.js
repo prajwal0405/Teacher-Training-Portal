@@ -235,6 +235,26 @@ export function getTeacherProgress() {
   return request("/api/teacher/progress");
 }
 
+export function getTeacherGrades() {
+  return request("/api/grades/teacher");
+}
+
+export function getTeacherSchedules() {
+  return request("/api/schedules/teacher");
+}
+
+export function createSchedule(payload) {
+  return request("/api/schedules", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function updateSchedule(id, payload) {
+  return request(`/api/schedules/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
+}
+
+export function deleteSchedule(id) {
+  return request(`/api/schedules/${id}`, { method: "DELETE" });
+}
+
 export function askTeacherChatbot(message) {
   return request("/api/teacher/chatbot", {
     method: "POST",

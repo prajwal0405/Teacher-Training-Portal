@@ -10,6 +10,8 @@ import { createPasswordResetToken, hashPassword, requireAuth, requireRole, signT
 import { autoSeed } from "./auto-seed.js";
 import { sendBulkEmails } from "./email.js";
 import courseAiRouter from "./routes/courseAi.js";
+import gradesRouter from "./routes/grades.js";
+import schedulesRouter from "./routes/schedules.js";
 import { User } from "./models/User.js";
 import { Center } from "./models/Center.js";
 import { ClassModel } from "./models/Class.js";
@@ -994,6 +996,12 @@ app.delete("/api/courses/:id", requireAuth, requireRole("admin"), async (req, re
 
 // AI Course Generation (mounted router with auth + admin middleware)
 app.use("/api/courses", requireAuth, requireRole("admin"), courseAiRouter);
+
+// Grades routes
+app.use("/api/grades", gradesRouter);
+
+// Schedules
+app.use("/api/schedules", schedulesRouter);
 
 app.post("/api/courses/:id/assign", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
