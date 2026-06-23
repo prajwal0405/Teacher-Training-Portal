@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { Modal, S, SearchBar, StatCard, Toast } from "../components/Shared";
-import { getCourses, createCourse, updateCourse, deleteCourse, getCourseAssignments, getAdminTeachers } from "../services/api";
+import { getCourses, createCourse, updateCourse, deleteCourse, getCourseAssignments, getAdminTeachers, generateCourseFromAI, assignCourse, getCourseNotes, createCourseNote, updateCourseNote, deleteCourseNote } from "../services/api";
 
 const mapCourseFromApi = (c) => ({
-  id: c._id || c.id,
+  id: String(c._id || c.id),
   title: c.title,
   category: c.category || "Foundations of ECE",
   level: c.level || "Beginner",
@@ -11,11 +11,22 @@ const mapCourseFromApi = (c) => ({
   description: c.description || "",
   objectives: c.objectives || "",
   contentType: c.contentType || "Video",
-  contentLink: c.contentLink || "",
-  youtubeId: c.youtubeId || "",
+  contentLink: c.contentLink || (c.modules?.[0]?.contents?.[0]?.externalUrl) || "",
+  youtubeId: c.youtubeId || (() => {
+    const url = c.contentLink || c.modules?.[0]?.contents?.[0]?.externalUrl || "";
+    const m = url.match(/(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?\/\s]{11})/);
+    return m ? m[1] : null;
+  })(),
   assignedCount: c.assignedCount || 0,
   completedCount: c.completedCount || 0,
+  modules: c.modules && c.modules.length ? c.modules : undefined,
 });
+
+function extractYoutubeId(url) {
+  if (!url) return null;
+  const match = url.match(/(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?\/\s]{11})/);
+  return match ? match[1] : null;
+}
 
 const mapCourseToApi = (c) => ({
   title: c.title,
@@ -30,6 +41,7 @@ const mapCourseToApi = (c) => ({
   youtubeId: c.youtubeId,
   assignedCount: c.assignedCount,
   completedCount: c.completedCount,
+  modules: c.modules,
 });
 
 const CATEGORIES = [
@@ -171,6 +183,77 @@ function CourseDataRow({ course }) {
 function CourseFormModal({ course, onSave, onClose, setToast }) {
   const isEdit = !!course;
   const [form, setForm] = useState(course || EMPTY_FORM);
+  const [notes, setNotes] = useState([]);
+  const [loadingNotes, setLoadingNotes] = useState(false);
+  const [showNoteForm, setShowNoteForm] = useState(false);
+  const [editingNote, setEditingNote] = useState(null);
+  const [noteTitle, setNoteTitle] = useState("");
+  const [noteContent, setNoteContent] = useState("");
+
+  useEffect(() => {
+    if (!course?.id) return;
+    setLoadingNotes(true);
+    getCourseNotes(course.id)
+      .then(res => setNotes(res.notes || []))
+      .catch(err => console.error("Failed to load notes for form:", err))
+      .finally(() => setLoadingNotes(false));
+  }, [course?.id]);
+
+  const resetNoteForm = () => {
+    setNoteTitle("");
+    setNoteContent("");
+    setEditingNote(null);
+    setShowNoteForm(false);
+  };
+
+  const handleSaveNote = async () => {
+    if (!noteTitle.trim() || !noteContent.trim()) {
+      setToast({ msg: "Note title and content are required.", type: "error" });
+      return;
+    }
+    try {
+      if (editingNote) {
+        await updateCourseNote(editingNote._id || editingNote.id, { title: noteTitle, content: noteContent });
+        setToast({ msg: "Note updated.", type: "success" });
+      } else {
+        const savedCourse = isEdit ? course : { _id: course?.id };
+        const targetCourseId = form.id || savedCourse._id || savedCourse.id;
+        if (!targetCourseId) {
+          setToast({ msg: "Save the course first before adding notes.", type: "error" });
+          return;
+        }
+        await createCourseNote(targetCourseId, { title: noteTitle, content: noteContent });
+        setToast({ msg: "Note added.", type: "success" });
+      }
+      resetNoteForm();
+      if (course?.id) {
+        const res = await getCourseNotes(course.id);
+        setNotes(res.notes || []);
+      }
+    } catch (err) {
+      setToast({ msg: err.message || "Failed to save note.", type: "error" });
+    }
+  };
+
+  const handleEditNote = (note) => {
+    setEditingNote(note);
+    setNoteTitle(note.title || "");
+    setNoteContent(note.content || "");
+    setShowNoteForm(true);
+  };
+
+  const handleDeleteNote = async (noteId) => {
+    try {
+      await deleteCourseNote(noteId);
+      setToast({ msg: "Note deleted.", type: "success" });
+      if (course?.id) {
+        const res = await getCourseNotes(course.id);
+        setNotes(res.notes || []);
+      }
+    } catch (err) {
+      setToast({ msg: err.message || "Failed to delete note.", type: "error" });
+    }
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -178,7 +261,7 @@ function CourseFormModal({ course, onSave, onClose, setToast }) {
       setToast({ msg: "Please fill all required fields.", type: "error" }); return;
     }
     const yId = form.contentType === "Video" ? getYoutubeId(form.contentLink) : null;
-    onSave({ ...form, youtubeId: yId });
+    onSave({ ...form, youtubeId: yId, notes });
     onClose();
   };
 
@@ -243,8 +326,192 @@ function CourseFormModal({ course, onSave, onClose, setToast }) {
           </div>
         )}
 
+        {/* Notes Section */}
+        <div style={{ marginBottom: 16, padding: 14, background: "#fffbeb", borderRadius: 10, border: "2px solid #fbbf24" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: showNoteForm ? 10 : 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#92400e" }}>📝 Course Notes & Materials</div>
+            {!showNoteForm && (
+              <button type="button" onClick={() => { resetNoteForm(); setShowNoteForm(true); }} style={{ ...S.tblBtn, fontSize: 11, padding: "4px 10px" }}>
+                + Add Note
+              </button>
+            )}
+          </div>
+
+          {loadingNotes ? (
+            <div style={{ fontSize: 12, color: "#6b7280" }}>Loading notes...</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {notes.map(note => (
+                <div key={note._id || note.id} style={{ background: "white", borderRadius: 8, border: "1px solid #fde68a", padding: "10px 12px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1917" }}>{note.title}</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button type="button" onClick={() => handleEditNote(note)} style={{ ...S.tblBtn, fontSize: 10, padding: "2px 8px" }}>✏️</button>
+                      <button type="button" onClick={() => handleDeleteNote(note._id || note.id)} style={{ ...S.tblBtn, fontSize: 10, padding: "2px 8px", color: "#dc2626", borderColor: "#fca5a5" }}>🗑️</button>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6, whiteSpace: "pre-line" }}>{note.content}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {showNoteForm && (
+            <div style={{ marginTop: 10 }}>
+              <input
+                style={{ ...S.input, marginBottom: 8 }}
+                placeholder="Note title"
+                value={noteTitle}
+                onChange={e => setNoteTitle(e.target.value)}
+              />
+              <textarea
+                style={{ ...S.input, minHeight: 80, resize: "vertical", marginBottom: 8, fontSize: 13 }}
+                placeholder="Write instructions, links, or important information..."
+                value={noteContent}
+                onChange={e => setNoteContent(e.target.value)}
+              />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" onClick={handleSaveNote} style={{ ...S.primaryBtn, fontSize: 12, padding: "8px 16px" }}>
+                  💾 {editingNote ? "Update" : "Save Note"}
+                </button>
+                <button type="button" onClick={resetNoteForm} style={{ ...S.tblBtn, fontSize: 12 }}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+
         <button type="submit" style={{ ...S.primaryBtn, width: "100%" }}>
           {isEdit ? "Update Course →" : "Create Course →"}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
+/* ── AI Course Generator Modal ── */
+function AICourseGeneratorModal({ onClose, onSave, setToast }) {
+  const [form, setForm] = useState({
+    topic: "",
+    duration: "2 Weeks",
+    level: "Beginner",
+    category: "Foundations of ECE",
+    format: "Video"
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [phase, setPhase] = useState("idle");
+
+  const phases = [
+    { key: "structure",    label: "Generating Course Structure...",  ms: 600 },
+    { key: "objectives",  label: "Creating Learning Objectives...",  ms: 800 },
+    { key: "modules",     label: "Building Modules & Lessons...",    ms: 1000 },
+    { key: "notes",       label: "Generating Notes & Assignments...", ms: 700 },
+    { key: "saving",      label: "Saving Course...",                 ms: 500 },
+  ];
+
+  const runPhases = async () => {
+    for (const p of phases) {
+      setPhase(p.key);
+      await new Promise(r => setTimeout(r, p.ms));
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    if (!form.topic.trim()) {
+      setToast({ msg: "Please enter a course topic.", type: "error" });
+      return;
+    }
+    if (!form.duration) {
+      setToast({ msg: "Please select a course duration.", type: "error" });
+      return;
+    }
+
+    setLoading(true);
+    setPhase("structure");
+    try {
+      await runPhases();
+      const response = await generateCourseFromAI(form);
+      if (response.course) {
+        setPhase("idle");
+        setToast({ msg: "Course generated successfully.", type: "success" });
+        onSave(response.course);
+        onClose();
+      }
+    } catch {
+      setPhase("idle");
+      const message = "AI course generation is currently unavailable. Please try again later.";
+      setError(message);
+      setToast({ msg: "Unable to generate the course. Please try again.", type: "error" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const currentLabel = phases.find(p => p.key === phase)?.label || "";
+
+  return (
+    <Modal title="🤖 AI Course Generator" onClose={onClose}>
+      <div style={{ background: "#f0f9ff", padding: "14px 16px", borderRadius: 10, marginBottom: 16, fontSize: 12, color: "#0c4a6e", border: "1px solid #bae6fd", lineHeight: 1.6 }}>
+        <b>How it works:</b> Enter a course topic and our AI will build a complete training package — course structure, learning objectives, YouTube video lessons, notes, and assignments — ready to publish to your library.
+      </div>
+
+      <form onSubmit={handleSubmit}>
+        <label style={S.label}>Course Topic *</label>
+        <input style={{ ...S.input, marginBottom: 12 }} value={form.topic}
+          onChange={e => setForm({ ...form, topic: e.target.value })}
+          placeholder="e.g. Early childhood classroom management for anganwadi teachers" />
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div>
+            <label style={S.label}>Category</label>
+            <select style={S.input} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
+              {CATEGORIES.filter(c => c !== "all").map(c => <option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={S.label}>Level</label>
+            <select style={S.input} value={form.level} onChange={e => setForm({ ...form, level: e.target.value })}>
+              <option>Beginner</option><option>Intermediate</option><option>Advanced</option>
+            </select>
+          </div>
+          <div>
+            <label style={S.label}>Duration</label>
+            <input style={S.input} value={form.duration}
+              onChange={e => setForm({ ...form, duration: e.target.value })} placeholder="e.g. 4 Weeks" />
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={S.label}>Format</label>
+          <select style={S.input} value={form.format} onChange={e => setForm({ ...form, format: e.target.value })}>
+            <option value="Video">🎥 Video (YouTube embeds)</option>
+            <option value="PDF">📄 PDF Guide</option>
+            <option value="Document">📝 Document</option>
+          </select>
+        </div>
+
+        {loading && (
+          <div style={{ marginBottom: 16, padding: "14px 16px", background: "#fffbeb", borderRadius: 10, border: "2px solid #fbbf24" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <div style={{ width: 18, height: 18, border: "2.5px solid #fbbf24", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#92400e" }}>{currentLabel}</span>
+            </div>
+            <div style={{ height: 4, background: "#fde68a", borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ height: "100%", background: "#f59e0b", borderRadius: 2, animation: "progress 2s ease-in-out infinite" }}/>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca", fontSize: 12, color: "#991b1b" }}>
+            ⚠️ {error}
+          </div>
+        )}
+
+        <button type="submit" disabled={loading} style={{ ...S.primaryBtn, width: "100%", opacity: loading ? 0.7 : 1, cursor: loading ? "not-allowed" : "pointer" }}>
+          {loading ? "⏳ Please wait..." : "✨ Generate Course"}
         </button>
       </form>
     </Modal>
@@ -259,6 +526,74 @@ function CourseTrackingModal({ course, assignments = [], onClose, setToast }) {
   });
 
   const pct = course.assignedCount > 0 ? Math.round((course.completedCount / course.assignedCount) * 100) : 0;
+  const [notes, setNotes] = useState([]);
+  const [loadingNotes, setLoadingNotes] = useState(true);
+  const [showNoteForm, setShowNoteForm] = useState(false);
+  const [editingNote, setEditingNote] = useState(null);
+  const [noteTitle, setNoteTitle] = useState("");
+  const [noteContent, setNoteContent] = useState("");
+
+  const fetchNotes = async () => {
+    if (!course?.id) return;
+    setLoadingNotes(true);
+    try {
+      const res = await getCourseNotes(course.id);
+      setNotes(res.notes || []);
+    } catch (err) {
+      console.error("Failed to load notes:", err);
+    } finally {
+      setLoadingNotes(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchNotes();
+  }, [course?.id]);
+
+  const resetNoteForm = () => {
+    setNoteTitle("");
+    setNoteContent("");
+    setEditingNote(null);
+    setShowNoteForm(false);
+  };
+
+  const handleSaveNote = async () => {
+    if (!noteTitle.trim() || !noteContent.trim()) {
+      setToast?.({ msg: "Please enter both note title and content.", type: "error" });
+      return;
+    }
+    try {
+      if (editingNote) {
+        await updateCourseNote(editingNote._id || editingNote.id, { title: noteTitle, content: noteContent });
+        setToast?.({ msg: "Note updated.", type: "success" });
+      } else {
+        await createCourseNote(course.id, { title: noteTitle, content: noteContent });
+        setToast?.({ msg: "Note added. Teachers can view it now.", type: "success" });
+      }
+      resetNoteForm();
+      fetchNotes();
+    } catch (err) {
+      setToast?.({ msg: err.message || "Failed to save note.", type: "error" });
+    }
+  };
+
+  const handleEditNote = (note) => {
+    setEditingNote(note);
+    setNoteTitle(note.title || "");
+    setNoteContent(note.content || "");
+    setShowNoteForm(true);
+  };
+
+  const handleDeleteNote = async (noteId) => {
+    if (!window.confirm("Delete this note? Teachers will no longer see it.")) return;
+    try {
+      await deleteCourseNote(noteId);
+      setToast?.({ msg: "Note deleted.", type: "success" });
+      fetchNotes();
+    } catch (err) {
+      setToast?.({ msg: err.message || "Failed to delete note.", type: "error" });
+    }
+  };
 
   return (
     <Modal title={`📊 Tracker: ${course.title}`} onClose={onClose}>
@@ -284,6 +619,62 @@ function CourseTrackingModal({ course, assignments = [], onClose, setToast }) {
         </a>
       </div>
 
+      <div style={{ marginBottom: 14, padding: 14, background: "#fffbeb", borderRadius: 10, border: "2px solid #fbbf24" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: showNoteForm ? 10 : 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#92400e" }}>📝 Notes & Materials for Teachers</div>
+          {!showNoteForm && (
+            <button onClick={() => { resetNoteForm(); setShowNoteForm(true); }} style={{ ...S.tblBtn, fontSize: 11, padding: "4px 10px" }}>
+              + Add Note
+            </button>
+          )}
+        </div>
+
+        {loadingNotes ? (
+          <div style={{ fontSize: 12, color: "#6b7280" }}>Loading notes...</div>
+        ) : notes.length === 0 && !showNoteForm ? (
+          <div style={{ fontSize: 12, color: "#9ca3af", fontStyle: "italic" }}>No notes or learning materials added yet.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {notes.map(note => (
+              <div key={note._id || note.id} style={{ background: "white", borderRadius: 8, border: "1px solid #fde68a", padding: "10px 12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1917" }}>{note.title}</div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => handleEditNote(note)} style={{ ...S.tblBtn, fontSize: 10, padding: "2px 8px" }}>✏️</button>
+                    <button onClick={() => handleDeleteNote(note._id || note.id)} style={{ ...S.tblBtn, fontSize: 10, padding: "2px 8px", color: "#dc2626", borderColor: "#fca5a5" }}>🗑️</button>
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6, whiteSpace: "pre-line" }}>{note.content}</div>
+                <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 4 }}>By {note.createdBy?.name || "Admin"} · {new Date(note.createdAt).toLocaleDateString("en-IN")}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {showNoteForm && (
+          <div style={{ marginTop: 10 }}>
+            <input
+              style={{ ...S.input, marginBottom: 8 }}
+              placeholder="Note title"
+              value={noteTitle}
+              onChange={e => setNoteTitle(e.target.value)}
+            />
+            <textarea
+              style={{ ...S.input, minHeight: 80, resize: "vertical", marginBottom: 8, fontSize: 13 }}
+              placeholder="Write instructions, links, or important information for teachers..."
+              value={noteContent}
+              onChange={e => setNoteContent(e.target.value)}
+            />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={handleSaveNote} style={{ ...S.primaryBtn, fontSize: 12, padding: "8px 16px" }}>
+                💾 {editingNote ? "Update" : "Save Note"}
+              </button>
+              <button onClick={resetNoteForm} style={{ ...S.tblBtn, fontSize: 12 }}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 8 }}>👩‍🏫 Teacher Status</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 250, overflowY: "auto" }}>
         {courseAssignments.length > 0 ? courseAssignments.map(a => {
@@ -301,7 +692,7 @@ function CourseTrackingModal({ course, assignments = [], onClose, setToast }) {
                 </div>
               </div>
               {statusText !== "Completed" && (
-                <button onClick={() => setToast({ msg: `Reminder sent to ${tname}!`, type: "success" })}
+                <button onClick={() => setToast?.({ msg: `Reminder sent to ${tname}!`, type: "success" })}
                   style={{ ...S.tblBtn, fontSize: 11, color: "#dc2626", borderColor: "#fca5a5" }}>
                   🔔 Remind
                 </button>
@@ -318,15 +709,68 @@ function CourseTrackingModal({ course, assignments = [], onClose, setToast }) {
   );
 }
 
+/* ── Assign Course Modal ── */
+function AssignCourseModal({ course, teachers = [], onClose, onAssigned, setToast }) {
+  const [teacherId, setTeacherId] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [assigning, setAssigning] = useState(false);
+
+  const handleAssign = async (e) => {
+    e.preventDefault();
+    if (!teacherId) { setToast({ msg: "Please select a teacher.", type: "error" }); return; }
+    setAssigning(true);
+    try {
+      await assignCourse(course.id, { teacherId, dueDate: dueDate || undefined });
+      setToast({ msg: `"${course.title}" assigned to teacher! It will appear on their dashboard.`, type: "success" });
+      onAssigned();
+      onClose();
+    } catch (err) {
+      setToast({ msg: err.message || "Failed to assign course", type: "error" });
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const approvedTeachers = teachers.filter(t => t.status === "approved");
+
+  return (
+    <Modal title={`📋 Assign Course — ${course.title}`} onClose={onClose}>
+      <div style={{ background: "#f0f9ff", padding: "10px 14px", borderRadius: 10, marginBottom: 14, fontSize: 12, color: "#0c4a6e", border: "1px solid #bae6fd" }}>
+        📢 Assigning this course will create a training task on the selected teacher's dashboard with a notification.
+      </div>
+      <form onSubmit={handleAssign}>
+        <label style={S.label}>Select Teacher *</label>
+        <select style={{ ...S.input, marginBottom: 12 }} value={teacherId} onChange={e => setTeacherId(e.target.value)} required>
+          <option value="">Choose an approved teacher...</option>
+          {approvedTeachers.map(t => (
+            <option key={t._id || t.id} value={t._id || t.id}>{t.name} — {t.email}</option>
+          ))}
+        </select>
+        {approvedTeachers.length === 0 && (
+          <div style={{ fontSize: 12, color: "#d97706", marginBottom: 12 }}>⚠️ No approved teachers found. Approve teachers first in Teacher Management.</div>
+        )}
+        <label style={S.label}>Due Date (optional)</label>
+        <input type="date" style={{ ...S.input, marginBottom: 20 }} value={dueDate} onChange={e => setDueDate(e.target.value)} min={new Date().toISOString().split("T")[0]} />
+        <button type="submit" disabled={assigning || !teacherId} style={{ ...S.primaryBtn, width: "100%", opacity: assigning ? 0.7 : 1 }}>
+          {assigning ? "Assigning..." : "📋 Assign to Teacher →"}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
 export default function CurriculumTrainingTab({ setToast }) {
   const [courses, setCourses] = useState([]);
   const [assignments, setAssignments] = useState([]);
+  const [teachers, setTeachers] = useState([]);
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("all");
   const [levelFilter, setLevelFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [formModal, setFormModal] = useState(false);
+  const [aiModal, setAiModal] = useState(false);
   const [trackingModal, setTrackingModal] = useState(false);
+  const [assignModal, setAssignModal] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [loading, setLoading] = useState(true);
   const [toast, setLocalToast] = useState({ msg: "", type: "" });
@@ -335,23 +779,15 @@ export default function CurriculumTrainingTab({ setToast }) {
 
   const loadCourses = () => {
     setLoading(true);
-    Promise.all([getCourses(), getCourseAssignments()])
-      .then(([coursesRes, assignmentsRes]) => {
+    Promise.all([getCourses(), getCourseAssignments(), getAdminTeachers()])
+      .then(([coursesRes, assignmentsRes, teachersRes]) => {
         // Build statistics dynamically for each course
         const assns = assignmentsRes.assignments || [];
         setAssignments(assns);
+        setTeachers(teachersRes.teachers || []);
 
-        const mapped = (coursesRes.courses || []).map(c => {
-          const flatCourse = mapCourseFromApi(c);
-          // calculate real assigned/completed count
-          const courseAssns = assns.filter(a => {
-            const cid = a.course?._id || a.course?.id || a.course;
-            return cid === flatCourse.id;
-          });
-          flatCourse.assignedCount = courseAssns.length;
-          flatCourse.completedCount = courseAssns.filter(a => a.status === "completed" || a.progressPercent === 100).length;
-          return flatCourse;
-        });
+        const mapped = [...new Map((coursesRes.courses || []).map(c => [String(c._id || c.id), c]))]
+          .map(([, c]) => mapCourseFromApi(c));
 
         setCourses(mapped);
         setLoading(false);
@@ -376,31 +812,30 @@ export default function CurriculumTrainingTab({ setToast }) {
     return ms && mc && ml && mt;
   });
 
-  const handleSave = (saved) => {
-    const payload = mapCourseToApi(saved);
+  const handleSave = async (saved) => {
+    const { notes, ...courseData } = saved;
+    const payload = mapCourseToApi(courseData);
+    let course;
     if (selectedCourse) {
-      updateCourse(selectedCourse.id, payload)
-        .then(() => {
-          showToast({ msg: "Course updated in database!", type: "success" });
-          loadCourses();
-        })
-        .catch(err => {
-          console.error("Error updating course:", err);
-          showToast({ msg: "Failed to update course: " + err.message, type: "error" });
-        });
+      course = await updateCourse(selectedCourse.id, payload);
+      showToast({ msg: "Course updated in database!", type: "success" });
     } else {
-      createCourse(payload)
-        .then(() => {
-          showToast({ msg: "Course created in database!", type: "success" });
-          loadCourses();
-        })
-        .catch(err => {
-          console.error("Error creating course:", err);
-          showToast({ msg: "Failed to create course: " + err.message, type: "error" });
-        });
+      course = await createCourse(payload);
+      showToast({ msg: "Course created in database!", type: "success" });
+    }
+    const courseId = selectedCourse?.id || course?.course?._id;
+    if (notes?.length && courseId) {
+      try {
+        await Promise.all(notes.map(n => createCourseNote(courseId, n)));
+      } catch (err) {
+        console.error("Failed to save some notes:", err);
+        showToast({ msg: "Course saved, but some notes failed to save.", type: "error" });
+      }
     }
     setFormModal(false);
     setSelectedCourse(null);
+    loadCourses();
+    return course;
   };
 
   const handleDelete = (id) => {
@@ -431,6 +866,10 @@ export default function CurriculumTrainingTab({ setToast }) {
     <div style={{ animation: "fadeIn 0.3s ease" }}>
       {!setToast && <Toast msg={toast.msg} type={toast.type} onClose={() => setLocalToast({ msg: "", type: "" })} />}
 
+      {aiModal && (
+        <AICourseGeneratorModal onClose={() => { setAiModal(false); }} onSave={handleSave}
+          setToast={showToast} />
+      )}
       {formModal && (
         <CourseFormModal course={selectedCourse} onSave={handleSave}
           onClose={() => { setFormModal(false); setSelectedCourse(null); }} setToast={showToast} />
@@ -439,6 +878,15 @@ export default function CurriculumTrainingTab({ setToast }) {
         <CourseTrackingModal course={selectedCourse} assignments={assignments}
           onClose={() => { setTrackingModal(false); setSelectedCourse(null); }} setToast={showToast} />
       )}
+      {assignModal && selectedCourse && (
+        <AssignCourseModal
+          course={selectedCourse}
+          teachers={teachers}
+          onClose={() => { setAssignModal(false); setSelectedCourse(null); }}
+          onAssigned={loadCourses}
+          setToast={showToast}
+        />
+      )}
 
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
@@ -446,7 +894,10 @@ export default function CurriculumTrainingTab({ setToast }) {
           <h1 style={S.pageTitle}>Training & Curriculum</h1>
           <p style={S.pageSub}>{courses.length} courses · {overallPct}% overall completion</p>
         </div>
-        <button onClick={() => { setSelectedCourse(null); setFormModal(true); }} style={S.primaryBtn}>+ Create Course</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => { setAiModal(true); }} style={{ ...S.primaryBtn, backgroundColor: "#6366f1", color: "white" }}>🤖 AI Generate</button>
+          <button onClick={() => { setSelectedCourse(null); setFormModal(true); }} style={S.primaryBtn}>+ Create Course</button>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -546,6 +997,10 @@ export default function CurriculumTrainingTab({ setToast }) {
                       👁 View
                     </a>
                   )}
+                  <button onClick={() => { setSelectedCourse(c); setAssignModal(true); }}
+                    style={{ ...S.tblBtn, flex: 1, color: "#059669", borderColor: "#6ee7b7" }}>
+                    📋 Assign
+                  </button>
                   <button onClick={() => { setSelectedCourse(c); setTrackingModal(true); }}
                     style={{ ...S.tblBtn, flex: 1, color: "#2563eb", borderColor: "#bfdbfe" }}>
                     📊 Track

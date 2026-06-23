@@ -9,7 +9,6 @@ import { CourseAssignment } from "./models/CourseAssignment.js";
 import { LessonPlan } from "./models/LessonPlan.js";
 import { LessonPlanAssignment } from "./models/LessonPlanAssignment.js";
 import { Trainer } from "./models/Trainer.js";
-import { Feedback } from "./models/Feedback.js";
 import { ChildAttendanceSession, TeacherAttendanceRecord } from "./models/Attendance.js";
 import { ActivitySubmission } from "./models/ActivitySubmission.js";
 import { Notification } from "./models/Notification.js";
@@ -61,12 +60,12 @@ const classRecord = await ClassModel.findOneAndUpdate(
 );
 
 const teacher = await User.findOneAndUpdate(
-  { email: "priya@school.edu" },
+  { email: "dnyaneshwarit27@gmail.com" },
   {
     role: "teacher",
-    name: "Priya Sharma",
-    email: "priya@school.edu",
-    phone: "9876543210",
+    name: "Dnyaneshwari Thorat",
+    email: "dnyaneshwarit27@gmail.com",
+    phone: "8605689467",
     passwordHash: teacherPassword,
     status: "approved",
     teacherProfile: {
@@ -75,14 +74,41 @@ const teacher = await User.findOneAndUpdate(
       qualification: "B.Ed",
       subject: "Pre-Primary",
       experience: "3-5 yrs",
-      address: "Mumbai",
+      address: "Pune, Maharashtra",
       performanceRating: 4.5,
     },
   },
   { upsert: true, new: true, setDefaultsOnInsert: true }
 );
 
-const child1 = await Child.findOneAndUpdate(
+for (const input of [
+  { name: "Gauri Thorat", email: "dnyaneshwarithrt@gmail.com", subject: "Montessori" },
+  { name: "Abhishek Thorat", email: "thoratdnyanu@gmail.com", subject: "ECCE" },
+]) {
+  await User.findOneAndUpdate(
+    { email: input.email },
+    {
+      role: "teacher",
+      name: input.name,
+      email: input.email,
+      phone: "8605689467",
+      passwordHash: teacherPassword,
+      status: "approved",
+      teacherProfile: {
+        center: center._id,
+        class: classRecord._id,
+        qualification: "Graduate",
+        subject: input.subject,
+        experience: "Fresher",
+        address: "Pune, Maharashtra",
+        performanceRating: 0,
+      },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+}
+
+await Child.findOneAndUpdate(
   { class: classRecord._id, rollNo: "N-A-001" },
   {
     center: center._id,
@@ -96,7 +122,7 @@ const child1 = await Child.findOneAndUpdate(
   { upsert: true, new: true }
 );
 
-const child2 = await Child.findOneAndUpdate(
+await Child.findOneAndUpdate(
   { class: classRecord._id, rollNo: "N-A-002" },
   {
     center: center._id,
@@ -168,7 +194,7 @@ const lesson = await LessonPlan.findOneAndUpdate(
   { upsert: true, new: true, setDefaultsOnInsert: true }
 );
 
-const lessonAssignment = await LessonPlanAssignment.findOneAndUpdate(
+await LessonPlanAssignment.findOneAndUpdate(
   {
     lessonPlan: lesson._id,
     teacher: teacher._id,
@@ -242,54 +268,10 @@ await Trainer.create([
   }
 ]);
 
-// Seed Feedbacks
-console.log("Seeding feedbacks...");
-await Feedback.deleteMany({});
-await Feedback.create([
-  {
-    learner: "Asha Kulkarni",
-    course: "Pre-Primary Teacher Training",
-    batch: "Batch A",
-    trainer: "Dr. Rekha Iyer",
-    rating: 5,
-    trainerRating: 5,
-    tag: "Content Quality",
-    suggestion: "Add more classroom demonstration videos in Module 2.",
-    status: "pending",
-    date: "12/06/2026",
-    anonymous: false
-  },
-  {
-    learner: "Neha Joshi",
-    course: "Montessori Teacher Training",
-    batch: "Batch B",
-    trainer: "Prof. Amol Desai",
-    rating: 4,
-    trainerRating: 5,
-    tag: "Platform UX",
-    suggestion: "Provide printable worksheets after each live session.",
-    status: "approved",
-    date: "10/06/2026",
-    anonymous: false,
-    adminResponse: "Thank you for the suggestion! We will add downloadable worksheets soon."
-  },
-  {
-    learner: "Anonymous Learner",
-    course: "Child Psychology & Development",
-    batch: "Batch A",
-    trainer: "Dr. Vikram Shah",
-    rating: 5,
-    trainerRating: 4,
-    tag: "Schedule",
-    suggestion: "Some topics felt fast; slower pacing would help.",
-    status: "pending",
-    date: "08/06/2026",
-    anonymous: true
-  }
-]);
+// Feedback data is created by users through the feedback submission form — no seed data needed
 
 await disconnectDb();
 
 console.log("MongoDB seed data inserted.");
 console.log("Admin login: admin@spaceece.com / Admin@123");
-console.log("Teacher login: priya@school.edu / Teacher@123");
+console.log("Teacher login: dnyaneshwarit27@gmail.com / Teacher@123");

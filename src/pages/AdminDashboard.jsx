@@ -1,5 +1,6 @@
-﻿import { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Logo, Toast, globalCSS } from "../components/Shared";
+import { t } from "../services/i18n";
 import OverviewTab from "../admin/OverviewTab";
 import CenterManagementTab from "../admin/CenterManagementTab";
 import TeacherManagementTab from "../admin/TeacherManagementTab";
@@ -148,7 +149,7 @@ const refreshDB = {
           <Logo size={120}/>
           <div style={{ textAlign:"center", padding:"4px 12px", borderRadius:20, fontSize:11, fontWeight:700,
             background:"#fef3c7", color:"#92400e", border:"1px solid #fbbf24", margin:"6px auto 0", display:"inline-block", width:"fit-content", letterSpacing:"0.3px" }}>
-            ðŸ›¡ï¸ Admin Panel
+            🛡️ {t("Admin Panel")}
           </div>
         </div>
 
@@ -161,7 +162,7 @@ const refreshDB = {
                 cursor:"pointer", fontFamily:"inherit", textAlign:"left", marginBottom:2,
                 transition:"all 0.18s" }}>
               <span style={{ fontSize:15 }}>{item.icon}</span>
-              <span style={{ flex:1 }}>{item.label}</span>
+              <span style={{ flex:1 }}>{t(item.label)}</span>
               {item.badge>0 && <span style={{ background:"#ef4444", color:"white", borderRadius:20, fontSize:10, fontWeight:800, padding:"1px 7px", minWidth:18, textAlign:"center" }}>{item.badge}</span>}
             </button>
           ))}
@@ -173,8 +174,8 @@ const refreshDB = {
             <div style={{ fontSize:12, fontWeight:700, color:"#1c1917" }}>Admin</div>
             <div style={{ fontSize:10, color:"#9ca3af", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user?.email}</div>
           </div>
-          <button onClick={onLogout} title="Sign Out"
-            style={{ background:"none", border:"none", cursor:"pointer", fontSize:16, color:"#9ca3af", padding:4 }}>â»</button>
+          <button onClick={onLogout} title={t("Sign Out")}
+            style={{ background:"none", border:"none", cursor:"pointer", fontSize:16, color:"#9ca3af", padding:4 }}>⏻</button>
         </div>
       </div>
 

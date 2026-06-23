@@ -8,10 +8,11 @@ import { CourseAssignment } from "./models/CourseAssignment.js";
 import { LessonPlan } from "./models/LessonPlan.js";
 import { LessonPlanAssignment } from "./models/LessonPlanAssignment.js";
 import { Trainer } from "./models/Trainer.js";
-import { Feedback } from "./models/Feedback.js";
+import { Batch } from "./models/Batch.js";
+import { AttendanceAlert } from "./models/AttendanceAlert.js";
 
 export async function autoSeed() {
-  console.log("Seeding database with demo data...");
+  console.log("Seeding database with initial portal data...");
 
   const adminPassword = await hashPassword("Admin@123");
   const teacherPassword = await hashPassword("Teacher@123");
@@ -56,29 +57,39 @@ export async function autoSeed() {
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
 
-  const teacher = await User.findOneAndUpdate(
-    { email: "priya@school.edu" },
-    {
-      role: "teacher",
-      name: "Priya Sharma",
-      email: "priya@school.edu",
-      phone: "9876543210",
-      passwordHash: teacherPassword,
-      status: "approved",
-      teacherProfile: {
-        center: center._id,
-        class: classRecord._id,
-        qualification: "B.Ed",
-        subject: "Pre-Primary",
-        experience: "3-5 yrs",
-        address: "Mumbai",
-        performanceRating: 4.5,
-      },
-    },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
-  );
+  const teacherInputs = [
+    { name: "Dnyaneshwari Thorat", email: "dnyaneshwarit27@gmail.com", phone: "8605689467", subject: "Pre-Primary", qualification: "Graduate" },
+    { name: "Gauri Thorat", email: "dnyaneshwarithrt@gmail.com", phone: "8605689467", subject: "Montessori", qualification: "Graduate" },
+    { name: "Abhishek Thorat", email: "thoratdnyanu@gmail.com", phone: "8605689467", subject: "ECCE", qualification: "Graduate" },
+  ];
 
-  const child1 = await Child.findOneAndUpdate(
+  const teachers = [];
+  for (const input of teacherInputs) {
+    const teacher = await User.findOneAndUpdate(
+      { email: input.email },
+      {
+        role: "teacher",
+        name: input.name,
+        email: input.email,
+        phone: input.phone,
+        passwordHash: teacherPassword,
+        status: "approved",
+        teacherProfile: {
+          center: center._id,
+          class: classRecord._id,
+          qualification: input.qualification,
+          subject: input.subject,
+          experience: "Fresher",
+          address: "Pune, Maharashtra",
+          performanceRating: 0,
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    teachers.push(teacher);
+  }
+
+  await Child.findOneAndUpdate(
     { class: classRecord._id, rollNo: "N-A-001" },
     {
       center: center._id,
@@ -92,7 +103,7 @@ export async function autoSeed() {
     { upsert: true, new: true }
   );
 
-  const child2 = await Child.findOneAndUpdate(
+  await Child.findOneAndUpdate(
     { class: classRecord._id, rollNo: "N-A-002" },
     {
       center: center._id,
@@ -137,16 +148,20 @@ export async function autoSeed() {
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
 
-  await CourseAssignment.updateOne(
-    { course: course._id, teacher: teacher._id },
-    {
-      course: course._id,
-      teacher: teacher._id,
-      assignedBy: admin._id,
-      progressPercent: 25,
-      status: "assigned",
-    },
-    { upsert: true }
+  await CourseAssignment.bulkWrite(
+    teachers.map((teacher) => ({
+      updateOne: {
+        filter: { course: course._id, teacher: teacher._id },
+        update: {
+          course: course._id,
+          teacher: teacher._id,
+          assignedBy: admin._id,
+          progressPercent: 0,
+          status: "assigned",
+        },
+        upsert: true,
+      },
+    }))
   );
 
   const lesson = await LessonPlan.findOneAndUpdate(
@@ -167,12 +182,12 @@ export async function autoSeed() {
   await LessonPlanAssignment.findOneAndUpdate(
     {
       lessonPlan: lesson._id,
-      teacher: teacher._id,
+      teacher: teachers[0]._id,
       assignedDate: new Date(new Date().toDateString()),
     },
     {
       lessonPlan: lesson._id,
-      teacher: teacher._id,
+      teacher: teachers[0]._id,
       center: center._id,
       class: classRecord._id,
       assignedDate: new Date(new Date().toDateString()),
@@ -185,62 +200,138 @@ export async function autoSeed() {
   if (trainerCount === 0) {
     await Trainer.create([
       {
-        name: "Dr. Rekha Iyer",
-        subject: "Early Childhood Ed",
-        email: "rekha@spaceece.in",
-        phone: "9876540001",
-        qualification: "PhD in Child Education",
-        linkedin: "linkedin.com/in/rekha-iyer",
-        bio: "Passionate early childhood educator with 15+ years of training experience.",
-        courses: 3,
-      },
-      {
-        name: "Prof. Amol Desai",
-        subject: "Montessori Methods",
-        email: "desai@spaceece.in",
-        phone: "9876540002",
-        qualification: "M.Ed, Montessori Trainer",
-        linkedin: "linkedin.com/in/amol-desai",
-        bio: "Specialist in Montessori tools, sensory training, and teaching material development.",
-        courses: 2,
+        name: "SpaceECE Lead Trainer",
+        subject: "Teacher Training",
+        email: "trainer@spaceece.in",
+        phone: "8605689467",
+        qualification: "Teacher Trainer",
+        linkedin: "",
+        bio: "Lead trainer for assigned teacher training courses.",
+        courses: 1,
+        sessions: 0,
+        rating: 0,
+        status: "active",
       },
     ]);
   }
 
-  const feedbackCount = await Feedback.countDocuments();
-  if (feedbackCount === 0) {
-    await Feedback.create([
-      {
-        learner: "Asha Kulkarni",
-        course: "Pre-Primary Teacher Training",
-        batch: "Batch A",
-        trainer: "Dr. Rekha Iyer",
-        rating: 5,
-        trainerRating: 5,
-        tag: "Content Quality",
-        suggestion: "Add more classroom demonstration videos in Module 2.",
-        status: "pending",
-        date: "12/06/2026",
-        anonymous: false
+  // Feedback data is created by users through the feedback submission form — no seed data needed
+
+  const sampleLessons = [
+    {
+      title: "Number Patterns & Counting",
+      course: course._id,
+      objectives: "Introduce counting and visual number patterns.",
+      instructions: "Use blocks and picture cards.",
+      activities: "Sorting, grouping, and matching activity.",
+      resources: "Flash cards, blocks",
+      scheduleDate: new Date(Date.now() + 86400000),
+      createdBy: admin._id,
+    },
+    {
+      title: "Phonics & Letter Sounds",
+      course: course._id,
+      objectives: "Teach letter recognition and phonetic sounds.",
+      instructions: "Use alphabet charts and songs.",
+      activities: "Singing, tracing letters, matching objects.",
+      resources: "Alphabet charts, crayons, worksheets",
+      scheduleDate: new Date(Date.now() + 2 * 86400000),
+      createdBy: admin._id,
+    },
+    {
+      title: "Storytelling & Moral Values",
+      course: course._id,
+      objectives: "Develop listening skills and moral understanding.",
+      instructions: "Use picture books and puppets.",
+      activities: "Group story time, role play, discussion.",
+      resources: "Story books, puppets, charts",
+      scheduleDate: new Date(Date.now() + 3 * 86400000),
+      createdBy: admin._id,
+    },
+    {
+      title: "Colors & Shapes Exploration",
+      course: course._id,
+      objectives: "Identify and differentiate colors and shapes.",
+      instructions: "Use color cards and shape cutouts.",
+      activities: "Coloring, sorting shapes, collage making.",
+      resources: "Color cards, scissors, glue, paper",
+      scheduleDate: new Date(Date.now() + 4 * 86400000),
+      createdBy: admin._id,
+    },
+    {
+      title: "Circle Time & Calendar",
+      course: course._id,
+      objectives: "Build routine and calendar awareness.",
+      instructions: "Use a large calendar and song charts.",
+      activities: "Good morning song, date/weather discussion.",
+      resources: "Calendar, weather chart, song chart",
+      scheduleDate: new Date(Date.now() + 5 * 86400000),
+      createdBy: admin._id,
+    },
+  ];
+
+  for (const lessonData of sampleLessons) {
+    const lesson = await LessonPlan.findOneAndUpdate(
+      { title: lessonData.title, course: lessonData.course },
+      lessonData,
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    for (const teacher of teachers) {
+      await LessonPlanAssignment.findOneAndUpdate(
+        { lessonPlan: lesson._id, teacher: teacher._id },
+        {
+          lessonPlan: lesson._id,
+          teacher: teacher._id,
+          center: center._id,
+          class: classRecord._id,
+          assignedDate: lesson.scheduleDate,
+          status: "pending",
+        },
+        { upsert: true, new: true }
+      );
+    }
+  }
+
+  const existingBatch = await Batch.findOne({ code: "BATCH-ECCE-2026-01" });
+  if (!existingBatch) {
+    await Batch.create({
+      name: "ECCE Foundation Batch - June 2026",
+      code: "BATCH-ECCE-2026-01",
+      description: "Foundation batch for new ECCE teachers starting June 2026.",
+      course: course._id,
+      center: center._id,
+      trainer: (await User.findOne({ role: "trainer" }))?._id || admin._id,
+      teachers: teachers.map((t) => t._id),
+      startDate: new Date(),
+      endDate: new Date(Date.now() + 180 * 86400000),
+      schedule: {
+        days: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+        startTime: "09:00",
+        endTime: "12:00",
+        timezone: "Asia/Kolkata",
       },
-      {
-        learner: "Neha Joshi",
-        course: "Montessori Teacher Training",
-        batch: "Batch B",
-        trainer: "Prof. Amol Desai",
-        rating: 4,
-        trainerRating: 5,
-        tag: "Platform UX",
-        suggestion: "Provide printable worksheets after each live session.",
-        status: "approved",
-        date: "10/06/2026",
-        anonymous: false,
-        adminResponse: "Thank you for the suggestion! We will add downloadable worksheets soon."
-      }
-    ]);
+      maxTeachers: 30,
+      enrolledCount: teachers.length,
+      status: "ongoing",
+      createdBy: admin._id,
+    });
+  }
+
+  const attendanceAlertData = [
+    { teacher: teachers[0]._id, center: center._id, class: classRecord._id, attendanceRate: 72, threshold: 75, alertType: "low_attendance", severity: "warning", message: "Attendance below 75% threshold. Please ensure regular attendance." },
+    { teacher: teachers[1]._id, center: center._id, class: classRecord._id, attendanceRate: 58, threshold: 75, alertType: "critical_low_attendance", severity: "critical", message: "Attendance critically low at 58%. Immediate action required." },
+    { teacher: teachers[2]._id, center: center._id, class: classRecord._id, attendanceRate: 88, threshold: 75, alertType: "low_attendance", severity: "info", message: "Attendance recovering well at 88%. Keep it up!" },
+  ];
+
+  for (const alertData of attendanceAlertData) {
+    const existingAlert = await AttendanceAlert.findOne({ teacher: alertData.teacher, center: alertData.center, class: alertData.class, alertType: alertData.alertType });
+    if (!existingAlert) {
+      await AttendanceAlert.create(alertData);
+    }
   }
 
   console.log("Automatic database seeding complete.");
   console.log("Admin account: admin@spaceece.com / Admin@123");
-  console.log("Teacher account: priya@school.edu / Teacher@123");
+  console.log("Teacher accounts use the seeded email addresses / Teacher@123");
 }

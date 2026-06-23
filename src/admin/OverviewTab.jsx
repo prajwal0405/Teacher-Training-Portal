@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
-import { AttendanceBar, BarChart, S, SectionCard, StatCard, StatusBadge } from "../components/Shared";
-import { MONTHLY_ENROLLMENT, MONTHLY_REVENUE } from "../data/mockData";
-import { getAdminDashboard, getAdminTeachers } from "../services/api";
+import { useEffect, useMemo, useState } from "react";
+import { BarChart, S, SectionCard, StatCard, StatusBadge } from "../components/Shared";
+import { getAdminDashboard, getAdminTeachers, getCenters, getCourseAssignments } from "../services/api";
+import { t } from "../services/i18n";
 
 export default function OverviewTab({ teachers, courses, batches, sessions, children, centers, activities, attendance }) {
   // DB data
@@ -64,23 +64,37 @@ export default function OverviewTab({ teachers, courses, batches, sessions, chil
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
-      {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={S.pageTitle}>Admin Dashboard 👋</h1>
-        <p style={S.pageSub}>
-          Here's your SpacECE platform overview for today — {new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-        </p>
-      </div>
 
-      {/* KPI Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(170px,1fr))", gap: 16, marginBottom: 24 }}>
-        <StatCard icon="🏫" label="Total Centers" val={stats?.totalCenters ?? 0} color="#f59e0b" bg="#fef3c7" sub="Active training centers" />
-        <StatCard icon="👩‍🏫" label="Total Teachers" val={stats?.totalTeachers ?? teachers.length} color="#10b981" bg="#d1fae5" sub={`+${teacherGrowth}% this month`} />
-        <StatCard icon="👶" label="Total Children" val={stats?.totalChildren ?? 0} color="#3b82f6" bg="#dbeafe" sub="Enrolled across all centers" />
-        <StatCard icon="📊" label="Avg Attendance" val={`${avgAttendance}%`} color="#8b5cf6" bg="#ede9fe" sub="Overall teacher rate" />
-        <StatCard icon="🎓" label="Course Completion" val={`${completionRate}%`} color="#06b6d4" bg="#cffafe" sub="Completed vs in-progress" />
-        <StatCard icon="📋" label="Pending Activities" val={stats?.pendingActivities ?? 0} color="#ef4444" bg="#fee2e2" sub="Awaiting approval" />
-      </div>
+      {/* ── Hero Header ── */}
+      <div style={{ background: "linear-gradient(135deg,#f59e0b 0%,#d97706 60%,#b45309 100%)", borderRadius: 20, padding: "28px 32px", marginBottom: 24, color: "white", position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: -30, right: -30, width: 180, height: 180, borderRadius: "50%", background: "rgba(255,255,255,0.12)" }} />
+        <div style={{ position: "absolute", bottom: -20, right: 80, width: 120, height: 120, borderRadius: "50%", background: "rgba(255,255,255,0.08)" }} />
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#fffbeb", letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: 8 }}>
+                SpacECE Admin Panel
+              </div>
+              <h1 style={{ fontSize: 26, fontWeight: 900, margin: "0 0 6px", letterSpacing: "-0.5px" }}>
+                {t(greeting)}, Admin! 👋
+              </h1>
+              <p style={{ fontSize: 13, margin: 0, color: "rgba(255,255,255,0.85)" }}>
+                {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: 12, flexShrink: 0 }}>
+              {pendingTeachers.length > 0 && (
+                <div style={{ background: "rgba(239,68,68,0.25)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 12, padding: "10px 16px", textAlign: "center" }}>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: "#fee2e2" }}>{pendingTeachers.length}</div>
+                  <div style={{ fontSize: 10, color: "#fee2e2", fontWeight: 700 }}>Pending Approval</div>
+                </div>
+              )}
+              <div style={{ background: "rgba(255,255,255,0.18)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 12, padding: "10px 16px", textAlign: "center" }}>
+                <div style={{ fontSize: 22, fontWeight: 900, color: "white" }}>{approvedTeachers.length}</div>
+                <div style={{ fontSize: 10, color: "white", fontWeight: 700 }}>Active Teachers</div>
+              </div>
+            </div>
+          </div>
 
     {/* KPI Cards */}
     <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))", gap:16, marginBottom:24 }}>
@@ -105,8 +119,8 @@ export default function OverviewTab({ teachers, courses, batches, sessions, chil
               <div style={{ height:5, background:"#e5e7eb", borderRadius:4, overflow:"hidden", marginTop:8 }}>
                 <div style={{ height:"100%", width:`${item.pct}%`, background:item.color, borderRadius:4 }}/>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </SectionCard>
       </div>
 
