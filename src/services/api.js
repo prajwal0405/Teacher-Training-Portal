@@ -38,6 +38,27 @@ export function registerTeacher(payload) {
   });
 }
 
+export function requestPasswordReset(email) {
+  return request("/api/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function verifyPasswordResetToken(token) {
+  return request("/api/auth/reset-password/verify", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
+export function resetPassword(token, password) {
+  return request("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token, password }),
+  });
+}
+
 export function getStoredSession() {
   const token = localStorage.getItem("spaceece_auth_token");
   const rawUser = localStorage.getItem("spaceece_user");
@@ -104,6 +125,11 @@ export function getClasses(centerId = "") {
   return request(path);
 }
 
+export function getClassLogs(classId = "") {
+  const path = classId ? `/api/admin/classes/logs?classId=${classId}` : "/api/admin/classes/logs";
+  return request(path);
+}
+
 export function createClass(classData) {
   return request("/api/admin/classes", {
     method: "POST",
@@ -130,8 +156,13 @@ export function getChildren(params = {}) {
   return request(`/api/admin/children?${searchParams.toString()}`);
 }
 
-export function getTeacherChildren() {
-  return request("/api/teacher/children");
+export function getTeacherChildren(classId = "") {
+  const url = classId ? `/api/teacher/children?classId=${classId}` : "/api/teacher/children";
+  return request(url);
+}
+
+export function getTeacherClasses() {
+  return request("/api/teacher/classes");
 }
 
 export function createTeacherChild(childData) {
@@ -161,6 +192,12 @@ export function deleteChild(id) {
   });
 }
 
+// User Management APIs
+export function getAdminUsers(params = {}) {
+  const searchParams = new URLSearchParams(params);
+  return request(`/api/admin/users?${searchParams.toString()}`);
+}
+
 // Teacher Management APIs
 export function getAdminTeachers() {
   return request("/api/admin/teachers");
@@ -180,6 +217,20 @@ export function updateTeacherStatus(id, status) {
   });
 }
 
+export function assignTeacherToCenter(teacherId, centerId) {
+  return request(`/api/admin/teachers/${teacherId}/assign-center`, {
+    method: "PATCH",
+    body: JSON.stringify({ centerId }),
+  });
+}
+
+export function sendDirectMessageToTeacher(teacherId, payload) {
+  return request(`/api/admin/teachers/${teacherId}/message`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function deleteTeacher(id) {
   return request(`/api/admin/teachers/${id}`, {
     method: "DELETE"
@@ -190,8 +241,67 @@ export function getTeacherMe() {
   return request("/api/teacher/me");
 }
 
+export function updateTeacherMe(profileData) {
+  return request("/api/teacher/me", {
+    method: "PATCH",
+    body: JSON.stringify(profileData)
+  });
+}
+
+export function updateTeacherLanguage(lang) {
+  return request("/api/teacher/me/language", {
+    method: "PATCH",
+    body: JSON.stringify({ language: lang })
+  });
+}
+
+export function changeTeacherPassword(currentPassword, newPassword) {
+  return request("/api/teacher/change-password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword })
+  });
+}
+
 export function getTeacherProgress() {
   return request("/api/teacher/progress");
+}
+
+export function getTeacherAssessmentResults() {
+  return request("/api/teacher/assessment-results");
+}
+
+export function getTrainerMe() {
+  return request("/api/trainer/me");
+}
+
+export function getTrainerBatches() {
+  return request("/api/trainer/batches");
+}
+
+export function getTrainerTeachers() {
+  return request("/api/trainer/teachers");
+}
+
+export function createTrainerAssignment(assignmentData) {
+  return request("/api/trainer/assignments", {
+    method: "POST",
+    body: JSON.stringify(assignmentData)
+  });
+}
+
+export function reviewTrainerAssignment(assignmentId, reviewData) {
+  return request(`/api/trainer/assignments/${assignmentId}/review`, {
+    method: "PATCH",
+    body: JSON.stringify(reviewData)
+  });
+}
+
+export function getTrainerAttendanceSummary() {
+  return request("/api/trainer/attendance/summary");
+}
+
+export function getTrainerPerformance() {
+  return request("/api/trainer/performance");
 }
 
 export function askTeacherChatbot(message) {
@@ -208,6 +318,13 @@ export function getCourses() {
 
 export function createCourse(courseData) {
   return request("/api/courses", {
+    method: "POST",
+    body: JSON.stringify(courseData)
+  });
+}
+
+export function generateCourseFromAI(courseData) {
+  return request("/api/courses/generate-from-ai", {
     method: "POST",
     body: JSON.stringify(courseData)
   });
@@ -249,6 +366,34 @@ export function updateCourseAssignmentProgress(assignmentId, payload) {
     method: "PATCH",
     body: JSON.stringify(payload)
   });
+}
+
+export function getCourseNotes(courseId) {
+  return request(`/api/courses/${courseId}/notes`);
+}
+
+export function createCourseNote(courseId, noteData) {
+  return request(`/api/courses/${courseId}/notes`, {
+    method: "POST",
+    body: JSON.stringify(noteData)
+  });
+}
+
+export function updateCourseNote(noteId, noteData) {
+  return request(`/api/courses/notes/${noteId}`, {
+    method: "PATCH",
+    body: JSON.stringify(noteData)
+  });
+}
+
+export function deleteCourseNote(noteId) {
+  return request(`/api/courses/notes/${noteId}`, {
+    method: "DELETE"
+  });
+}
+
+export function getTeacherCourseNotes(courseId) {
+  return request(`/api/teacher/courses/${courseId}/notes`);
 }
 
 
@@ -319,8 +464,9 @@ export function reviewLessonReport(reportId, payload) {
 }
 
 // Activity APIs
-export function getActivities() {
-  return request("/api/activities");
+export function getActivities(params = {}) {
+  const searchParams = new URLSearchParams(params);
+  return request(`/api/activities?${searchParams.toString()}`);
 }
 
 export function submitActivity(activityData) {
@@ -406,6 +552,18 @@ export function updateFeedback(id, feedbackData) {
   });
 }
 
+// Portal Settings APIs
+export function getPortalSettings() {
+  return request("/api/admin/settings");
+}
+
+export function updatePortalSettings(settings) {
+  return request("/api/admin/settings", {
+    method: "PUT",
+    body: JSON.stringify({ settings }),
+  });
+}
+
 // Notifications APIs
 export function getNotifications() {
   return request("/api/notifications");
@@ -414,6 +572,23 @@ export function getNotifications() {
 export function markNotificationRead(id) {
   return request(`/api/notifications/${id}/read`, {
     method: "PATCH"
+  });
+}
+
+export function getAdminNotifications() {
+  return request("/api/admin/notifications");
+}
+
+export function sendAdminNotification(payload) {
+  return request("/api/admin/notifications/broadcast", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteNotification(id) {
+  return request(`/api/admin/notifications/${id}`, {
+    method: "DELETE"
   });
 }
 

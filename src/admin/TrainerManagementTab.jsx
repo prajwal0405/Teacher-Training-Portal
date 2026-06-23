@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal, S, SearchBar, SectionCard, StatCard, StatusBadge, Toast } from "../components/Shared";
+import { createTrainer, deleteTrainer as deleteTrainerApi, getTrainers, updateTrainer as updateTrainerApi } from "../services/api";
 /* ── A5: Trainer Management ── */
 /* ═══════════════════════════════════════════════════════════
    TRAINER MANAGEMENT TAB — A5.1 + A5.2
@@ -424,28 +425,32 @@ function AddTrainerModal({ onAdd, onClose, setToast }) {
     bio: "", status: "active"
   });
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.name || !form.subject) {
       setToast({ msg: "Name and expertise required.", type: "error" });
       return;
     }
-    onAdd({
-      id: Date.now(),
-      ...form,
-      courses: 0, batches: 0, sessions: 0, rating: 0,
-      joined: new Date().toLocaleDateString("en-IN"),
-      assignedCourses: [form.subject],
-      portalAccess: {
-        uploadContent: true,
-        reviewAssignments: true,
-        hostSessions: true,
-        respondForum: true,
-        viewOwnBatch: true,
-      }
-    });
-    setToast({ msg: "Trainer added successfully!", type: "success" });
-    onClose();
+    try {
+      await onAdd({
+        id: Date.now(),
+        ...form,
+        courses: 0, batches: 0, sessions: 0, rating: 0,
+        joined: new Date().toLocaleDateString("en-IN"),
+        assignedCourses: [form.subject],
+        portalAccess: {
+          uploadContent: true,
+          reviewAssignments: true,
+          hostSessions: true,
+          respondForum: true,
+          viewOwnBatch: true,
+        }
+      });
+      setToast({ msg: "Trainer added successfully!", type: "success" });
+      onClose();
+    } catch (error) {
+      setToast({ msg: error.message || "Could not add trainer.", type: "error" });
+    }
   };
 
   return (
@@ -494,36 +499,79 @@ function AddTrainerModal({ onAdd, onClose, setToast }) {
 /* ══════════════════════════════════════════
    MAIN TRAINER MANAGEMENT TAB — A5.1 + A5.2
 ══════════════════════════════════════════ */
-export default function TrainerManagementTab({ trainers, setTrainers, batches, setToast }) {
+export default function TrainerManagementTab({ trainers: initialTrainers = [], setTrainers, batches = [], setToast }) {
+  const [trainers, setLocalTrainers] = useState(initialTrainers);
   const [selected,    setSelected]    = useState(null);
   const [addModal,    setAddModal]    = useState(false);
   const [statusFilter,setStatusFilter]= useState("all");
   const [search,      setSearch]      = useState("");
+  const [loading, setLoading] = useState(true);
 
-  const addTrainer   = (t)       => setTrainers(prev => [...prev, t]);
-  const updateTrainer= (updated) => setTrainers(prev => prev.map(t => t.id === updated.id ? updated : t));
-  const deleteTrainer= (id)      => { setTrainers(prev => prev.filter(t => t.id !== id)); setToast({ msg: "Trainer removed.", type: "error" }); };
+  const showToast = setToast || (() => {});
+  const syncTrainers = (next) => {
+    setLocalTrainers(next);
+    if (setTrainers) setTrainers(next);
+  };
+
+  const loadTrainers = async () => {
+    setLoading(true);
+    try {
+      const res = await getTrainers();
+      syncTrainers(res.trainers || []);
+    } catch (error) {
+      showToast({ msg: error.message || "Could not load trainers.", type: "error" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTrainers();
+  }, []);
+
+  const addTrainer = async (t) => {
+    const payload = { ...t };
+    delete payload.id;
+    const res = await createTrainer(payload);
+    syncTrainers([res.trainer, ...trainers]);
+  };
+
+  const updateTrainer = async (updated) => {
+    const id = updated._id || updated.id;
+    const res = await updateTrainerApi(id, updated);
+    const saved = res.trainer || updated;
+    syncTrainers(trainers.map(t => (t._id || t.id) === id ? saved : t));
+    setSelected(saved);
+  };
+
+  const deleteTrainer = async (id) => {
+    await deleteTrainerApi(id);
+    syncTrainers(trainers.filter(t => (t._id || t.id) !== id));
+    showToast({ msg: "Trainer removed.", type: "error" });
+  };
 
   const filtered = trainers.filter(t => {
     const q = search.toLowerCase();
-    const matchSearch = t.name.toLowerCase().includes(q) || t.subject.toLowerCase().includes(q);
+    const matchSearch = (t.name || "").toLowerCase().includes(q) || (t.subject || "").toLowerCase().includes(q);
     const matchStatus = statusFilter === "all" || t.status === statusFilter;
     return matchSearch && matchStatus;
   });
+
+  if (loading) return <SectionCard title="Trainer Management">Loading trainers...</SectionCard>;
 
   if (selected) return (
     <TrainerProfileView
       trainer={selected}
       batches={batches}
       onBack={() => setSelected(null)}
-      setToast={setToast}
+      setToast={showToast}
       onUpdate={updated => { updateTrainer(updated); setSelected(updated); }}
     />
   );
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
-      {addModal && <AddTrainerModal onAdd={addTrainer} onClose={() => setAddModal(false)} setToast={setToast} />}
+      {addModal && <AddTrainerModal onAdd={addTrainer} onClose={() => setAddModal(false)} setToast={showToast} />}
 
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
@@ -620,11 +668,11 @@ export default function TrainerManagementTab({ trainers, setTrainers, batches, s
               {/* Actions */}
               <div style={{ display: "flex", gap: 6, paddingTop: 12, borderTop: "1px solid #f3f4f6" }}>
                 <button onClick={() => setSelected(t)} style={{ ...S.tblBtn, flex: 1, color: "#4f46e5", borderColor: "#c4b5fd" }}>👁 View Profile</button>
-                <button onClick={() => { updateTrainer({ ...t, status: t.status === "active" ? "inactive" : "active" }); setToast({ msg: "Trainer status updated!", type: "success" }); }}
+                <button onClick={() => { updateTrainer({ ...t, status: t.status === "active" ? "inactive" : "active" }); showToast({ msg: "Trainer status updated!", type: "success" }); }}
                   style={{ ...S.tblBtn, color: t.status === "active" ? "#d97706" : "#059669", borderColor: t.status === "active" ? "#fbbf24" : "#6ee7b7" }}>
                   {t.status === "active" ? "Deactivate" : "Activate"}
                 </button>
-                <button onClick={() => deleteTrainer(t.id)} style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>🗑️</button>
+                <button onClick={() => deleteTrainer(t._id || t.id)} style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>🗑️</button>
               </div>
             </div>
           );

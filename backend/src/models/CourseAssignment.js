@@ -6,6 +6,13 @@ const rubricItemSchema = new mongoose.Schema({
   maxScore: Number
 }, { _id: false });
 
+const submissionFileSchema = new mongoose.Schema({
+  asset: { type: mongoose.Schema.Types.ObjectId, ref: "FileAsset" },
+  name: String,
+  url: String,
+  uploadedAt: Date,
+}, { _id: false });
+
 const annotationSchema = new mongoose.Schema({
   id: String,
   page: Number,
@@ -23,15 +30,17 @@ const courseAssignmentSchema = new mongoose.Schema(
     dueDate: Date,
     status: { type: String, default: "assigned" },
     progressPercent: { type: Number, min: 0, max: 100, default: 0 },
-    completedContent: [{ type: mongoose.Schema.Types.ObjectId }],
+    completedContent: [{ type: String }],
     completedAt: Date,
+    submittedAt: Date,
     title: { type: String, default: "Course Assignment" },
     feedback: { type: String, default: "" },
     score: { type: Number, default: null },
     rubric: { type: [rubricItemSchema], default: [] },
     trainer: { type: String, default: "" },
     notified: { type: Boolean, default: false },
-    annotations: { type: [annotationSchema], default: [] }
+    annotations: { type: [annotationSchema], default: [] },
+    submissionFiles: { type: [submissionFileSchema], default: [] }
   },
   { timestamps: true }
 );
@@ -39,4 +48,3 @@ const courseAssignmentSchema = new mongoose.Schema(
 courseAssignmentSchema.index({ course: 1, teacher: 1 }, { unique: true });
 
 export const CourseAssignment = mongoose.model("CourseAssignment", courseAssignmentSchema);
-

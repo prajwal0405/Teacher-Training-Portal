@@ -19,17 +19,29 @@ const mapChildFromApi = (c) => ({
   ],
 });
 
-const mapChildToApi = (c) => ({
-  fullName: c.name,
-  age: Number(c.age),
-  gender: c.gender,
-  guardianName: c.parentName,
-  guardianPhone: c.phone,
-  email: c.email,
-  center: c.centerId,
-  class: c.classId,
-  status: c.status,
-});
+const mapChildToApi = (c) => {
+  const centerId = c.centerId || c.center || "";
+  const classId = c.classId || c.class || "";
+
+  if (!centerId || centerId === "undefined") {
+    throw new Error("Center is required. Please select a center for the child.");
+  }
+  if (!classId || classId === "undefined") {
+    throw new Error("Class is required. Please select a class for the child.");
+  }
+
+  return {
+    fullName: c.name,
+    age: Number(c.age),
+    gender: c.gender,
+    guardianName: c.parentName,
+    guardianPhone: c.phone,
+    email: c.email,
+    centerId: String(centerId),
+    classId: String(classId),
+    status: c.status,
+  };
+};
 
 const EMPTY_FORM = {
   name: "", age: "", gender: "Male", parentName: "",
@@ -39,8 +51,17 @@ const EMPTY_FORM = {
 
 /* ── Add / Edit Modal ── */
 function ChildFormModal({ child, centers = [], classes = [], onSave, onClose, setToast }) {
-  const isEdit = !!child;
-  const [form, setForm] = useState(child || EMPTY_FORM);
+  const isEdit = !!child && !!child.id;
+  const [form, setForm] = useState(() => {
+    if (isEdit && child) {
+      return {
+        ...child,
+        centerId: child.centerId || child.center || "",
+        classId: child.classId || child.class || "",
+      };
+    }
+    return { ...EMPTY_FORM };
+  });
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -49,14 +70,16 @@ function ChildFormModal({ child, centers = [], classes = [], onSave, onClose, se
       return;
     }
     onSave(form);
-    onClose();
   };
 
-  // Filter classes by selected center in the form
+  // Filter classes by selected center in the form - use string comparison for ObjectId compatibility
   const formClasses = classes.filter(cls => {
     const cid = cls.center?._id || cls.center?.id || cls.center;
-    return cid === form.centerId;
+    return form.centerId ? String(cid) === String(form.centerId) : true;
   });
+
+  // When editing, show all classes (user can re-assign); when adding, show only center classes
+  const classesToShow = isEdit ? classes : formClasses;
 
   return (
     <Modal title={isEdit ? "✏️ Edit Child Profile" : "👶 Enroll New Child"} onClose={onClose}>
@@ -97,7 +120,7 @@ function ChildFormModal({ child, centers = [], classes = [], onSave, onClose, se
             <select style={S.input} value={form.classId}
               onChange={e => setForm({ ...form, classId: e.target.value })} disabled={!form.centerId}>
               <option value="">Select Class</option>
-              {formClasses.map(cls => <option key={cls._id || cls.id} value={cls._id || cls.id}>{cls.name}</option>)}
+              {classesToShow.map(cls => <option key={cls._id || cls.id} value={cls._id || cls.id}>{cls.name}</option>)}
             </select>
           </div>
         </div>
@@ -243,7 +266,13 @@ export default function ChildrenManagementTab({ setToast }) {
   });
 
   const handleSave = (saved) => {
-    const payload = mapChildToApi(saved);
+    let payload;
+    try {
+      payload = mapChildToApi(saved);
+    } catch (validationError) {
+      showToast({ msg: validationError.message, type: "error" });
+      return;
+    }
     if (editChild) {
       updateChild(editChild.id, payload)
         .then(() => {
@@ -272,13 +301,23 @@ export default function ChildrenManagementTab({ setToast }) {
       .catch(err => showToast({ msg: err.message, type: "error" }));
   };
 
+  const handleDeleteChild = (id) => {
+    if (!window.confirm("Are you sure you want to permanently delete this child's enrollment?")) return;
+    deleteChild(id)
+      .then(() => {
+        showToast({ msg: "Child enrollment permanently deleted.", type: "success" });
+        loadData();
+      })
+      .catch(err => showToast({ msg: err.message, type: "error" }));
+  };
+
   const openEdit = (child) => {
     setEditChild(child);
     setFormModal(true);
   };
 
   const openAdd = () => {
-    setEditChild(null);
+    setEditChild({ ...EMPTY_FORM, centerId: selectedCenterId || "" });
     setFormModal(true);
   };
 
@@ -493,8 +532,8 @@ export default function ChildrenManagementTab({ setToast }) {
                 <button onClick={() => openEdit(c)} style={{ ...S.tblBtn, flex: 1 }}>
                   ✏️ Edit
                 </button>
-                <button onClick={() => handleDeactivate(c.id)} style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>
-                  🔕
+                <button onClick={() => handleDeleteChild(c.id)} title="Delete Child" style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>
+                  🗑️
                 </button>
               </div>
             </div>

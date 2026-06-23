@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { SectionCard, S, Badge } from "../components/Shared";
-import { getTeacherMe, getTeacherChildren, getChildAttendance, saveChildAttendance, createTeacherChild } from "../services/api";
+import { getTeacherMe, getTeacherChildren, getChildAttendance, saveChildAttendance, createTeacherChild, getTeacherClasses } from "../services/api";
 
 const EMAILJS_SERVICE_ID  = "service_ckzt1le";
 const EMAILJS_TEMPLATE_ID = "template_xycsvf7";
@@ -13,6 +13,8 @@ let emailJsLoaded = false;
 
 export default function AttendanceManager({ user }) {
   const [teacherProfile, setTeacherProfile] = useState(null);
+  const [classes, setClasses] = useState([]);
+  const [selectedClassId, setSelectedClassId] = useState("");
   const [students, setStudents] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
   const [attendanceDict, setAttendanceDict] = useState({});
@@ -42,6 +44,21 @@ export default function AttendanceManager({ user }) {
     getTeacherMe()
       .then(res => {
         setTeacherProfile(res.teacher);
+        const defaultClassId = res.teacher?.teacherProfile?.class?._id || res.teacher?.teacherProfile?.class;
+        
+        getTeacherClasses()
+          .then(classRes => {
+            const cls = classRes.classes || [];
+            setClasses(cls);
+            if (defaultClassId) {
+              setSelectedClassId(defaultClassId);
+            } else if (cls.length > 0) {
+              setSelectedClassId(cls[0]._id || cls[0].id);
+            }
+          })
+          .catch(err => {
+            console.error("Error fetching teacher classes:", err);
+          });
       })
       .catch(err => {
         console.error("Error fetching teacher profile:", err);
@@ -51,11 +68,12 @@ export default function AttendanceManager({ user }) {
   // Fetch children list and attendance for selected date
   const loadRosterAndAttendance = () => {
     if (!teacherProfile) return;
+    const classId = selectedClassId || teacherProfile?.teacherProfile?.class?._id || teacherProfile?.teacherProfile?.class;
     setLoading(true);
 
     Promise.all([
-      getTeacherChildren(),
-      getChildAttendance({ date: selectedDate })
+      getTeacherChildren(classId),
+      getChildAttendance({ date: selectedDate, classId: classId })
     ]).then(([childrenRes, attendanceRes]) => {
       const dbChildren = childrenRes.children || [];
       const roster = dbChildren.map(c => ({
@@ -66,7 +84,6 @@ export default function AttendanceManager({ user }) {
       setStudents(roster);
 
       const sessions = attendanceRes.sessions || [];
-      const classId = teacherProfile?.teacherProfile?.class?._id || teacherProfile?.teacherProfile?.class;
       const classSession = sessions.find(s => {
         const scid = s.class?._id || s.class?.id || s.class;
         return scid === classId;
@@ -101,7 +118,7 @@ export default function AttendanceManager({ user }) {
     if (teacherProfile) {
       loadRosterAndAttendance();
     }
-  }, [selectedDate, teacherProfile]);
+  }, [selectedDate, teacherProfile, selectedClassId]);
 
   // OTP expiry countdown
   useEffect(() => {
@@ -228,7 +245,7 @@ export default function AttendanceManager({ user }) {
 
   const saveAttendanceToDb = (dict) => {
     const centerId = teacherProfile?.teacherProfile?.center?._id || teacherProfile?.teacherProfile?.center;
-    const classId = teacherProfile?.teacherProfile?.class?._id || teacherProfile?.teacherProfile?.class;
+    const classId = selectedClassId || teacherProfile?.teacherProfile?.class?._id || teacherProfile?.teacherProfile?.class;
 
     if (!centerId || !classId) {
       return Promise.reject(new Error("Center/Class assignment missing in teacher profile."));
@@ -304,7 +321,8 @@ export default function AttendanceManager({ user }) {
     e.preventDefault();
     if (!newStudentName.trim()) return;
 
-    createTeacherChild({ fullName: newStudentName.trim(), status: "active" })
+    const classId = selectedClassId || teacherProfile?.teacherProfile?.class?._id || teacherProfile?.teacherProfile?.class;
+    createTeacherChild({ fullName: newStudentName.trim(), classId, status: "active" })
       .then(() => {
         triggerToast("Child enrolled successfully in database!");
         setNewStudentName("");
@@ -388,9 +406,9 @@ export default function AttendanceManager({ user }) {
       )}
 
       {/* Date picker */}
-      <SectionCard title="📅 Daily Register Date Lookup">
+      <SectionCard title="📅 Daily Register Date & Class Lookup">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <label style={{ ...S.label, margin: 0, fontWeight: 700 }}>Select Sheet Date:</label>
             <input
               type="date"
@@ -398,12 +416,30 @@ export default function AttendanceManager({ user }) {
               onChange={e => setSelectedDate(e.target.value)}
               style={{ ...S.input, width: "auto", padding: "8px 12px" }}
             />
+
+            {classes.length > 0 && (
+              <>
+                <label style={{ ...S.label, margin: 0, fontWeight: 700, marginLeft: 12 }}>Select Class:</label>
+                <select
+                  value={selectedClassId}
+                  onChange={e => setSelectedClassId(e.target.value)}
+                  style={{ ...S.input, width: "auto", padding: "8px 12px", minWidth: 150 }}
+                >
+                  {classes.map(c => (
+                    <option key={c._id || c.id} value={c._id || c.id}>{c.name} ({c.ageGroup || "All Ages"})</option>
+                  ))}
+                </select>
+              </>
+            )}
+
             {isSavedRecord
               ? <Badge children="📝 Reviewing Saved Sheet History" color="#1e40af" bg="#dbeafe" />
               : <Badge children="✨ New Unsaved Data Register"     color="#854d0e" bg="#fef9c3" />
             }
           </div>
-          <Badge children={`Class: ${teacherProfile?.teacherProfile?.class?.name || "Unassigned"}`} color="#d97706" bg="#fef3c7" />
+          {classes.length > 0 && selectedClassId && (
+            <Badge children={`Class: ${classes.find(c => (c._id || c.id) === selectedClassId)?.name || "Selected"}`} color="#d97706" bg="#fef3c7" />
+          )}
         </div>
 
         {isSavedRecord && (
