@@ -1,553 +1,314 @@
-import { useState, useEffect } from "react";
-import { Modal, S, SearchBar, StatCard, StatusBadge, Toast } from "../components/Shared";
-import { getChildren, createChild, updateChild, deleteChild, getCenters, getClasses } from "../services/api";
+import React, { useState, useEffect } from 'react';
+import { fetchChildren, fetchCenters, createChild, updateChild, deleteChild } from '../lib/api';
 
-const mapChildFromApi = (c) => ({
-  id: c._id || c.id,
-  name: c.fullName || c.name,
-  age: c.age || 4,
-  gender: c.gender || "Male",
-  parentName: c.guardianName || c.parentName || "",
-  phone: c.guardianPhone || c.phone || "",
-  email: c.email || "",
-  centerId: c.center?._id || c.center || "",
-  classId: c.class?._id || c.class || "",
-  status: c.status || "active",
-  attendanceRate: "95%",
-  activities: c.activities || [
-    { date: "2026-06-15", activity: "Standard Classroom Play", status: "Present" }
-  ],
-});
-
-const mapChildToApi = (c) => {
-  const centerId = c.centerId || c.center || "";
-  const classId = c.classId || c.class || "";
-
-  if (!centerId || centerId === "undefined") {
-    throw new Error("Center is required. Please select a center for the child.");
-  }
-  if (!classId || classId === "undefined") {
-    throw new Error("Class is required. Please select a class for the child.");
-  }
-
-  return {
-    fullName: c.name,
-    age: Number(c.age),
-    gender: c.gender,
-    guardianName: c.parentName,
-    guardianPhone: c.phone,
-    email: c.email,
-    centerId: String(centerId),
-    classId: String(classId),
-    status: c.status,
-  };
-};
-
-const EMPTY_FORM = {
-  name: "", age: "", gender: "Male", parentName: "",
-  phone: "", email: "", centerId: "", classId: "",
-  status: "active", attendanceRate: "100%", activities: []
-};
-
-/* ── Add / Edit Modal ── */
-function ChildFormModal({ child, centers = [], classes = [], onSave, onClose, setToast }) {
-  const isEdit = !!child && !!child.id;
-  const [form, setForm] = useState(() => {
-    if (isEdit && child) {
-      return {
-        ...child,
-        centerId: child.centerId || child.center || "",
-        classId: child.classId || child.class || "",
-      };
-    }
-    return { ...EMPTY_FORM };
-  });
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!form.name || !form.parentName || !form.phone || !form.centerId || !form.classId) {
-      setToast({ msg: "Please fill all required fields.", type: "error" });
-      return;
-    }
-    onSave(form);
-  };
-
-  // Filter classes by selected center in the form - use string comparison for ObjectId compatibility
-  const formClasses = classes.filter(cls => {
-    const cid = cls.center?._id || cls.center?.id || cls.center;
-    return form.centerId ? String(cid) === String(form.centerId) : true;
-  });
-
-  // When editing, show all classes (user can re-assign); when adding, show only center classes
-  const classesToShow = isEdit ? classes : formClasses;
-
-  return (
-    <Modal title={isEdit ? "✏️ Edit Child Profile" : "👶 Enroll New Child"} onClose={onClose}>
-      <form onSubmit={handleSubmit}>
-        <label style={S.label}>Child's Full Name *</label>
-        <input style={{ ...S.input, marginBottom: 12 }} value={form.name}
-          onChange={e => setForm({ ...form, name: e.target.value })}
-          placeholder="e.g. Aarav Sharma" />
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-          <div>
-            <label style={S.label}>Age *</label>
-            <input style={S.input} type="number" value={form.age}
-              onChange={e => setForm({ ...form, age: e.target.value })} placeholder="e.g. 4" />
-          </div>
-          <div>
-            <label style={S.label}>Gender</label>
-            <select style={S.input} value={form.gender}
-              onChange={e => setForm({ ...form, gender: e.target.value })}>
-              <option value="Male">Male</option>
-              <option value="Female">Female</option>
-              <option value="Other">Other</option>
-            </select>
-          </div>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-          <div>
-            <label style={S.label}>Assigned Center *</label>
-            <select style={S.input} value={form.centerId}
-              onChange={e => setForm({ ...form, centerId: e.target.value, classId: "" })}>
-              <option value="">Select Center</option>
-              {centers.map(c => <option key={c._id || c.id} value={c._id || c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={S.label}>Assigned Class *</label>
-            <select style={S.input} value={form.classId}
-              onChange={e => setForm({ ...form, classId: e.target.value })} disabled={!form.centerId}>
-              <option value="">Select Class</option>
-              {classesToShow.map(cls => <option key={cls._id || cls.id} value={cls._id || cls.id}>{cls.name}</option>)}
-            </select>
-          </div>
-        </div>
-
-        <hr style={{ border: "0", borderTop: "1px solid #e5e7eb", margin: "16px 0" }} />
-
-        <label style={S.label}>Parent / Guardian Name *</label>
-        <input style={{ ...S.input, marginBottom: 12 }} value={form.parentName}
-          onChange={e => setForm({ ...form, parentName: e.target.value })}
-          placeholder="e.g. Rajesh Sharma" />
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-          <div>
-            <label style={S.label}>Parent Phone *</label>
-            <input style={S.input} value={form.phone}
-              onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="9876543211" />
-          </div>
-          <div>
-            <label style={S.label}>Parent Email</label>
-            <input style={S.input} type="email" value={form.email}
-              onChange={e => setForm({ ...form, email: e.target.value })} placeholder="parent@gmail.com" />
-          </div>
-        </div>
-
-        <label style={S.label}>Status</label>
-        <select style={{ ...S.input, marginBottom: 20 }} value={form.status}
-          onChange={e => setForm({ ...form, status: e.target.value })}>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-        </select>
-
-        <button type="submit" style={{ ...S.primaryBtn, width: "100%" }}>
-          {isEdit ? "Update Profile →" : "Enroll Child →"}
-        </button>
-      </form>
-    </Modal>
-  );
-}
-
-/* ── Child Detail & History View ── */
-function ChildDetailModal({ child, centers = [], classes = [], onClose }) {
-  const centerName = centers.find(c => (c._id || c.id) === child.centerId)?.name || "Unassigned Center";
-  const className = classes.find(c => (c._id || c.id) === child.classId)?.name || "Unassigned Class";
-
-  return (
-    <Modal title={`👶 Profile: ${child.name}`} onClose={onClose}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-        {[
-          { icon: "🏫", label: "Center", val: centerName },
-          { icon: "🎒", label: "Class", val: className },
-          { icon: "🎂", label: "Age / Gender", val: `${child.age} Years · ${child.gender}` },
-          { icon: "📈", label: "Attendance Rate", val: child.attendanceRate },
-          { icon: "👤", label: "Guardian", val: child.parentName },
-          { icon: "📱", label: "Contact", val: child.phone },
-        ].map((r, i) => (
-          <div key={i} style={{ background: "#f9fafb", borderRadius: 10, padding: "10px 12px", border: "1px solid #f3f4f6" }}>
-            <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", marginBottom: 2 }}>{r.label}</div>
-            <div style={{ fontSize: 12, color: "#374151", fontWeight: 600 }}>{r.icon} {r.val}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Activity Timeline */}
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 8 }}>📋 Activity & Attendance History</div>
-        {child.activities && child.activities.length > 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {child.activities.map((act, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: "#f9fafb", borderRadius: 8, border: "1px solid #f1f5f9" }}>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1c1917" }}>{act.activity}</div>
-                  <div style={{ fontSize: 10, color: "#9ca3af" }}>{act.date}</div>
-                </div>
-                <span style={{ fontSize: 11, fontWeight: 700, color: act.status === "Present" ? "#10b981" : "#dc2626" }}>
-                  ● {act.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={{ textAlign: "center", padding: "16px", color: "#9ca3af", fontSize: 12 }}>
-            No recent activity logs found.
-          </div>
-        )}
-      </div>
-    </Modal>
-  );
-}
-
-/* ══════════════════════════════════════════
-    MAIN CHILDREN MANAGEMENT TAB
-   ══════════════════════════════════════════ */
-export default function ChildrenManagementTab({ setToast }) {
+const ChildrenManagement = ({ setToast }) => {
   const [children, setChildren] = useState([]);
   const [centers, setCenters] = useState([]);
-  const [classes, setClasses] = useState([]);
-  const [search, setSearch] = useState("");
-  const [selectedCenterId, setSelectedCenterId] = useState(null);
-  const [selectedClassId, setSelectedClassId] = useState(null);
-  const [formModal, setFormModal] = useState(false);
-  const [editChild, setEditChild] = useState(null);
-  const [detailChild, setDetailChild] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [toast, setLocalToast] = useState({ msg: "", type: "" });
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterCenter, setFilterCenter] = useState('');
+  const [filterClass, setFilterClass] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [editingChild, setEditingChild] = useState(null);
 
-  const showToast = setToast || setLocalToast;
+  const emptyForm = {
+    name: '', age: '', gender: 'Male', center: '', classGroup: '',
+    parentName: '', parentPhone: '', status: 'active'
+  };
+  const [form, setForm] = useState(emptyForm);
 
-  const loadData = () => {
-    setLoading(true);
-    Promise.all([getChildren(), getCenters(), getClasses()])
-      .then(([childrenRes, centersRes, classesRes]) => {
-        const dbChildren = (childrenRes.children || []).map(mapChildFromApi);
-        const dbCenters = centersRes.centers || [];
-        const dbClasses = classesRes.classes || [];
+  useEffect(() => { loadData(); }, []);
 
-        setChildren(dbChildren);
-        setCenters(dbCenters);
-        setClasses(dbClasses);
-
-        // Pre-select first center if none selected
-        if (dbCenters.length > 0 && !selectedCenterId) {
-          setSelectedCenterId(dbCenters[0]._id || dbCenters[0].id);
-        }
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error("Error loading children data:", err);
-        setLoading(false);
-        showToast({ msg: "Failed to load kids & classes from database.", type: "error" });
-      });
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [childrenData, centersData] = await Promise.all([
+        fetchChildren(), fetchCenters()
+      ]);
+      setChildren(childrenData);
+      setCenters(centersData);
+    } catch (err) {
+      console.error(err);
+      setToast?.({ type: 'error', message: 'Failed to load data' });
+    } finally { setLoading(false); }
   };
 
-  useEffect(() => {
-    loadData();
-  }, []);
+ const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const centerId = centers.find(c => c.name === form.center)?._id;
+      const submitData = {
+        ...form,
+        age: Number(form.age),
+      };
+      if (centerId) submitData.center = centerId;
 
-  const filteredChildren = children.filter(c => {
-    const q = search.toLowerCase();
-    const matchSearch = c.name.toLowerCase().includes(q) || c.parentName.toLowerCase().includes(q);
-    const matchCenter = !selectedCenterId || c.centerId === selectedCenterId;
-    const matchClass = !selectedClassId || c.classId === selectedClassId;
+      if (editingChild) {
+        await updateChild(editingChild._id, submitData);
+        setToast?.({ type: 'success', message: 'Child updated successfully!' });
+      } else {
+        await createChild(submitData);
+        setToast?.({ type: 'success', message: 'Child enrolled successfully!' });
+      }
+      setShowForm(false);
+      setEditingChild(null);
+      setForm(emptyForm);
+      loadData();
+    } catch (err) {
+      setToast?.({ type: 'error', message: 'Failed to save child' });
+    }
+  };
+
+  const handleEdit = (child) => {
+    setEditingChild(child);
+    setForm({
+      name: child.name || '', age: child.age || '', gender: child.gender || 'Male',
+      center: child.center?.name || child.center || '',
+      classGroup: child.classGroup || '',
+      parentName: child.parentName || '', parentPhone: child.parentPhone || '',
+      status: child.status || 'active'
+    });
+    setShowForm(true);
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this child?')) return;
+    try {
+      await deleteChild(id);
+      setToast?.({ type: 'success', message: 'Child deleted' });
+      loadData();
+    } catch (err) { setToast?.({ type: 'error', message: 'Failed to delete' }); }
+  };
+
+  const filtered = children.filter(c => {
+    const matchSearch = !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase());
+    const cCenter = c.center?.name || c.center;
+    const matchCenter = !filterCenter || cCenter === filterCenter;
+    const matchClass = !filterClass || c.classGroup === filterClass;
     return matchSearch && matchCenter && matchClass;
   });
 
-  const handleSave = (saved) => {
-    let payload;
-    try {
-      payload = mapChildToApi(saved);
-    } catch (validationError) {
-      showToast({ msg: validationError.message, type: "error" });
-      return;
-    }
-    if (editChild) {
-      updateChild(editChild.id, payload)
-        .then(() => {
-          showToast({ msg: "Child profile updated!", type: "success" });
-          loadData();
-        })
-        .catch(err => showToast({ msg: err.message, type: "error" }));
-    } else {
-      createChild(payload)
-        .then(() => {
-          showToast({ msg: "Child enrolled successfully in database!", type: "success" });
-          loadData();
-        })
-        .catch(err => showToast({ msg: err.message, type: "error" }));
-    }
-    setFormModal(false);
-    setEditChild(null);
+  const allClasses = [...new Set(children.map(c => c.classGroup).filter(Boolean))];
+  const allCenters = [...new Set(children.map(c => c.center?.name || c.center).filter(Boolean))];
+
+  const styles = {
+    container: { padding: '24px', maxWidth: '1200px', margin: '0 auto' },
+    header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' },
+    title: { fontSize: '24px', fontWeight: '700', color: '#1a1a2e', margin: 0 },
+    btn: { padding: '10px 20px', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '14px', transition: 'all 0.2s' },
+    btnPrimary: { background: '#6c63ff', color: '#fff' },
+    btnPrimaryHover: { background: '#5a52d5' },
+    btnDanger: { background: '#ff4757', color: '#fff', padding: '6px 12px', fontSize: '12px' },
+    btnEdit: { background: '#ffa502', color: '#fff', padding: '6px 12px', fontSize: '12px' },
+    filters: { display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center' },
+    select: { padding: '8px 12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', background: '#fff', minWidth: '160px' },
+    searchInput: { padding: '8px 12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', width: '220px' },
+    table: { width: '100%', borderCollapse: 'collapse', background: '#fff', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' },
+    th: { background: '#6c63ff', color: '#fff', padding: '14px 16px', textAlign: 'left', fontSize: '13px', fontWeight: '600' },
+    td: { padding: '12px 16px', borderBottom: '1px solid #f0f0f0', fontSize: '14px', color: '#333' },
+    tr: { transition: 'background 0.2s' },
+    statusBadge: { display: 'inline-block', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' },
+    overlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
+    modal: { background: '#fff', borderRadius: '16px', padding: '32px', width: '500px', maxWidth: '90vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' },
+    modalTitle: { fontSize: '20px', fontWeight: '700', color: '#1a1a2e', marginBottom: '24px', margin: 0 },
+    formGroup: { marginBottom: '16px' },
+    label: { display: 'block', fontSize: '13px', fontWeight: '600', color: '#555', marginBottom: '6px' },
+    input: { width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', boxSizing: 'border-box' },
+    formActions: { display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' },
+    btnCancel: { background: '#eee', color: '#333' },
+    btnSubmit: { background: '#6c63ff', color: '#fff', padding: '10px 24px' },
+    emptyState: { textAlign: 'center', padding: '60px 20px', color: '#999' },
+    stats: { display: 'flex', gap: '12px', marginBottom: '20px' },
+    statCard: { background: '#fff', borderRadius: '12px', padding: '16px 20px', flex: 1, boxShadow: '0 2px 8px rgba(0,0,0,0.06)', textAlign: 'center' },
+    statNumber: { fontSize: '28px', fontWeight: '700', color: '#6c63ff' },
+    statLabel: { fontSize: '12px', color: '#888', marginTop: '4px' },
   };
 
-  const handleDeactivate = (id) => {
-    updateChild(id, { status: "inactive" })
-      .then(() => {
-        showToast({ msg: "Child profile marked as inactive.", type: "success" });
-        loadData();
-      })
-      .catch(err => showToast({ msg: err.message, type: "error" }));
+  const getStatusStyle = (status) => {
+    const s = (status || '').toLowerCase();
+    if (s === 'active') return { background: '#d4edda', color: '#155724' };
+    if (s === 'inactive') return { background: '#f8d7da', color: '#721c24' };
+    return { background: '#fff3cd', color: '#856404' };
   };
-
-  const handleDeleteChild = (id) => {
-    if (!window.confirm("Are you sure you want to permanently delete this child's enrollment?")) return;
-    deleteChild(id)
-      .then(() => {
-        showToast({ msg: "Child enrollment permanently deleted.", type: "success" });
-        loadData();
-      })
-      .catch(err => showToast({ msg: err.message, type: "error" }));
-  };
-
-  const openEdit = (child) => {
-    setEditChild(child);
-    setFormModal(true);
-  };
-
-  const openAdd = () => {
-    setEditChild({ ...EMPTY_FORM, centerId: selectedCenterId || "" });
-    setFormModal(true);
-  };
-
-  const handleCenterSelect = (centerId) => {
-    setSelectedCenterId(centerId);
-    setSelectedClassId(null);
-  };
-
-  const getClassStudentCount = (classId) => {
-    return children.filter(c => c.centerId === selectedCenterId && c.classId === classId).length;
-  };
-
-  if (loading) {
-    return (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "40vh", fontSize: 14, fontWeight: 600, color: "#d97706" }}>
-        🔄 Loading Children & Classes...
-      </div>
-    );
-  }
-
-  const active = children.filter(c => c.status === "active").length;
-  const inactive = children.filter(c => c.status === "inactive").length;
-
-  const activeCenterClasses = classes.filter(cls => {
-    const cid = cls.center?._id || cls.center?.id || cls.center;
-    return cid === selectedCenterId;
-  });
 
   return (
-    <div style={{ animation: "fadeIn 0.3s ease", fontFamily: "inherit" }}>
-      {!setToast && <Toast msg={toast.msg} type={toast.type} onClose={() => setLocalToast({ msg: "", type: "" })} />}
-
-      {formModal && (
-        <ChildFormModal
-          child={editChild}
-          centers={centers}
-          classes={classes}
-          onSave={handleSave}
-          onClose={() => { setFormModal(false); setEditChild(null); }}
-          setToast={showToast}
-        />
-      )}
-
-      {detailChild && (
-        <ChildDetailModal
-          child={detailChild}
-          centers={centers}
-          classes={classes}
-          onClose={() => setDetailChild(null)}
-        />
-      )}
-
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <div>
-          <h1 style={S.pageTitle}>Children & Class Management</h1>
-          <p style={S.pageSub}>{active} active enrolled · {inactive} inactive · {children.length} total profiles</p>
-        </div>
-        <button onClick={openAdd} style={S.primaryBtn}>+ Enroll Child</button>
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <h2 style={styles.title}>Children Management</h2>
+        <button style={{ ...styles.btn, ...styles.btnPrimary }}
+          onClick={() => { setEditingChild(null); setForm(emptyForm); setShowForm(true); }}
+          onMouseEnter={e => e.target.style.background = styles.btnPrimaryHover.background}
+          onMouseLeave={e => e.target.style.background = styles.btnPrimary.background}>
+          + Enroll New Child
+        </button>
       </div>
 
-      {/* KPI Display */}
-      <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
-        <StatCard icon="👶" label="Total Children" val={children.length} color="#8b5cf6" bg="#ede9fe" />
-        <StatCard icon="✅" label="Active Enrolled" val={active} color="#10b981" bg="#d1fae5" />
-        <StatCard icon="🔕" label="Inactive Profiles" val={inactive} color="#6b7280" bg="#f3f4f6" />
-      </div>
-
-      {/* ── STEP 1: CENTERS NAVIGATION TABS ── */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: "#475569", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-          📍 Select Center
+      <div style={styles.stats}>
+        <div style={styles.statCard}>
+          <div style={styles.statNumber}>{children.length}</div>
+          <div style={styles.statLabel}>Total Children</div>
         </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {centers.map(center => {
-            const cid = center._id || center.id;
-            const isSelected = selectedCenterId === cid;
-            const centerCount = children.filter(c => c.centerId === cid).length;
-            return (
-              <button
-                key={cid}
-                onClick={() => handleCenterSelect(cid)}
-                style={{
-                  padding: "12px 18px",
-                  borderRadius: 12,
-                  border: isSelected ? "2px solid #8b5cf6" : "1px solid #e2e8f0",
-                  background: isSelected ? "#f5f3ff" : "white",
-                  color: isSelected ? "#6d28d9" : "#475569",
-                  fontWeight: 700,
-                  fontSize: 13,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  transition: "all 0.2s"
-                }}
-              >
-                🏢 {center.name}
-                <span style={{ 
-                  background: isSelected ? "#8b5cf6" : "#f1f5f9", 
-                  color: isSelected ? "white" : "#64748b",
-                  padding: "2px 7px", 
-                  borderRadius: 8, 
-                  fontSize: 11 
-                }}>
-                  {centerCount}
-                </span>
-              </button>
-            );
-          })}
+        <div style={styles.statCard}>
+          <div style={styles.statNumber}>{children.filter(c => c.status === 'active').length}</div>
+          <div style={styles.statLabel}>Active</div>
+        </div>
+        <div style={styles.statCard}>
+          <div style={styles.statNumber}>{allCenters.length}</div>
+          <div style={styles.statLabel}>Centers</div>
+        </div>
+        <div style={styles.statCard}>
+          <div style={styles.statNumber}>{filtered.length}</div>
+          <div style={styles.statLabel}>Showing</div>
         </div>
       </div>
 
-      {/* ── STEP 2: CLASSES CHIPS ROW ── */}
-      {selectedCenterId && (
-        <div style={{ marginBottom: 20, padding: "14px 16px", background: "#f8fafc", borderRadius: 14, border: "1px solid #e2e8f0" }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-            🎒 Select Class Room
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button
-              onClick={() => setSelectedClassId(null)}
-              style={{
-                padding: "8px 14px",
-                borderRadius: 20,
-                border: "1px solid",
-                borderColor: !selectedClassId ? "#8b5cf6" : "#cbd5e1",
-                background: !selectedClassId ? "#8b5cf6" : "white",
-                color: !selectedClassId ? "white" : "#64748b",
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: "pointer"
-              }}
-            >
-              All Classes ({children.filter(c => c.centerId === selectedCenterId).length})
-            </button>
-            {activeCenterClasses.map(cls => {
-              const clid = cls._id || cls.id;
-              const isSelected = selectedClassId === clid;
-              const count = getClassStudentCount(clid);
-              return (
-                <button
-                  key={clid}
-                  onClick={() => setSelectedClassId(clid)}
-                  style={{
-                    padding: "8px 14px",
-                    borderRadius: 20,
-                    border: "1px solid",
-                    borderColor: isSelected ? "#8b5cf6" : "#cbd5e1",
-                    background: isSelected ? "#8b5cf6" : "white",
-                    color: isSelected ? "white" : "#64748b",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6
-                  }}
-                >
-                  {cls.name}
-                  <span style={{ 
-                    background: isSelected ? "rgba(255,255,255,0.25)" : "#f1f5f9",
-                    color: isSelected ? "white" : "#64748b",
-                    padding: "1px 5px",
-                    borderRadius: 6,
-                    fontSize: 10
-                  }}>
-                    {count}
+      <div style={styles.filters}>
+        <input style={styles.searchInput} placeholder="Search by name..."
+          value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+        <select style={styles.select} value={filterCenter} onChange={e => setFilterCenter(e.target.value)}>
+          <option value="">All Centers</option>
+          {centers.map(c => <option key={c._id || c.name} value={c.name}>{c.name}</option>)}
+        </select>
+        <select style={styles.select} value={filterClass} onChange={e => setFilterClass(e.target.value)}>
+          <option value="">All Classes</option>
+          {allClasses.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+
+      {loading ? (
+        <div style={styles.emptyState}>Loading children data from database...</div>
+      ) : filtered.length === 0 ? (
+        <div style={styles.emptyState}>No children found matching your filters.</div>
+      ) : (
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>#</th>
+              <th style={styles.th}>Name</th>
+              <th style={styles.th}>Age</th>
+              <th style={styles.th}>Gender</th>
+              <th style={styles.th}>Center</th>
+              <th style={styles.th}>Class</th>
+              <th style={styles.th}>Parent</th>
+              <th style={styles.th}>Phone</th>
+              <th style={styles.th}>Status</th>
+              <th style={styles.th}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((child, i) => (
+              <tr key={child._id} style={styles.tr}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8f7ff'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <td style={styles.td}>{i + 1}</td>
+                <td style={{ ...styles.td, fontWeight: '600' }}>{child.name}</td>
+                <td style={styles.td}>{child.age}</td>
+                <td style={styles.td}>{child.gender}</td>
+                <td style={styles.td}>{child.center?.name || child.center}</td>
+                <td style={styles.td}>{child.classGroup}</td>
+                <td style={styles.td}>{child.parentName}</td>
+                <td style={styles.td}>{child.parentPhone}</td>
+                <td style={styles.td}>
+                  <span style={{ ...styles.statusBadge, ...getStatusStyle(child.status) }}>
+                    {child.status}
                   </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+                </td>
+                <td style={styles.td}>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button style={styles.btnEdit} onClick={() => handleEdit(child)}>Edit</button>
+                    <button style={styles.btnDanger} onClick={() => handleDelete(child._id)}>Delete</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
 
-      {/* Filter Text Query Search Box */}
-      <div style={{ marginBottom: 16 }}>
-        <SearchBar value={search} onChange={setSearch} placeholder="Search within selection by child or parent name..." />
-      </div>
-
-      {/* ── STEP 3: ENROLLED STUDENTS GRID DISPLAY ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))", gap: 16 }}>
-        {filteredChildren.map((c) => {
-          const centerObj = centers.find(cen => (cen._id || cen.id) === c.centerId);
-          const classObj = classes.find(cls => (cls._id || cls.id) === c.classId);
-
-          return (
-            <div key={c.id} style={{ background: "white", borderRadius: 18, padding: "20px", border: "1px solid #f1f5f9", boxShadow: "0 2px 10px rgba(0,0,0,0.05)", borderTop: `3px solid ${c.status === "active" ? "#8b5cf6" : "#e5e7eb"}` }}>
-              
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
-                <div style={{ width: 48, height: 48, borderRadius: 14, background: "linear-gradient(135deg,#ede9fe,#8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>👶</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", marginBottom: 4 }}>{c.name}</div>
-                  <div style={{ fontSize: 11, color: "#6b7280" }}>🎒 {classObj?.name || "Unassigned"} · Age: {c.age}</div>
+      {showForm && (
+        <div style={styles.overlay} onClick={() => setShowForm(false)}>
+          <div style={styles.modal} onClick={e => e.stopPropagation()}>
+            <h3 style={styles.modalTitle}>
+              {editingChild ? 'Edit Child' : 'Enroll New Child'}
+            </h3>
+            <form onSubmit={handleSubmit}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Child Name *</label>
+                <input style={styles.input} required value={form.name}
+                  onChange={e => setForm({ ...form, name: e.target.value })}
+                  placeholder="Enter child's full name" />
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>Age *</label>
+                  <input style={styles.input} type="number" min="1" max="18" required value={form.age}
+                    onChange={e => setForm({ ...form, age: e.target.value })} placeholder="Age" />
                 </div>
-                <StatusBadge status={c.status} />
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>Gender *</label>
+                  <select style={styles.input} required value={form.gender}
+                    onChange={e => setForm({ ...form, gender: e.target.value })}>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
               </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 14, padding: "12px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f3f4f6" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase" }}>Center Assignment</div>
-                <div style={{ fontSize: 12, color: "#374151", fontWeight: 600, marginBottom: 4 }}>🏢 {centerObj?.name || "None"}</div>
-                <div style={{ fontSize: 12, color: "#6b7280" }}>👤 Parent: {c.parentName}</div>
-                <div style={{ fontSize: 12, color: "#6b7280" }}>📱 Phone: {c.phone}</div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>Center *</label>
+                  <select style={styles.input} required value={form.center}
+                    onChange={e => setForm({ ...form, center: e.target.value })}>
+                    <option value="">Select Center</option>
+                    {centers.map(c => <option key={c._id || c.name} value={c.name}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>Class Group *</label>
+                  <select style={styles.input} required value={form.classGroup}
+                    onChange={e => setForm({ ...form, classGroup: e.target.value })}>
+                    <option value="">Select Class</option>
+                    {['Playgroup-A','Playgroup-B','Nursery-A','Nursery-B','KG-A','KG-B','Class 1','Class 2'].map(c =>
+                      <option key={c} value={c}>{c}</option>
+                    )}
+                  </select>
+                </div>
               </div>
-
-              {/* Action Layout */}
-              <div style={{ display: "flex", gap: 6, paddingTop: 12, borderTop: "1px solid #f3f4f6" }}>
-                <button onClick={() => setDetailChild(c)} style={{ ...S.tblBtn, flex: 1, color: "#4f46e5", borderColor: "#c4b5fd" }}>
-                  👁 History
-                </button>
-                <button onClick={() => openEdit(c)} style={{ ...S.tblBtn, flex: 1 }}>
-                  ✏️ Edit
-                </button>
-                <button onClick={() => handleDeleteChild(c.id)} title="Delete Child" style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>
-                  🗑️
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Parent/Guardian Name *</label>
+                <input style={styles.input} required value={form.parentName}
+                  onChange={e => setForm({ ...form, parentName: e.target.value })}
+                  placeholder="Enter parent's full name" />
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>Parent Phone *</label>
+                  <input style={styles.input} type="tel" required value={form.parentPhone}
+                    onChange={e => setForm({ ...form, parentPhone: e.target.value })}
+                    placeholder="Enter phone number" />
+                </div>
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>Status</label>
+                  <select style={styles.input} value={form.status}
+                    onChange={e => setForm({ ...form, status: e.target.value })}>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
+              </div>
+              <div style={styles.formActions}>
+                <button type="button" style={{ ...styles.btn, ...styles.btnCancel }}
+                  onClick={() => setShowForm(false)}>Cancel</button>
+                <button type="submit" style={{ ...styles.btn, ...styles.btnSubmit }}>
+                  {editingChild ? 'Update Child' : 'Enroll Child'}
                 </button>
               </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {filteredChildren.length === 0 && (
-        <div style={{ textAlign: "center", padding: "60px 20px", color: "#9ca3af" }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>👶</div>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>No children found</div>
-          <div style={{ fontSize: 12, marginTop: 4 }}>No child is currently matching this filter choice layout.</div>
+            </form>
+          </div>
         </div>
       )}
     </div>
   );
-}
+};
+
+export default ChildrenManagement;

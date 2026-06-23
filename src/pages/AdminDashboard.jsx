@@ -15,108 +15,103 @@ import ReportsTab from "../admin/ReportsTab";
 import NotificationsTab from "../admin/NotificationsTab";
 import SettingsTab from "../admin/SettingsTab";
 import FeedbackManagementTab from "../admin/FeedbackManagementTab";
-import { getAdminTeachers, getCourseAssignments, getCourses, updateTeacherStatus } from "../services/api";
-//import CourseManagementTab from "../admin/CourseManagementTab";
-//import BatchManagementTab from "../admin/BatchManagementTab";
-//import AssessmentManagementTab from "../admin/AssessmentManagementTab";
-//import CertificateManagementTab from "../admin/CertificateManagementTab";
-//import LiveSessionsTab from "../admin/LiveSessionsTab";
+import { MOCK_TEACHERS, MOCK_COURSES, MOCK_BATCHES, MOCK_TRAINERS, MOCK_SESSIONS, MOCK_ASSIGNMENTS, MOCK_CONTENT_ITEMS, MOCK_ASSESSMENTS, MOCK_CERTIFICATES, MOCK_FEEDBACKS, MOCK_CATEGORIES } from "../data/mockData";
+import CourseManagementTab from "../admin/CourseManagementTab";
 
+const API = '/api';
+async function fetchAPI(url) {
+  const res = await fetch(`${API}${url}`);
+  if (!res.ok) throw new Error('API Error');
+  return res.json();
+}
 
-
-
-
-
-
-
-
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-   MAIN ADMIN DASHBOARD
-â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 export default function AdminDashboard({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState("overview");
-  const [teachers,  setTeachers]  = useState([]);
+
+  // DB data states
+  const [teachers, setTeachers] = useState([]);
+  const [children, setChildren] = useState([]);
+  const [centers, setCenters] = useState([]);
   const [courses, setCourses] = useState([]);
-  const [assignments,setAssignments] = useState([]);
-  const [toast, setToast] = useState({msg:"",type:""});
+  const [activities, setActivities] = useState([]);
+  const [attendance, setAttendance] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const pending = teachers.filter(t=>t.status==="pending");
-  const mapCourseAssignmentForReview = (assignment) => {
-    const course = assignment.course || {};
-    const teacher = assignment.teacher || {};
-    const statusMap = {
-      assigned: "pending",
-      in_progress: "under review",
-      completed: "reviewed",
-      reviewed: "reviewed",
-      approved: "approved",
-      revision: "revision",
-    };
-    const rubric = assignment.rubric?.length ? assignment.rubric : [
-      { criterion: "Content accuracy", score: null, maxScore: 25 },
-      { criterion: "Age-appropriate planning", score: null, maxScore: 25 },
-      { criterion: "Presentation and clarity", score: null, maxScore: 20 },
-      { criterion: "Practical classroom use", score: null, maxScore: 30 },
-    ];
+  // Mock states (modules not yet DB-connected)
+  const [trainers, setTrainers] = useState(MOCK_TRAINERS);
+  const [feedbacks, setFeedbacks] = useState(MOCK_FEEDBACKS);
+  const [assignments, setAssignments] = useState(MOCK_ASSIGNMENTS);
 
-    return {
-      id: assignment._id,
-      teacher: teacher.name || "Unknown Teacher",
-      teacherEmail: teacher.email || "",
-      title: assignment.title || course.title || "Course Assignment",
-      course: course.title || "Training Course",
-      batch: assignment.batch || "DB Assignment",
-      submitted: assignment.completedAt ? new Date(assignment.completedAt).toLocaleDateString("en-IN") : "Not submitted",
-      submittedDate: assignment.completedAt || assignment.updatedAt || assignment.createdAt,
-      status: statusMap[assignment.status] || assignment.status || "pending",
-      feedback: assignment.feedback || "",
-      score: assignment.score,
-      rubric,
-      trainer: assignment.trainer || "",
-      notified: assignment.notified || false,
-      annotations: assignment.annotations || [],
-    };
-  };
+  const [toast, setToast] = useState({ msg: "", type: "" });
+
+  // Fetch all DB data
+  useEffect(() => {
+    async function loadAll() {
+      const load = (url) => fetchAPI(url).catch(() => []);
+      try {
+        const [t, ch, ce, co, ac, at] = await Promise.all([
+          load('/teachers'),
+          load('/children'),
+          load('/centers'),
+          load('/courses'),
+          load('/activities'),
+          load('/attendance'),
+        ]);
+        setTeachers(t);
+        setChildren(ch);
+        setCenters(ce);
+        setCourses(co);
+        setActivities(ac);
+        setAttendance(at);
+      } catch (e) {
+        console.error("DB load error:", e);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadAll();
+  }, []);
+  const pending = teachers.filter(t => t.status === "pending");
 
   const navItems = [
-    { key:"overview",     label:"Admin Dashboard",          icon:"\uD83D\uDCCA" },
-    { key:"centers",      label:"Center Management", icon:"\uD83C\uDFEB" },
-    { key:"teachers",     label:"Teacher Management",icon:"\uD83D\uDC69\u200D\uD83C\uDFEB", badge:pending.length },
-    { key: "curriculum", label: "Course Management", icon: "\uD83D\uDCDA" },
-    { key: "activities", label: "Activity Monitoring", icon: "\uD83D\uDCF8" },
-    { key: "lessonplans", label: "Lesson Plans", icon: "\uD83D\uDCCB" },
-    { key: "children", label: "Children & Classes", icon: "\uD83D\uDC76" },
-    { key:"trainers",     label:"Trainer Management",icon:"\uD83C\uDF93" },
-    { key:"assignments",  label:"Assignment Review", icon:"\uD83D\uDCDD", badge:assignments.filter(a=>a.status==="pending").length },
-    { key:"attendance",   label:"Attendance",        icon:"\uD83D\uDCC5" },
-   
-    { key:"reports",      label:"Reports & Analytics",icon:"\uD83D\uDCC8" },
-    { key:"notifications",label:"Notifications",     icon:"\uD83D\uDD14" },
-    { key:"settings",     label:"Settings & Roles",  icon:"\u2699\uFE0F" },
-    { key:"feedback",     label:"Feedback",              icon:"\uD83D\uDCAC" },
+    { key: "overview",     label: "Admin Dashboard",          icon: "📊" },
+    { key: "centers",      label: "Center Management", icon: "🏫" },
+    { key: "teachers",     label: "Teacher Management",icon: "👩‍🏫", badge: pending.length },
+    { key: "curriculum", label: "Course Management", icon: "📚" },
+    { key: "activities", label: "Activity Monitoring", icon: "📸" },
+    { key: "lessonplans", label: "Lesson Plans", icon: "📋" },
+    { key: "children", label: "Children & Classes", icon: "👶" },
+    { key: "trainers",     label: "Trainer Management",icon: "🎓" },
+    { key: "assignments",  label: "Assignment Review", icon: "📝", badge: assignments.filter(a => a.status === "pending").length },
+    { key: "attendance",   label: "Attendance",        icon: "📋" },
+    { key: "reports",      label: "Reports & Analytics",icon: "📈" },
+    { key: "notifications",label: "Notifications",     icon: "🔔" },
+    { key: "settings",     label: "Settings & Roles",  icon: "⚙️" },
+    { key: "feedback",     label: "Feedback",              icon: "💬" },
   ];
+
   const persistTeachers = (updater) => {
-  setTeachers(prev => {
-    const next = typeof updater === "function" ? updater(prev) : updater;
-    next.forEach((teacher) => {
-      const previous = prev.find((item) => (item._id || item.id) === (teacher._id || teacher.id));
-      if (previous && previous.status !== teacher.status) {
-        updateTeacherStatus(teacher._id || teacher.id, teacher.status).catch((error) => {
-          setToast({ msg: error.message || "Could not update teacher status.", type: "error" });
-        });
-      }
+    setTeachers(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      const toStore = next.filter(t => t.password);
+      localStorage.setItem("spaceece_teachers", JSON.stringify(toStore));
+      return next;
     });
-    return next;
-  });
-};
-
-
+  };
+const refreshDB = {
+    teachers: async () => { try { setTeachers(await fetchAPI('/teachers')); } catch(e){} },
+    children: async () => { try { setChildren(await fetchAPI('/children')); } catch(e){} },
+    centers: async () => { try { setCenters(await fetchAPI('/centers')); } catch(e){} },
+    courses:  async () => { try { setCourses(await fetchAPI('/courses')); } catch(e){} },
+    activities: async () => { try { setActivities(await fetchAPI('/activities')); } catch(e){} },
+    attendance: async () => { try { setAttendance(await fetchAPI('/attendance')); } catch(e){} },
+  };
   const renderContent = () => {
     switch(activeTab) {
-      case "overview":     return <OverviewTab teachers={teachers} courses={courses} batches={[]} sessions={[]}/>;
-      case "centers": return <CenterManagementTab allTeachers={teachers} setToast={setToast}/>;
+      case "overview":     return <OverviewTab teachers={teachers} children={children} centers={centers} courses={courses} activities={activities} attendance={attendance} />;
+      case "centers": return <CenterManagementTab centers={centers} teachers={teachers} children={children} setToast={setToast} onRefresh={refreshDB.centers} />;
       case "teachers": return <TeacherManagementTab teachers={teachers} setTeachers={persistTeachers} setToast={setToast}/>;
-      case "curriculum": return <CurriculumTrainingTab setToast={setToast}/>;
+      case "curriculum": return <CourseManagementTab setToast={setToast}/>;
       case "activities": return <ActivityMonitoringTab setToast={setToast}/>;
       case "lessonplans": return <LessonPlanManagementTab setToast={setToast} />;
       case "children": return <ChildrenManagementTab setToast={setToast}/>;
@@ -125,40 +120,23 @@ export default function AdminDashboard({ user, onLogout }) {
       case "attendance":   return <AttendanceTab teachers={teachers} sessions={[]}/>;
       case "reports":      return <ReportsTab teachers={teachers} courses={courses} batches={[]}/>;
       case "notifications":return <NotificationsTab teachers={teachers} setToast={setToast}/>;
-      case "settings":     return <SettingsTab setToast={setToast}/>;
-      case "feedback":     return <FeedbackManagementTab setToast={setToast}/>;
+      case "settings":     return <SettingsTab/>;
+      case "feedback":     return <FeedbackManagementTab feedbacks={feedbacks} setFeedbacks={setFeedbacks} setToast={setToast}/>;
       default:             return null;
     }
   };
-  useEffect(() => {
-    let ignore = false;
-    let isInitialLoad = true;
 
-    const fetchDashboardData = () => {
-      Promise.all([getAdminTeachers(), getCourses(), getCourseAssignments()])
-        .then(([teacherRes, courseRes, assignmentRes]) => {
-          if (ignore) return;
-          setTeachers(teacherRes.teachers || []);
-          setCourses(courseRes.courses || []);
-          setAssignments((assignmentRes.assignments || []).map(mapCourseAssignmentForReview));
-          isInitialLoad = false;
-        })
-        .catch((error) => {
-          if (!ignore && isInitialLoad) {
-            setToast({ msg: error.message || "Could not load dashboard data from MongoDB.", type: "error" });
-          }
-          console.error("Dashboard poll failed:", error);
-        });
-    };
-
-    fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 30000);
-
-    return () => {
-      ignore = true;
-      clearInterval(interval);
-    };
-  }, []);
+  if (loading) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#f8fafc", fontFamily: "'Segoe UI','Inter',-apple-system,sans-serif" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ width: 48, height: 48, border: "4px solid #fbbf24", borderTopColor: "#d97706", borderRadius: "50%", animation: "spin 1s linear infinite", margin: "0 auto" }}></div>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          <p style={{ marginTop: 16, color: "#6b7280", fontSize: 16 }}>Loading Dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display:"flex", minHeight:"100vh", background:"#f8fafc", fontFamily:"'Segoe UI','Inter',-apple-system,sans-serif" }}>
@@ -201,13 +179,10 @@ export default function AdminDashboard({ user, onLogout }) {
         </div>
       </div>
 
-      {/* Main Content */}
+      {/* Main */}
       <div style={{ flex:1, padding:"28px 32px", overflowY:"auto", maxHeight:"100vh" }}>
         {renderContent()}
       </div>
     </div>
   );
 }
-
-
-

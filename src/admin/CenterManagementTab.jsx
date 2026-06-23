@@ -1,68 +1,66 @@
 // CenterManagementTab.jsx
 import { useState, useEffect } from "react";
 import { Modal, S, SearchBar, SectionCard, StatCard, StatusBadge, Toast } from "../components/Shared";
-import { getCenters, createCenter, updateCenter, deleteCenter, getAdminTeachers, updateTeacherProfile, getClasses, createClass, updateClass, deleteClass, getClassLogs } from "../services/api";
 
-const mapCenterFromApi = (c) => ({
-  id: c._id || c.id,
-  name: c.name,
-  location: c.address || c.location || "",
-  city: c.city || "",
-  pincode: c.pincode || "",
-  phone: c.phone || "",
-  email: c.email || "",
-  contactPerson: c.contactPerson || "",
-  status: c.status || "active",
-  teachers: c.teachers || [],
-  children: c.children || 0,
-  classes: c.classes || 0,
-});
-
-const mapCenterToApi = (c) => ({
-  name: c.name,
-  address: c.location,
-  city: c.city,
-  pincode: c.pincode,
-  phone: c.phone,
-  email: c.email,
-  contactPerson: c.contactPerson,
-  status: c.status,
-  teachers: c.teachers,
-});
+const API = '/api';
+async function fetchAPI(url, options = {}) {
+  const token = localStorage.getItem("token") || localStorage.getItem("spacece_token") || localStorage.getItem("authToken");
+  const res = await fetch(`${API}${url}`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+    },
+    ...options,
+  });
+  if (!res.ok) throw new Error("API Error");
+  return res.json();
+}
 
 const EMPTY_FORM = {
-  name: "", location: "", city: "", pincode: "",
-  phone: "", email: "", contactPerson: "",
-  status: "active", teachers: [], children: 0, classes: 0,
+  name: "", address: "", city: "", pincode: "",
+  contactPhone: "", email: "", contactPerson: "",
+  status: "active", capacity: 0,
 };
 
 /* ── Add / Edit Modal ── */
-function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }) {
+function CenterFormModal({ center, onSave, onClose, setToast, teachers }) {
   const isEdit = !!center;
-  const [form, setForm] = useState(center ? { ...center } : { ...EMPTY_FORM });
-  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(center ? {
+    name: center.name || "",
+    address: center.address || "",
+    city: center.city || "",
+    pincode: center.pincode || "",
+    contactPhone: center.contactPhone || center.phone || "",
+    email: center.email || "",
+    contactPerson: center.contactPerson || "",
+    status: center.status || "active",
+    capacity: center.capacity || 0,
+  } : EMPTY_FORM);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name || !form.location || !form.phone) {
+    if (!form.name || !form.address || !form.contactPhone) {
       setToast({ msg: "Please fill all required fields.", type: "error" });
       return;
     }
-    setSaving(true);
     try {
-      await onSave(form);
-    } finally {
-      setSaving(false);
+      if (isEdit) {
+        await fetchAPI(`/centers/${center._id}`, {
+          method: "PUT",
+          body: JSON.stringify(form),
+        });
+      } else {
+        await fetchAPI("/centers", {
+          method: "POST",
+          body: JSON.stringify(form),
+        });
+      }
+      setToast({ msg: isEdit ? "Center updated!" : "Center added!", type: "success" });
+      onSave();
+      onClose();
+    } catch (err) {
+      setToast({ msg: "Failed to save center.", type: "error" });
     }
-  };
-
-  const toggleTeacher = (id) => {
-    setForm(prev => ({
-      ...prev,
-      teachers: prev.teachers.includes(id)
-        ? prev.teachers.filter(t => t !== id)
-        : [...prev.teachers, id],
-    }));
   };
 
   const approvedTeachers = allTeachers.filter(t => t.status === "approved" || t.status === "pending");
@@ -77,8 +75,8 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
 
         <label style={S.label}>Full Address *</label>
         <textarea style={{ ...S.input, height: 60, resize: "none", marginBottom: 12 }}
-          value={form.location}
-          onChange={e => setForm({ ...form, location: e.target.value })}
+          value={form.address}
+          onChange={e => setForm({ ...form, address: e.target.value })}
           placeholder="Street, Area, City - Pincode" />
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
@@ -97,92 +95,40 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
           <div>
             <label style={S.label}>Phone *</label>
-            <input style={S.input} value={form.phone}
-              onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+91 98765 43210" />
+            <input style={S.input} value={form.contactPhone}
+              onChange={e => setForm({ ...form, contactPhone: e.target.value })} placeholder="+91 98765 43210" />
           </div>
           <div>
             <label style={S.label}>Email</label>
             <input style={S.input} type="email" value={form.email}
-              onChange={e => setForm({ ...form, email: e.target.value })} placeholder="center@spaceece.in" />
+              onChange={e => setForm({ ...form, email: e.target.value })} placeholder="center@spacece.in" />
           </div>
         </div>
 
-        <label style={S.label}>Contact Person</label>
-        <input style={{ ...S.input, marginBottom: 12 }} value={form.contactPerson}
-          onChange={e => setForm({ ...form, contactPerson: e.target.value })}
-          placeholder="e.g. Mrs. Rekha Iyer" />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div>
+            <label style={S.label}>Contact Person</label>
+            <input style={S.input} value={form.contactPerson}
+              onChange={e => setForm({ ...form, contactPerson: e.target.value })}
+              placeholder="e.g. Mrs. Rekha Iyer" />
+          </div>
+          <div>
+            <label style={S.label}>Capacity</label>
+            <input style={S.input} type="number" value={form.capacity}
+              onChange={e => setForm({ ...form, capacity: parseInt(e.target.value) || 0 })}
+              placeholder="e.g. 50" />
+          </div>
+        </div>
 
         <label style={S.label}>Status</label>
-        <select style={{ ...S.input, marginBottom: 16 }} value={form.status}
+        <select style={{ ...S.input, marginBottom: 20 }} value={form.status}
           onChange={e => setForm({ ...form, status: e.target.value })}>
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
         </select>
 
-        <label style={S.label}>
-          Assign Teachers
-          <span style={{ fontSize: 10, color: "#9ca3af", fontWeight: 400, marginLeft: 6 }}>
-            (selected teachers will have this center set on their dashboard)
-          </span>
-        </label>
-        <div style={{
-          display: "flex", flexDirection: "column", gap: 6, marginBottom: 20,
-          maxHeight: 180, overflowY: "auto",
-          border: "1px solid #e5e7eb", borderRadius: 10, padding: "8px"
-        }}>
-          {approvedTeachers.length === 0 ? (
-            <div style={{ padding: 12, fontSize: 12, color: "#9ca3af", textAlign: "center" }}>
-              No teachers available.
-            </div>
-          ) : approvedTeachers.map(t => {
-            const teacherId = t._id || t.id;
-            const selected = form.teachers.includes(teacherId);
-            return (
-              <div key={teacherId} onClick={() => toggleTeacher(teacherId)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 10,
-                  padding: "8px 12px", borderRadius: 8, cursor: "pointer",
-                  border: `1.5px solid ${selected ? "#f59e0b" : "#e5e7eb"}`,
-                  background: selected ? "#fef3c7" : "#f9fafb",
-                  transition: "all 0.15s"
-                }}>
-                <div style={{
-                  width: 18, height: 18, borderRadius: 4,
-                  border: `2px solid ${selected ? "#f59e0b" : "#d1d5db"}`,
-                  background: selected ? "#f59e0b" : "white",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 11, color: "white", flexShrink: 0
-                }}>
-                  {selected ? "✓" : ""}
-                </div>
-                <img
-                  src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(t.name)}`}
-                  alt="" style={{ width: 26, height: 26, borderRadius: "50%", border: "1px solid #e5e7eb" }}
-                />
-                <div style={{ flex: 1 }}>
-                  <span style={{ fontSize: 13, fontWeight: selected ? 700 : 500, color: selected ? "#92400e" : "#374151" }}>
-                    {t.name}
-                  </span>
-                  <span style={{ fontSize: 10, color: "#9ca3af", marginLeft: 6 }}>{t.email}</span>
-                </div>
-                <StatusBadge status={t.status} />
-              </div>
-            );
-          })}
-        </div>
-
-        {form.teachers.length > 0 && (
-          <div style={{
-            background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 8,
-            padding: "8px 12px", fontSize: 11, color: "#92400e", marginBottom: 16
-          }}>
-            🏫 <b>{form.teachers.length} teacher(s)</b> will be linked to this center — it will appear on their dashboard automatically.
-          </div>
-        )}
-
-        <button type="submit" disabled={saving}
-          style={{ ...S.primaryBtn, width: "100%", opacity: saving ? 0.7 : 1 }}>
-          {saving ? "Saving..." : isEdit ? "Update Center →" : "Add Center →"}
+        <button type="submit" style={{ ...S.primaryBtn, width: "100%" }}>
+          {isEdit ? "Update Center →" : "Add Center →"}
         </button>
       </form>
     </Modal>
@@ -190,29 +136,26 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
 }
 
 /* ── Center Detail View ── */
-function CenterDetailModal({ center, allTeachers = [], onClose }) {
-  const assignedTeachers = allTeachers.filter(t => {
-    const tid = t._id || t.id;
-    return center.teachers.includes(tid);
+function CenterDetailModal({ center, teachers, children, onClose }) {
+  const centerTeachers = (teachers || []).filter(t => {
+    const tc = typeof t.center === "object" ? t.center?._id : t.center;
+    return tc === center._id;
+  });
+  const centerChildren = (children || []).filter(c => {
+    const cc = typeof c.center === "object" ? c.center?._id : c.center;
+    return cc === center._id;
   });
 
   return (
     <Modal title={`🏫 ${center.name}`} onClose={onClose}>
-      <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "center" }}>
-        <StatusBadge status={center.status} />
-        <span style={{ fontSize: 12, color: "#9ca3af" }}>
-          📍 {center.city}{center.pincode ? ` · ${center.pincode}` : ""}
-        </span>
-      </div>
-
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
         {[
-          { icon: "📍", label: "Location",       val: center.location },
-          { icon: "📱", label: "Phone",           val: center.phone },
-          { icon: "📧", label: "Email",           val: center.email || "—" },
-          { icon: "👤", label: "Contact Person",  val: center.contactPerson || "—" },
-          { icon: "🏙️", label: "City",           val: center.city || "—" },
-          { icon: "📮", label: "Pincode",         val: center.pincode || "—" },
+          { icon: "📍", label: "Location", val: center.address || center.location || "—" },
+          { icon: "📱", label: "Phone", val: center.contactPhone || center.phone || "—" },
+          { icon: "📧", label: "Email", val: center.email || "—" },
+          { icon: "👤", label: "Contact Person", val: center.contactPerson || "—" },
+          { icon: "🏙️", label: "City", val: center.city || "—" },
+          { icon: "📮", label: "Pincode", val: center.pincode || "—" },
         ].map((r, i) => (
           <div key={i} style={{ background: "#f9fafb", borderRadius: 10, padding: "10px 12px", border: "1px solid #f3f4f6" }}>
             <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", marginBottom: 2 }}>{r.label}</div>
@@ -223,36 +166,33 @@ function CenterDetailModal({ center, allTeachers = [], onClose }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
         <div style={{ background: "#fef3c7", borderRadius: 10, padding: "12px", textAlign: "center", border: "1px solid #fbbf24" }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "#1c1917" }}>{center.teachers.length}</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#1c1917" }}>{centerTeachers.length}</div>
           <div style={{ fontSize: 11, color: "#92400e", fontWeight: 700 }}>Teachers</div>
         </div>
         <div style={{ background: "#dbeafe", borderRadius: 10, padding: "12px", textAlign: "center", border: "1px solid #93c5fd" }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "#1c1917" }}>{center.children}</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#1c1917" }}>{centerChildren.length}</div>
           <div style={{ fontSize: 11, color: "#1d4ed8", fontWeight: 700 }}>Children</div>
         </div>
         <div style={{ background: "#d1fae5", borderRadius: 10, padding: "12px", textAlign: "center", border: "1px solid #6ee7b7" }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "#1c1917" }}>{center.classes}</div>
-          <div style={{ fontSize: 11, color: "#065f46", fontWeight: 700 }}>Classes</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#1c1917" }}>{center.capacity || 0}</div>
+          <div style={{ fontSize: 11, color: "#065f46", fontWeight: 700 }}>Capacity</div>
         </div>
       </div>
 
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 8 }}>👩‍🏫 Assigned Teachers</div>
-        {assignedTeachers.length > 0 ? (
+        {centerTeachers.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {assignedTeachers.map((t, i) => (
-              <div key={i} style={{
-                display: "flex", alignItems: "center", gap: 10,
-                padding: "8px 12px", background: "#f9fafb",
-                borderRadius: 8, border: "1px solid #f1f5f9"
-              }}>
-                <img
-                  src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(t.name)}`}
-                  alt="" style={{ width: 32, height: 32, borderRadius: "50%", border: "1.5px solid #f59e0b" }}
-                />
-                <div style={{ flex: 1 }}>
+            {centerTeachers.map((t, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
+                background: "#f9fafb", borderRadius: 8, border: "1px solid #f1f5f9" }}>
+                <div style={{ width: 30, height: 30, borderRadius: 8,
+                  background: "linear-gradient(135deg,#f59e0b,#d97706)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 13, fontWeight: 800, color: "white" }}>{(t.name || "?")[0]}</div>
+                <div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1917" }}>{t.name}</div>
-                  <div style={{ fontSize: 11, color: "#9ca3af" }}>{t.email}</div>
+                  <div style={{ fontSize: 11, color: "#9ca3af" }}>{t.specialization || t.subjects?.[0] || "—"}</div>
                 </div>
                 <StatusBadge status={t.status} />
               </div>
@@ -265,11 +205,9 @@ function CenterDetailModal({ center, allTeachers = [], onClose }) {
         )}
       </div>
 
-      <div style={{
-        background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 10,
-        padding: "12px 14px", fontSize: 12, color: "#92400e"
-      }}>
-        👶 This center has <b>{center.children}</b> children enrolled across <b>{center.classes}</b> classes.
+      <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10,
+        padding: "12px 14px", fontSize: 12, color: "#0369a1" }}>
+        👶 This center has <b>{centerChildren.length}</b> children enrolled (Capacity: {center.capacity || 0}).
       </div>
     </Modal>
   );
@@ -620,21 +558,14 @@ function ClassLogsModal({ logs = [], onClose }) {
 
 /* ══════════════════════════════════════════
    MAIN CENTER MANAGEMENT TAB
-   ══════════════════════════════════════════ */
-export default function CenterManagementTab({ setToast }) {
-  const [centers, setCenters]         = useState([]);
-  const [allTeachers, setAllTeachers] = useState([]);
-  const [search, setSearch]           = useState("");
+══════════════════════════════════════════ */
+export default function CenterManagementTab({ centers = [], teachers = [], children = [], setToast, onRefresh }) {
+  const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [formModal, setFormModal]     = useState(false);
   const [editCenter, setEditCenter]   = useState(null);
   const [detailCenter, setDetailCenter] = useState(null);
-  const [classesModal, setClassesModal] = useState(false);
-  const [manageCenterId, setManageCenterId] = useState(null);
-  const [addClassModal, setAddClassModal] = useState(false);
-  const [classes, setClasses]           = useState([]);
-  const [loading, setLoading]         = useState(true);
-  const [toast, setLocalToast]        = useState({ msg: "", type: "" });
+  const [toast, setLocalToast] = useState({ msg: "", type: "" });
 
   const showToast = setToast || setLocalToast;
 
@@ -662,67 +593,24 @@ export default function CenterManagementTab({ setToast }) {
 
   const filtered = centers.filter(c => {
     const q = search.toLowerCase();
-    return (
-      c.name.toLowerCase().includes(q) ||
-      c.city.toLowerCase().includes(q) ||
-      c.contactPerson.toLowerCase().includes(q)
-    ) && (statusFilter === "all" || c.status === statusFilter);
+    const matchSearch = (c.name || "").toLowerCase().includes(q) ||
+      (c.city || "").toLowerCase().includes(q) ||
+      (c.contactPerson || "").toLowerCase().includes(q);
+    const matchStatus = statusFilter === "all" || c.status === statusFilter;
+    return matchSearch && matchStatus;
   });
 
-  const handleSave = async (saved) => {
-    const payload = mapCenterToApi(saved);
-    try {
-      let centerId;
-      if (editCenter) {
-        await updateCenter(editCenter.id, payload);
-        centerId = editCenter.id;
-        showToast({ msg: "Center updated successfully!", type: "success" });
-      } else {
-        const res = await createCenter(payload);
-        centerId = res.center?._id || res.center?.id;
-        showToast({ msg: "Center created successfully!", type: "success" });
-      }
-
-      // KEY: push centerId to every selected teacher so it shows on their dashboard
-      if (centerId && saved.teachers?.length > 0) {
-        await Promise.all(
-          saved.teachers.map(tid =>
-            updateTeacherProfile(tid, { teacherProfile: { center: centerId } })
-              .catch(err => console.warn(`Failed to update teacher ${tid}:`, err))
-          )
-        );
-      }
-
-      // KEY: also clear center from teachers who were REMOVED from this center
-      if (editCenter && centerId) {
-        const previousTeachers = editCenter.teachers || [];
-        const newTeachers = saved.teachers || [];
-        const removedTeachers = previousTeachers.filter(tid => !newTeachers.includes(tid));
-        if (removedTeachers.length > 0) {
-          await Promise.all(
-            removedTeachers.map(tid =>
-              updateTeacherProfile(tid, { teacherProfile: { center: null } })
-                .catch(err => console.warn(`Failed to unlink teacher ${tid}:`, err))
-            )
-          );
-        }
-      }
-
-      setFormModal(false);
-      setEditCenter(null);
-      await loadData();
-    } catch (err) {
-      showToast({ msg: "Error saving center: " + err.message, type: "error" });
-    }
+  const handleSave = async () => {
+    if (onRefresh) await onRefresh();
   };
 
   const handleDelete = async (id) => {
     try {
-      await deleteCenter(id);
-      showToast({ msg: "Center deactivated successfully.", type: "success" });
-      await loadData();
+      await fetchAPI(`/centers/${id}`, { method: "DELETE" });
+      showToast({ msg: "Center deleted.", type: "error" });
+      if (onRefresh) await onRefresh();
     } catch (err) {
-      showToast({ msg: "Error deactivating center: " + err.message, type: "error" });
+      showToast({ msg: "Failed to delete center.", type: "error" });
     }
   };
 
@@ -751,19 +639,11 @@ export default function CenterManagementTab({ setToast }) {
     await loadData();
   };
 
-  if (loading) {
-    return (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "40vh", gap: 12 }}>
-        <div style={{ width: 36, height: 36, borderRadius: "50%", border: "3px solid #fef3c7", borderTopColor: "#f59e0b", animation: "spin 0.8s linear infinite" }} />
-        <span style={{ fontSize: 14, fontWeight: 600, color: "#d97706" }}>Loading Centers...</span>
-      </div>
-    );
-  }
-
-  const active        = centers.filter(c => c.status === "active").length;
-  const inactive      = centers.filter(c => c.status === "inactive").length;
-  const totalChildren = centers.reduce((a, c) => a + (c.children || 0), 0);
-  const totalTeachers = centers.reduce((a, c) => a + (c.teachers?.length || 0), 0);
+  // Calculate stats from DB
+  const active = centers.filter(c => c.status === "active").length;
+  const inactive = centers.filter(c => c.status === "inactive").length;
+  const totalChildren = children.length;
+  const totalTeachers = teachers.length;
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
@@ -776,6 +656,7 @@ export default function CenterManagementTab({ setToast }) {
           onSave={handleSave}
           onClose={() => { setFormModal(false); setEditCenter(null); }}
           setToast={showToast}
+          teachers={teachers}
         />
       )}
       {addClassModal && (
@@ -789,7 +670,8 @@ export default function CenterManagementTab({ setToast }) {
       {detailCenter && (
         <CenterDetailModal
           center={detailCenter}
-          allTeachers={allTeachers}
+          teachers={teachers}
+          children={children}
           onClose={() => setDetailCenter(null)}
         />
       )}
@@ -850,67 +732,73 @@ export default function CenterManagementTab({ setToast }) {
 
       {/* Centers Grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))", gap: 16 }}>
-        {filtered.map((c) => (
-          <div key={c.id} style={{
-            background: "white", borderRadius: 18, padding: "20px",
-            border: "1px solid #f1f5f9", boxShadow: "0 2px 10px rgba(0,0,0,0.05)",
-            borderTop: `3px solid ${c.status === "active" ? "#f59e0b" : "#e5e7eb"}`,
-            transition: "box-shadow 0.2s"
-          }}>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
-              <div style={{
-                width: 48, height: 48, borderRadius: 14,
-                background: "linear-gradient(135deg,#fef3c7,#fbbf24)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 22, flexShrink: 0
-              }}>🏫</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", marginBottom: 4 }}>{c.name}</div>
-                <div style={{ fontSize: 11, color: "#9ca3af" }}>📍 {c.city}{c.pincode ? ` · ${c.pincode}` : ""}</div>
-              </div>
-              <StatusBadge status={c.status} />
-            </div>
+        {filtered.map((c) => {
+          // Count teachers/children for this center
+          const cTeachers = teachers.filter(t => {
+            const tc = typeof t.center === "object" ? t.center?._id : t.center;
+            return tc === c._id;
+          });
+          const cChildren = children.filter(ch => {
+            const cc = typeof ch.center === "object" ? ch.center?._id : ch.center;
+            return cc === c._id;
+          });
 
-            <div style={{
-              display: "flex", flexDirection: "column", gap: 5, marginBottom: 14,
-              padding: "12px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f3f4f6"
-            }}>
-              <div style={{ fontSize: 12, color: "#6b7280" }}>📱 {c.phone}</div>
-              {c.email && <div style={{ fontSize: 12, color: "#6b7280" }}>📧 {c.email}</div>}
-              {c.contactPerson && <div style={{ fontSize: 12, color: "#6b7280" }}>👤 {c.contactPerson}</div>}
-              <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>📍 {c.location}</div>
-            </div>
+          return (
+            <div key={c._id || c.id} style={{ background: "white", borderRadius: 18, padding: "20px",
+              border: "1px solid #f1f5f9", boxShadow: "0 2px 10px rgba(0,0,0,0.05)",
+              borderTop: `3px solid ${c.status === "active" ? "#f59e0b" : "#e5e7eb"}` }}>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
-              {[
-                { icon: "👩‍🏫", label: "Teachers", val: c.teachers.length, color: "#f59e0b", bg: "#fef3c7" },
-                { icon: "👶",   label: "Children", val: c.children,         color: "#3b82f6", bg: "#dbeafe" },
-                { icon: "🏛️",  label: "Classes",  val: c.classes,           color: "#10b981", bg: "#d1fae5" },
-              ].map((s, j) => (
-                <div key={j} style={{ background: s.bg, borderRadius: 8, padding: "8px", textAlign: "center", border: `1px solid ${s.color}30` }}>
-                  <div style={{ fontSize: 14 }}>{s.icon}</div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "#1c1917" }}>{s.val}</div>
-                  <div style={{ fontSize: 9, color: s.color, fontWeight: 700 }}>{s.label}</div>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
+                <div style={{ width: 48, height: 48, borderRadius: 14,
+                  background: "linear-gradient(135deg,#fef3c7,#fbbf24)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 22, flexShrink: 0 }}>🏫</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", marginBottom: 4 }}>{c.name}</div>
+                  <div style={{ fontSize: 11, color: "#9ca3af" }}>📍 {c.city} · {c.pincode}</div>
                 </div>
-              ))}
-            </div>
+                <StatusBadge status={c.status} />
+              </div>
 
-            <div style={{ display: "flex", gap: 6, paddingTop: 12, borderTop: "1px solid #f3f4f6" }}>
-              <button onClick={() => setDetailCenter(c)} style={{ ...S.tblBtn, flex: 1, color: "#4f46e5", borderColor: "#c4b5fd" }}>
-                👁 View
-              </button>
-              <button onClick={() => { setClassesModal(true); setManageCenterId(c.id); }} style={{ ...S.tblBtn, flex: 1, color: "#10b981", borderColor: "#86efac" }}>
-                🏛️ Classes
-              </button>
-              <button onClick={() => openEdit(c)} style={{ ...S.tblBtn, flex: 1 }}>
-                ✏️ Edit
-              </button>
-              <button onClick={() => handleDelete(c.id)} style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>
-                🔕
-              </button>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14,
+                padding: "12px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f3f4f6" }}>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>📱 {c.contactPhone || c.phone}</div>
+                {c.email && <div style={{ fontSize: 12, color: "#6b7280" }}>📧 {c.email}</div>}
+                {c.contactPerson && <div style={{ fontSize: 12, color: "#6b7280" }}>👤 {c.contactPerson}</div>}
+                <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>📍 {c.address || c.location}</div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
+                {[
+                  { icon: "👩‍🏫", label: "Teachers", val: cTeachers.length, color: "#f59e0b", bg: "#fef3c7" },
+                  { icon: "👶", label: "Children", val: cChildren.length, color: "#3b82f6", bg: "#dbeafe" },
+                  { icon: "🏛️", label: "Capacity", val: c.capacity || 0, color: "#10b981", bg: "#d1fae5" },
+                ].map((s, j) => (
+                  <div key={j} style={{ background: s.bg, borderRadius: 8, padding: "8px",
+                    textAlign: "center", border: `1px solid ${s.color}30` }}>
+                    <div style={{ fontSize: 14 }}>{s.icon}</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: "#1c1917" }}>{s.val}</div>
+                    <div style={{ fontSize: 9, color: s.color, fontWeight: 700 }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: "flex", gap: 6, paddingTop: 12, borderTop: "1px solid #f3f4f6" }}>
+                <button onClick={() => setDetailCenter(c)}
+                  style={{ ...S.tblBtn, flex: 1, color: "#4f46e5", borderColor: "#c4b5fd" }}>
+                  👁 View
+                </button>
+                <button onClick={() => openEdit(c)} style={{ ...S.tblBtn, flex: 1 }}>
+                  ✏️ Edit
+                </button>
+                <button onClick={() => handleDelete(c._id)}
+                  style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>
+                  🔕
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* ── View All Classes Section ── */}
