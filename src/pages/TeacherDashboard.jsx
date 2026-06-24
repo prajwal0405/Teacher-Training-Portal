@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Logo, Toast, Badge, StatusBadge, StatCard, SectionCard, S, globalCSS } from "../components/Shared";
 import AttendanceManager from "./AttendanceManager";
 import TrainingAndClassroomManager from "./TrainingAndClassroomManager";
@@ -260,13 +260,13 @@ const COURSE_CONTENT = {
     ]
   }
 };
-
-function CoursesTab() {
+function CoursesTab({ user }) {
+  const [backendCourses, setBackendCourses] = useState([]);
+  const [coursesLoading, setCoursesLoading] = useState(true);
   const [activeCourseId, setActiveCourseId]   = useState(null);
   const [activeModuleId, setActiveModuleId]   = useState(null);
   const [activeVideoId,  setActiveVideoId]    = useState(null);
-  const [activeTab,      setActiveTab]        = useState("video"); // "video"|"notes"
-  // completed set stored as "courseId-moduleId-videoId"
+  const [activeTab,      setActiveTab]        = useState("video");
   const [completed, setCompleted] = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem("spaceece_completed") || "[]")); }
     catch { return new Set(); }
@@ -286,14 +286,77 @@ function CoursesTab() {
 
   const isVideoDone = (courseId, moduleId, videoId) => completed.has(`${courseId}-${moduleId}-${videoId}`);
 
-  // Dynamic progress per course
+  // ── Extract YouTube ID from URL ──
+  const getYtId = (url) => {
+    if (!url) return "";
+    const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]+)/);
+    return m ? m[1] : "";
+  };
+
+  // ── Color & icon assignment based on course ID ──
+  const COURSE_COLORS = ["#f59e0b", "#8b5cf6", "#14b8a6", "#3b82f6", "#ec4899", "#ef4444", "#06b6d4", "#84cc16"];
+  const COURSE_ICONS  = ["👩\u200D🏫", "🧠", "📐", "📚", "🎨", "🔬", "📋", "🎭"];
+  const simpleHash = (str) => { let h = 0; for (let i = 0; i < String(str).length; i++) { h = ((h << 5) - h) + String(str).charCodeAt(i); h |= 0; } return Math.abs(h); };
+
+  // ── Fetch courses from DB ──
+  useEffect(() => {
+    const fetchCourses = async () => {
+      try {
+        const res = await fetch("/api/courses");
+        if (res.ok) {
+          const data = await res.json();
+          const mapped = (Array.isArray(data) ? data : []).map(c => ({
+            ...c,
+            id: c._id || c.id,
+            title: c.title || c.name || "Untitled Course",
+            nextSession: c.startDate || c.nextSession || "TBD",
+            status: c.status || "active"
+          }));
+          setBackendCourses(mapped);
+        }
+      } catch (err) { console.error("Error fetching courses:", err); }
+      finally { setCoursesLoading(false); }
+    };
+    fetchCourses();
+  }, []);
+
+  // ── Build dynamic course content from DB data ──
+  const dynamicContent = {};
+  backendCourses.forEach(c => {
+    const hasContents = c.modules && c.modules.length > 0 && c.modules.some(m => m.contents && m.contents.length > 0);
+    if (hasContents) {
+      const h = simpleHash(c.id);
+      dynamicContent[c.id] = {
+        color: COURSE_COLORS[h % COURSE_COLORS.length],
+        icon: COURSE_ICONS[h % COURSE_ICONS.length],
+        modules: c.modules.map(m => ({
+          id: m._id || String(m.order) || m.title,
+          title: m.title,
+          notes: m.detailedNotes || m.description || "",
+          videos: (m.contents || []).map(v => ({
+            id: v._id || String(v.order) || v.title,
+            title: v.title || "Untitled Video",
+            ytId: getYtId(v.externalUrl || v.contentLink || ""),
+            duration: v.suggestedDuration || (v.durationMinutes ? `${v.durationMinutes} min` : "—")
+          }))
+        }))
+      };
+    }
+  });
+
+  // ── Merge: DB content priority, fallback to hardcoded COURSE_CONTENT ──
+  const allCourseContent = { ...COURSE_CONTENT, ...dynamicContent };
+
+  // ── Course list: DB courses first, mock fallback if empty ──
+  const coursesList = backendCourses.length > 0 ? backendCourses : MOCK_COURSES;
+
+  // ── Progress calculations ──
   const getCourseProgress = (courseId) => {
-    const content = COURSE_CONTENT[courseId];
+    const content = allCourseContent[courseId];
     if (!content) return 0;
     const allVideos = content.modules.flatMap(m => m.videos.map(v => `${courseId}-${m.id}-${v.id}`));
     if (allVideos.length === 0) return 0;
-    const done = allVideos.filter(k => completed.has(k)).length;
-    return Math.round((done / allVideos.length) * 100);
+    return Math.round((allVideos.filter(k => completed.has(k)).length / allVideos.length) * 100);
   };
 
   const getModuleProgress = (courseId, module) => {
@@ -302,125 +365,139 @@ function CoursesTab() {
     return { done, total: allKeys.length };
   };
 
-  // ── Course list view ──
+  // ══════════════════════════════════════
+  //  COURSE LIST VIEW
+  // ══════════════════════════════════════
   if (!activeCourseId) {
     return (
       <div style={{ animation: "fadeIn 0.3s ease" }}>
         <h1 style={S.pageTitle}>My Courses</h1>
         <p style={S.pageSub}>Your enrolled courses and learning progress</p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {MOCK_COURSES.map((c) => {
-            const progress = getCourseProgress(c.id);
-            const content  = COURSE_CONTENT[c.id];
-            const totalVids = content ? content.modules.reduce((a,m)=>a+m.videos.length,0) : 0;
-            const doneVids  = content ? content.modules.reduce((a,m)=>a+m.videos.filter(v=>isVideoDone(c.id,m.id,v.id)).length,0) : 0;
-            return (
-              <div key={c.id} style={{ background: "white", borderRadius: 16, padding: "22px 24px", border: "1px solid #f1f5f9", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", borderLeft: `4px solid ${content?.color || "#f59e0b"}` }}>
-                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
-                  <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-                    <div style={{ fontSize: 36 }}>{content?.icon || "📚"}</div>
-                    <div>
-                      <h3 style={{ fontSize: 16, fontWeight: 800, color: "#1c1917", margin: "0 0 6px" }}>{c.title}</h3>
-                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                        <StatusBadge status={c.status}/>
-                        <span style={{ fontSize: 11, color: "#9ca3af" }}>📅 Next: {c.nextSession}</span>
-                        <span style={{ fontSize: 11, color: "#6b7280" }}>🎬 {doneVids}/{totalVids} videos</span>
+        {coursesLoading ? (
+          <div style={{ textAlign: "center", padding: 60, color: "#9ca3af" }}>
+            <div style={{ fontSize: 36, marginBottom: 12 }}>⏳</div>
+            <div style={{ fontSize: 14, fontWeight: "600" }}>Loading courses from server...</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {coursesList.map((c) => {
+              const content = allCourseContent[c.id];
+              const hasVideoContent = !!content;
+              const videoProgress = hasVideoContent ? getCourseProgress(c.id) : 0;
+              const totalVids = content ? content.modules.reduce((a,m)=>a+m.videos.length,0) : 0;
+              const doneVids = content ? content.modules.reduce((a,m)=>a+m.videos.filter(v=>isVideoDone(c.id,m.id,v.id)).length,0) : 0;
+              const displayProgress = hasVideoContent ? videoProgress : (c.progress || 0);
+              const displayColor = content?.color || "#f59e0b";
+              const displayIcon = content?.icon || "📚";
+              const totalMods = content ? content.modules.length : (c.modules ? c.modules.length : 0);
+              return (
+                <div key={c.id} style={{ background: "white", borderRadius: 16, padding: "22px 24px", border: "1px solid #f1f5f9", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", borderLeft: `4px solid ${displayColor}` }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
+                    <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                      <div style={{ fontSize: 36 }}>{displayIcon}</div>
+                      <div>
+                        <h3 style={{ fontSize: 16, fontWeight: 800, color: "#1c1917", margin: "0 0 6px" }}>{c.title}</h3>
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                          <StatusBadge status={c.status || "active"}/>
+                          {c.nextSession && <span style={{ fontSize: 11, color: "#9ca3af" }}>📅 Next: {c.nextSession}</span>}
+                          {hasVideoContent && <span style={{ fontSize: 11, color: "#6b7280" }}>🎬 {doneVids}/{totalVids} videos</span>}
+                          {c.level && <span style={{ fontSize: 11, color: "#6b7280" }}>📊 {c.level}</span>}
+                        </div>
                       </div>
                     </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 28, fontWeight: 900, color: displayColor }}>{displayProgress}%</div>
+                      <div style={{ fontSize: 11, color: "#9ca3af" }}>Complete</div>
+                    </div>
                   </div>
-                  <div style={{ textAlign: "right", flexShrink: 0 }}>
-                    <div style={{ fontSize: 28, fontWeight: 900, color: content?.color || "#f59e0b" }}>{progress}%</div>
-                    <div style={{ fontSize: 11, color: "#9ca3af" }}>Complete</div>
+                  <div style={{ height: 8, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", marginBottom: 12 }}>
+                    <div style={{ height: "100%", width: `${displayProgress}%`, background: `linear-gradient(90deg,${displayColor},${displayColor})`, borderRadius: 4, transition: "width 0.8s ease" }}/>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 12, color: "#6b7280" }}>{hasVideoContent ? `📖 ${content?.modules?.length || 0} modules · ${doneVids}/${totalVids} videos done` : `📖 ${totalMods} modules`}</span>
+                    {hasVideoContent ? (
+                      <button onClick={() => { setActiveCourseId(c.id); const fm = allCourseContent[c.id]?.modules[0]; setActiveModuleId(fm?.id || null); setActiveVideoId(fm?.videos[0]?.id || null); setActiveTab("video"); }} style={{ ...S.primaryBtn, padding: "8px 20px", fontSize: 12, background: `linear-gradient(135deg,${displayColor},${displayColor})` }}>
+                        {displayProgress > 0 ? "Continue →" : "Start Course →"}
+                      </button>
+                    ) : (
+                      <span style={{ fontSize: 12, color: "#94a3b8", fontStyle: "italic" }}>Course content coming soon</span>
+                    )}
                   </div>
                 </div>
-                <div style={{ height: 8, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", marginBottom: 12 }}>
-                  <div style={{ height: "100%", width: `${progress}%`, background: `linear-gradient(90deg,${content?.color||"#f59e0b"},${content?.color||"#d97706"})`, borderRadius: 4, transition: "width 0.8s ease" }}/>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 12, color: "#6b7280" }}>📖 {content?.modules?.length || 0} modules · {doneVids}/{totalVids} videos done</span>
-                  <button
-                    onClick={() => {
-                      setActiveCourseId(c.id);
-                      const firstModule = COURSE_CONTENT[c.id]?.modules[0];
-                      setActiveModuleId(firstModule?.id || null);
-                      setActiveVideoId(firstModule?.videos[0]?.id || null);
-                      setActiveTab("video");
-                    }}
-                    style={{ ...S.primaryBtn, padding: "8px 20px", fontSize: 12, background: `linear-gradient(135deg,${content?.color||"#f59e0b"},${content?.color||"#d97706"})` }}
-                  >
-                    {progress > 0 ? "Continue →" : "Start Course →"}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ══════════════════════════════════════
+  //  COURSE DETAIL / VIDEO PLAYER VIEW
+  // ══════════════════════════════════════
+  const course = coursesList.find(c => c.id === activeCourseId);
+  const courseContent = allCourseContent[activeCourseId];
+  const activeModule = courseContent?.modules.find(m => m.id === activeModuleId);
+  const activeVideo = activeModule?.videos.find(v => v.id === activeVideoId);
+  const overallProg = getCourseProgress(activeCourseId);
+
+  if (!courseContent) {
+    return (
+      <div style={{ animation: "fadeIn 0.3s ease" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <button onClick={() => setActiveCourseId(null)} style={{ background: "#f3f4f6", border: "none", borderRadius: 10, padding: "8px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer", color: "#374151" }}>← Back</button>
+          <h1 style={{ ...S.pageTitle, margin: 0 }}>{course?.title || "Course"}</h1>
+        </div>
+        <div style={{ background: "white", borderRadius: 16, padding: 60, textAlign: "center", border: "1px solid #f1f5f9" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📺</div>
+          <div style={{ fontSize: 14, color: "#6b7280" }}>No video content available for this course yet.</div>
         </div>
       </div>
     );
   }
 
-  // ── Course player view ──
-  const course        = MOCK_COURSES.find(c => c.id === activeCourseId);
-  const courseContent = COURSE_CONTENT[activeCourseId];
-  const activeModule  = courseContent?.modules.find(m => m.id === activeModuleId);
-  const activeVideo   = activeModule?.videos.find(v => v.id === activeVideoId);
-  const overallProg   = getCourseProgress(activeCourseId);
-
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
-      {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
         <button onClick={() => setActiveCourseId(null)} style={{ background: "#f3f4f6", border: "none", borderRadius: 10, padding: "8px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer", color: "#374151" }}>← Back</button>
         <div style={{ flex: 1 }}>
-          <h1 style={{ ...S.pageTitle, margin: 0 }}>{courseContent?.icon} {course?.title}</h1>
+          <h1 style={{ ...S.pageTitle, margin: 0 }}>{courseContent.icon} {course?.title}</h1>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
             <div style={{ flex: 1, height: 6, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", maxWidth: 300 }}>
-              <div style={{ height: "100%", width: `${overallProg}%`, background: `linear-gradient(90deg,${courseContent?.color},${courseContent?.color})`, borderRadius: 4, transition: "width 0.6s" }}/>
+              <div style={{ height: "100%", width: `${overallProg}%`, background: `linear-gradient(90deg,${courseContent.color},${courseContent.color})`, borderRadius: 4, transition: "width 0.6s" }}/>
             </div>
-            <span style={{ fontSize: 12, fontWeight: 800, color: courseContent?.color }}>{overallProg}% complete</span>
+            <span style={{ fontSize: 12, fontWeight: 800, color: courseContent.color }}>{overallProg}% complete</span>
           </div>
         </div>
       </div>
-
       <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 20, alignItems: "start" }}>
-        {/* ── Sidebar: module/video list ── */}
+        {/* ── Left Sidebar: Modules & Videos ── */}
         <div style={{ background: "white", borderRadius: 16, border: "1px solid #f1f5f9", overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
           <div style={{ padding: "14px 16px", background: "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
             <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1917" }}>Course Content</div>
-            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{courseContent?.modules?.length} modules</div>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{courseContent.modules.length} modules</div>
           </div>
           <div style={{ overflowY: "auto", maxHeight: 600 }}>
-            {courseContent?.modules.map((mod) => {
+            {courseContent.modules.map((mod) => {
               const mp = getModuleProgress(activeCourseId, mod);
               const isModActive = mod.id === activeModuleId;
               return (
                 <div key={mod.id}>
-                  {/* Module header */}
-                  <div
-                    onClick={() => { setActiveModuleId(mod.id); setActiveVideoId(mod.videos[0]?.id); setActiveTab("video"); }}
-                    style={{ padding: "12px 16px", background: isModActive ? "#fffbeb" : "white", borderBottom: "1px solid #f9fafb", cursor: "pointer", borderLeft: `3px solid ${isModActive ? courseContent?.color : "transparent"}` }}
-                  >
+                  <div onClick={() => { setActiveModuleId(mod.id); setActiveVideoId(mod.videos[0]?.id); setActiveTab("video"); }} style={{ padding: "12px 16px", background: isModActive ? "#fffbeb" : "white", borderBottom: "1px solid #f9fafb", cursor: "pointer", borderLeft: `3px solid ${isModActive ? courseContent.color : "transparent"}` }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: isModActive ? "#92400e" : "#374151" }}>{mod.title}</div>
                     <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 3 }}>
                       {mp.done}/{mp.total} videos
                       <span style={{ marginLeft: 6, background: mp.done===mp.total?"#d1fae5":"#f3f4f6", color: mp.done===mp.total?"#065f46":"#9ca3af", padding: "1px 6px", borderRadius: 10, fontWeight: 700 }}>
-                        {mp.done===mp.total?"✓ Done":`${Math.round((mp.done/mp.total)*100)}%`}
+                        {mp.done===mp.total?"Done":`${Math.round((mp.done/mp.total)*100)}%`}
                       </span>
                     </div>
                   </div>
-                  {/* Videos under module */}
                   {isModActive && mod.videos.map((vid) => {
                     const isActive = vid.id === activeVideoId;
                     const done = isVideoDone(activeCourseId, mod.id, vid.id);
                     return (
-                      <div
-                        key={vid.id}
-                        onClick={() => { setActiveVideoId(vid.id); setActiveTab("video"); }}
-                        style={{ padding: "9px 16px 9px 28px", background: isActive ? "#fef3c7" : "#fafafa", borderBottom: "1px solid #f3f4f6", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
-                      >
-                        <div style={{ width: 20, height: 20, borderRadius: "50%", background: done ? "#10b981" : isActive ? courseContent?.color : "#e5e7eb", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "white", flexShrink: 0 }}>
-                          {done ? "✓" : isActive ? "▶" : ""}
-                        </div>
+                      <div key={vid.id} onClick={() => { setActiveVideoId(vid.id); setActiveTab("video"); }} style={{ padding: "9px 16px 9px 28px", background: isActive ? "#fef3c7" : "#fafafa", borderBottom: "1px solid #f3f4f6", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ width: 20, height: 20, borderRadius: "50%", background: done ? "#10b981" : isActive ? courseContent.color : "#e5e7eb", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "white", flexShrink: 0 }}>{done ? "✓" : isActive ? "▶" : ""}</div>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 11, fontWeight: isActive?700:500, color: isActive?"#92400e":"#374151", lineHeight: 1.3 }}>{vid.title}</div>
                           <div style={{ fontSize: 10, color: "#9ca3af" }}>⏱ {vid.duration}</div>
@@ -434,33 +511,31 @@ function CoursesTab() {
           </div>
         </div>
 
-        {/* ── Main content area ── */}
+        {/* ── Right: Video Player / Notes ── */}
         <div>
           {activeVideo ? (
             <>
-              {/* Video + Notes tabs */}
               <div style={{ background: "white", borderRadius: 16, border: "1px solid #f1f5f9", overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", marginBottom: 16 }}>
-                {/* Tab bar */}
                 <div style={{ display: "flex", borderBottom: "1px solid #f1f5f9" }}>
                   {["video","notes"].map(t => (
-                    <button key={t} onClick={() => setActiveTab(t)} style={{ flex: 1, padding: "12px", border: "none", background: activeTab===t?"#fffbeb":"white", color: activeTab===t?"#92400e":"#6b7280", fontWeight: activeTab===t?800:600, fontSize: 13, cursor: "pointer", borderBottom: `2px solid ${activeTab===t?courseContent?.color:"transparent"}`, transition: "all 0.15s" }}>
+                    <button key={t} onClick={() => setActiveTab(t)} style={{ flex: 1, padding: "12px", border: "none", background: activeTab===t?"#fffbeb":"white", color: activeTab===t?"#92400e":"#6b7280", fontWeight: activeTab===t?800:600, fontSize: 13, cursor: "pointer", borderBottom: `2px solid ${activeTab===t?courseContent.color:"transparent"}`, transition: "all 0.15s" }}>
                       {t === "video" ? "🎬 Video Lesson" : "📝 Notes"}
                     </button>
                   ))}
                 </div>
-
                 {activeTab === "video" ? (
                   <div>
-                    {/* YouTube embed */}
-                    <div style={{ position: "relative", paddingBottom: "56.25%", height: 0, background: "#000" }}>
-                      <iframe
-                        src={`https://www.youtube.com/embed/${activeVideo.ytId}?rel=0&modestbranding=1`}
-                        title={activeVideo.title}
-                        style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none" }}
-                        allowFullScreen
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      />
-                    </div>
+                    {activeVideo.ytId ? (
+                      <div style={{ position: "relative", paddingBottom: "56.25%", height: 0, background: "#000" }}>
+                        <iframe src={`https://www.youtube.com/embed/${activeVideo.ytId}?rel=0&modestbranding=1`} title={activeVideo.title} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none" }} allowFullScreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" />
+                      </div>
+                    ) : (
+                      <div style={{ padding: 40, textAlign: "center", background: "#f9fafb" }}>
+                        <div style={{ fontSize: 36, marginBottom: 8 }}>🔗</div>
+                        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>Video not available via YouTube embed</div>
+                        <a href={activeVideo.ytId ? `https://www.youtube.com/watch?v=${activeVideo.ytId}` : "#"} target="_blank" rel="noopener noreferrer" style={{ color: courseContent.color, fontWeight: 700, fontSize: 13 }}>Open external link →</a>
+                      </div>
+                    )}
                     <div style={{ padding: "16px 20px" }}>
                       <div style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", marginBottom: 4 }}>{activeVideo.title}</div>
                       <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 16 }}>{activeModule?.title} · ⏱ {activeVideo.duration}</div>
@@ -468,12 +543,7 @@ function CoursesTab() {
                         {isVideoDone(activeCourseId, activeModuleId, activeVideoId) ? (
                           <span style={{ background: "#d1fae5", color: "#065f46", padding: "8px 18px", borderRadius: 10, fontSize: 13, fontWeight: 800 }}>✓ Completed</span>
                         ) : (
-                          <button
-                            onClick={() => markDone(activeCourseId, activeModuleId, activeVideoId)}
-                            style={{ ...S.primaryBtn, background: `linear-gradient(135deg,${courseContent?.color},${courseContent?.color})`, fontSize: 13 }}
-                          >
-                            ✅ Mark as Complete
-                          </button>
+                          <button onClick={() => markDone(activeCourseId, activeModuleId, activeVideoId)} style={{ ...S.primaryBtn, background: `linear-gradient(135deg,${courseContent.color},${courseContent.color})`, fontSize: 13 }}>✅ Mark as Complete</button>
                         )}
                         <button onClick={() => setActiveTab("notes")} style={{ ...S.exportBtn, fontSize: 12 }}>📝 View Notes</button>
                       </div>
@@ -482,52 +552,33 @@ function CoursesTab() {
                 ) : (
                   <div style={{ padding: "20px 24px", maxHeight: 520, overflowY: "auto" }}>
                     <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", marginBottom: 12 }}>📝 Notes — {activeModule?.title}</div>
-                    <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.8, whiteSpace: "pre-line", fontFamily: "inherit" }}>
-                      {activeModule?.notes?.split('\n').map((line, i) => {
-                        if (line.startsWith('## ')) return <h3 key={i} style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", margin: "16px 0 8px" }}>{line.replace('## ','')}</h3>;
-                        if (line.startsWith('**') && line.endsWith('**')) return <div key={i} style={{ fontWeight: 700, color: "#374151", margin: "8px 0 4px" }}>{line.replace(/\*\*/g,'')}</div>;
-                        if (line.startsWith('- ')) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#4b5563" }}>• {line.slice(2)}</div>;
-                        if (line.match(/^\d+\./)) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#4b5563" }}>{line}</div>;
-                        if (line.startsWith('✅')) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#059669", fontWeight: 600 }}>{line}</div>;
-                        if (line.startsWith('|')) return <div key={i} style={{ fontFamily: "monospace", fontSize: 12, background: "#f8fafc", padding: "3px 8px", margin: "1px 0" }}>{line}</div>;
-                        if (line === '') return <div key={i} style={{ height: 6 }}/>;
-                        return <div key={i} style={{ margin: "3px 0" }}>{line}</div>;
-                      })}
-                    </div>
+                    {activeModule?.notes ? (
+                      <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.8, whiteSpace: "pre-line", fontFamily: "inherit" }}>
+                        {activeModule.notes.split('\n').map((line, i) => {
+                          if (line.startsWith('## ')) return <h3 key={i} style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", margin: "16px 0 8px" }}>{line.replace('## ','')}</h3>;
+                          if (line.startsWith('**') && line.endsWith('**')) return <div key={i} style={{ fontWeight: 700, color: "#374151", margin: "8px 0 4px" }}>{line.replace(/\*\*/g,'')}</div>;
+                          if (line.startsWith('- ')) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#4b5563" }}>• {line.slice(2)}</div>;
+                          if (line.match(/^\d+\./)) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#4b5563" }}>{line}</div>;
+                          if (line.startsWith('✅')) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#059669", fontWeight: 600 }}>{line}</div>;
+                          if (line.startsWith('|')) return <div key={i} style={{ fontFamily: "monospace", fontSize: 12, background: "#f8fafc", padding: "3px 8px", margin: "1px 0" }}>{line}</div>;
+                          if (line === '') return <div key={i} style={{ height: 6 }}/>;
+                          return <div key={i} style={{ margin: "3px 0" }}>{line}</div>;
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 13, color: "#9ca3af", textAlign: "center", padding: 20 }}>No notes available for this module.</div>
+                    )}
                   </div>
                 )}
               </div>
-
-              {/* Next video navigation */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ fontSize: 12, color: "#6b7280" }}>
-                  {(() => {
-                    const allVids = courseContent.modules.flatMap(m => m.videos.map(v => ({ ...v, moduleId: m.id })));
-                    const idx = allVids.findIndex(v => v.id === activeVideoId);
-                    return `Video ${idx+1} of ${allVids.length}`;
-                  })()}
-                </div>
-                <button
-                  onClick={() => {
-                    const allVids = courseContent.modules.flatMap(m => m.videos.map(v => ({ ...v, moduleId: m.id })));
-                    const idx = allVids.findIndex(v => v.id === activeVideoId);
-                    if (idx < allVids.length - 1) {
-                      markDone(activeCourseId, activeModuleId, activeVideoId);
-                      const next = allVids[idx + 1];
-                      setActiveModuleId(next.moduleId);
-                      setActiveVideoId(next.id);
-                      setActiveTab("video");
-                    }
-                  }}
-                  style={{ ...S.primaryBtn, fontSize: 12, background: `linear-gradient(135deg,${courseContent?.color},${courseContent?.color})` }}
-                >
-                  Next Video →
-                </button>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>{(() => { const av = courseContent.modules.flatMap(m => m.videos.map(v => ({ ...v, moduleId: m.id }))); const idx = av.findIndex(v => v.id === activeVideoId); return `Video ${idx+1} of ${av.length}`; })()}</div>
+                <button onClick={() => { const av = courseContent.modules.flatMap(m => m.videos.map(v => ({ ...v, moduleId: m.id }))); const idx = av.findIndex(v => v.id === activeVideoId); if (idx < av.length - 1) { markDone(activeCourseId, activeModuleId, activeVideoId); const next = av[idx + 1]; setActiveModuleId(next.moduleId); setActiveVideoId(next.id); setActiveTab("video"); }}} style={{ ...S.primaryBtn, fontSize: 12, background: `linear-gradient(135deg,${courseContent.color},${courseContent.color})` }}>Next Video →</button>
               </div>
             </>
           ) : (
             <div style={{ background: "white", borderRadius: 16, padding: 40, textAlign: "center", border: "1px solid #f1f5f9" }}>
-              <div style={{ fontSize: 48, marginBottom: 12 }}>👆</div>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>🎓</div>
               <div style={{ fontSize: 14, color: "#6b7280" }}>Select a video from the left to start learning</div>
             </div>
           )}
@@ -536,7 +587,6 @@ function CoursesTab() {
     </div>
   );
 }
-
 function ScheduleTab({ user }) {
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
@@ -973,7 +1023,7 @@ export default function TeacherDashboard({ user, onLogout }) {
       case "children_att":  return <AttendanceManager user={enrichedUser}/>;
       case "geotag":        return <GeotagAttendance user={enrichedUser}/>;
       case "training":      return <TrainingAndClassroomManager user={enrichedUser}/>;
-      case "courses":       return <CoursesTab/>;
+      case "courses":       return <CoursesTab user={enrichedUser}/>
       case "assessment":    return <ProctoredAssessment user={enrichedUser}/>;
       case "schedule":      return <ScheduleTab user={enrichedUser}/>;
       case "grades":        return <GradesTab/>;
