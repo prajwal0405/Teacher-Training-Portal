@@ -5,6 +5,7 @@ import AttendanceManager from "./AttendanceManager";
 import TrainingAndClassroomManager from "./TrainingAndClassroomManager";
 import GeotagAttendance from "./GeotagAttendance";
 import ProctoredAssessment from "./Proctoredassessment";
+import TeacherUserGuidePage from "./TeacherUserGuidePage";
 import {
   getTeacherProgress,
   getNotifications,
@@ -1685,6 +1686,7 @@ export default function TeacherDashboard({ user, onLogout }) {
   const [tabLoading, setTabLoading]      = useState(false);
 
   const [chatOpen, setChatOpen] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const [chatMessages, setChatMessages] = useState([
     { sender: "bot", text: `Hello ${user.name?.split(" ")[0] || "there"}! I'm your SpaceCE AI Assistant. How can I assist you with your class, attendance, courses, or lesson plans today?` }
   ]);
@@ -1861,6 +1863,10 @@ export default function TeacherDashboard({ user, onLogout }) {
     }
   };
 
+  if (showGuide) {
+    return <TeacherUserGuidePage onBack={() => setShowGuide(false)} />;
+  }
+
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#f8fafc", fontFamily: "'Segoe UI','Inter',-apple-system,sans-serif" }}>
       <style>{globalCSS}</style>
@@ -1889,6 +1895,7 @@ export default function TeacherDashboard({ user, onLogout }) {
             <div style={{ fontSize: 12, fontWeight: 700, color: "#1c1917" }}>{user.name?.split(" ")[0]}</div>
             <div style={{ fontSize: 10, color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.subject}</div>
           </div>
+          <button onClick={()=>setShowGuide(true)} title={t("User Guide")} style={{ background: "#fef3c7", border: "1px solid #fde68a", cursor: "pointer", fontSize: 14, color: "#d97706", padding: 4, borderRadius: 8, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>📖</button>
           <button onClick={onLogout} title={t("Sign Out")} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#9ca3af", padding: 4 }}>⏻</button>
         </div>
       </div>
@@ -1986,4 +1993,3 @@ export default function TeacherDashboard({ user, onLogout }) {
     </div>
   );
 }
-
