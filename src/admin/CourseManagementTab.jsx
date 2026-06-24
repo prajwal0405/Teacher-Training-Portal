@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal, S, SearchBar, StatCard, StatusBadge, Toast } from "../components/Shared";
+import { t } from "../services/i18n";
+import { createCourse, updateCourse, deleteCourse as deleteCourseApi } from "../services/api";
 /* ── A3: Course Management ── */
 /* ═══════════════════════════════════════════════════════════
    COURSE MANAGEMENT TAB — A3.1 + A3.2 + A3.3
@@ -25,6 +27,512 @@ import { Modal, S, SearchBar, StatCard, StatusBadge, Toast } from "../components
 
 //import { useState } from "react";
 //import { StatusBadge, StatCard, SectionCard, Modal, SearchBar, S } from "../components/Shared";
+
+/* ══════════════════════════════════════════
+   AI COURSE GENERATOR — Drop-in section for CourseFormModal
+   Rendered inside CourseFormModal when activeSection === "ai"
+══════════════════════════════════════════ */
+
+const AI_TONES = ["Professional", "Friendly", "Academic", "Motivational"];
+const AI_LEVELS = ["Beginner", "Intermediate", "Advanced", "All Levels"];
+const AI_DURATIONS = ["2 Weeks", "4 Weeks", "6 Weeks", "8 Weeks", "3 Months", "6 Months"];
+
+// Backend base URL — point this at your Express server.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+const getCourseId = (course) => course?._id || course?.id;
+
+/* ══════════════════════════════════════════
+   COURSE PREVIEW MODAL — Watch all lessons/videos in a course
+══════════════════════════════════════════ */
+function CoursePreviewModal({ course, onClose, onProgress }) {
+  const [activeModuleIdx, setActiveModuleIdx] = useState(0);
+  const [activeLessonIdx, setActiveLessonIdx] = useState(0);
+  const [watchedLessons, setWatchedLessons] = useState(() => new Set());
+
+  const modules = course?.modules || [];
+  const activeModule = modules[activeModuleIdx];
+  const lessons = activeModule?.lessons || activeModule?.contents || [];
+  const activeLesson = lessons[activeLessonIdx];
+
+  // Resolve YouTube ID from videoUrl or externalUrl
+  const resolveYtId = (url) => {
+    if (!url) return null;
+    const m = url.match(/(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?\/\s]{11})/);
+    return m ? m[1] : null;
+  };
+
+  const ytId = resolveYtId(activeLesson?.videoUrl || activeLesson?.externalUrl || activeLesson?.url || "");
+  const directUrl = activeLesson?.videoUrl || activeLesson?.externalUrl || activeLesson?.url || "";
+
+  const totalLessons = modules.reduce((a, m) => a + ((m.lessons || m.contents || []).length), 0);
+  const watchedCount = watchedLessons.size;
+  const completion = totalLessons > 0 ? Math.round((watchedCount / totalLessons) * 100) : 0;
+
+  useEffect(() => {
+    if (!activeLesson) return;
+    const lessonKey = `${activeModuleIdx}:${activeLessonIdx}`;
+    setWatchedLessons((prev) => {
+      if (prev.has(lessonKey)) return prev;
+      const next = new Set(prev);
+      next.add(lessonKey);
+      return next;
+    });
+  }, [activeLesson, activeLessonIdx, activeModuleIdx]);
+
+  useEffect(() => {
+    if (!course || typeof onProgress !== "function") {
+      return;
+    }
+    if (completion > 0) {
+      onProgress(completion);
+    }
+  }, [completion, course, onProgress]);
+
+  if (!course) return null;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(4px)" }}>
+      <div style={{ background: "white", borderRadius: 20, width: "94%", maxWidth: 900, maxHeight: "92vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,0.25)" }}>
+        {/* Header */}
+        <div style={{ padding: "18px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 900, color: "#1c1917" }}>🎬 {course.title}</div>
+            <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>{modules.length} modules · {totalLessons} lessons</div>
+          </div>
+          <div style={{ minWidth: 180, marginLeft: "auto", marginRight: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 4 }}>
+              <span>Completion</span>
+              <span>{completion}%</span>
+            </div>
+            <div style={{ height: 6, background: "#e2e8f0", borderRadius: 6, overflow: "hidden" }}>
+              <div style={{ width: `${completion}%`, height: "100%", background: completion >= 75 ? "#10b981" : completion >= 50 ? "#f59e0b" : "#ef4444", borderRadius: 6 }} />
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#9ca3af" }}>✕</button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", flex: 1, overflow: "hidden" }}>
+          {/* Sidebar — module/lesson list */}
+          <div style={{ borderRight: "1px solid #f1f5f9", overflowY: "auto", background: "#fafafa" }}>
+            {modules.length === 0 ? (
+              <div style={{ padding: 20, color: "#9ca3af", fontSize: 13, textAlign: "center" }}>No modules found in this course.</div>
+            ) : (
+              modules.map((mod, mi) => {
+                const modLessons = mod.lessons || mod.contents || [];
+                return (
+                  <div key={mi}>
+                    <div
+                      onClick={() => { setActiveModuleIdx(mi); setActiveLessonIdx(0); }}
+                      style={{ padding: "12px 16px", background: mi === activeModuleIdx ? "#fffbeb" : "white", borderBottom: "1px solid #f1f5f9", cursor: "pointer", borderLeft: `3px solid ${mi === activeModuleIdx ? "#f59e0b" : "transparent"}` }}
+                    >
+                      <div style={{ fontSize: 12, fontWeight: 700, color: mi === activeModuleIdx ? "#92400e" : "#374151" }}>M{mi + 1}: {mod.title}</div>
+                      <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>{modLessons.length} lessons</div>
+                    </div>
+                    {mi === activeModuleIdx && modLessons.map((lesson, li) => (
+                      <div
+                        key={li}
+                        onClick={() => setActiveLessonIdx(li)}
+                        style={{ padding: "9px 16px 9px 28px", background: li === activeLessonIdx ? "#fef3c7" : "#fafafa", borderBottom: "1px solid #f3f4f6", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+                      >
+                        <span style={{ fontSize: 14 }}>{lesson.type === "video" ? "🎬" : lesson.type === "live" ? "📡" : "📄"}</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 11, fontWeight: li === activeLessonIdx ? 700 : 500, color: li === activeLessonIdx ? "#92400e" : "#374151", lineHeight: 1.3 }}>{lesson.title || `Lesson ${li + 1}`}</div>
+                          <div style={{ fontSize: 10, color: "#9ca3af" }}>⏱ {lesson.duration || lesson.suggestedDuration || "—"}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Main content area */}
+          <div style={{ overflowY: "auto", padding: "0" }}>
+            {!activeLesson ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", color: "#9ca3af", gap: 12, padding: 40 }}>
+                <div style={{ fontSize: 48 }}>📚</div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>Select a lesson from the left sidebar</div>
+                {modules.length === 0 && <div style={{ fontSize: 12 }}>No modules have been added to this course yet.</div>}
+              </div>
+            ) : (
+              <div>
+                {/* Video Player */}
+                {ytId ? (
+                  <div style={{ position: "relative", paddingBottom: "56.25%", height: 0, background: "#000" }}>
+                    <iframe
+                      src={`https://www.youtube.com/embed/${ytId}?rel=0&modestbranding=1&autoplay=0`}
+                      title={activeLesson.title}
+                      style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none" }}
+                      allowFullScreen
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    />
+                  </div>
+                ) : directUrl ? (
+                  <div style={{ background: "#1c1917", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 220, gap: 14, padding: 30 }}>
+                    <div style={{ fontSize: 40 }}>🔗</div>
+                    <div style={{ fontSize: 14, color: "#f3f4f6", fontWeight: 700 }}>{activeLesson.title}</div>
+                    <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 8 }}>External video / resource link</div>
+                    <a
+                      href={directUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ background: "#f59e0b", color: "#1c1917", padding: "10px 24px", borderRadius: 10, fontSize: 13, fontWeight: 800, textDecoration: "none" }}
+                    >
+                      ▶ Open Video / Resource
+                    </a>
+                  </div>
+                ) : (
+                  <div style={{ background: "#1c1917", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 220, gap: 10, padding: 30 }}>
+                    <div style={{ fontSize: 40 }}>🎬</div>
+                    <div style={{ fontSize: 14, color: "#f3f4f6", fontWeight: 700 }}>{activeLesson.title}</div>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>No video URL has been added for this lesson.</div>
+                    <div style={{ fontSize: 11, color: "#4b5563", marginTop: 4 }}>Edit the course to add a YouTube URL or external link.</div>
+                  </div>
+                )}
+
+                {/* Lesson info */}
+                <div style={{ padding: "16px 20px" }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", marginBottom: 4 }}>{activeLesson.title}</div>
+                  <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 12 }}>
+                    {activeModule?.title} · ⏱ {activeLesson.duration || activeLesson.suggestedDuration || "N/A"}
+                    {activeLesson.type && <span style={{ marginLeft: 10, background: "#dbeafe", color: "#1d4ed8", padding: "2px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700 }}>{activeLesson.type}</span>}
+                  </div>
+                  {(activeLesson.notes || activeLesson.description) && (
+                    <div style={{ background: "#f9fafb", borderRadius: 10, padding: "12px 14px", border: "1px solid #f1f5f9", fontSize: 13, color: "#374151", lineHeight: 1.7, whiteSpace: "pre-line" }}>
+                      {activeLesson.notes || activeLesson.description}
+                    </div>
+                  )}
+                  {/* Navigation buttons */}
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 16 }}>
+                    <button
+                      disabled={activeLessonIdx === 0 && activeModuleIdx === 0}
+                      onClick={() => {
+                        if (activeLessonIdx > 0) { setActiveLessonIdx(activeLessonIdx - 1); }
+                        else if (activeModuleIdx > 0) {
+                          const prevMod = modules[activeModuleIdx - 1];
+                          const prevLessons = prevMod.lessons || prevMod.contents || [];
+                          setActiveModuleIdx(activeModuleIdx - 1);
+                          setActiveLessonIdx(Math.max(0, prevLessons.length - 1));
+                        }
+                      }}
+                      style={{ ...S.tblBtn, opacity: activeLessonIdx === 0 && activeModuleIdx === 0 ? 0.4 : 1 }}
+                    >← Previous</button>
+                    <button
+                      onClick={() => {
+                        const nextLi = activeLessonIdx + 1;
+                        if (nextLi < lessons.length) { setActiveLessonIdx(nextLi); }
+                        else if (activeModuleIdx + 1 < modules.length) {
+                          setActiveModuleIdx(activeModuleIdx + 1);
+                          setActiveLessonIdx(0);
+                        }
+                      }}
+                      disabled={activeLessonIdx === lessons.length - 1 && activeModuleIdx === modules.length - 1}
+                      style={{ ...S.primaryBtn, opacity: activeLessonIdx === lessons.length - 1 && activeModuleIdx === modules.length - 1 ? 0.4 : 1 }}
+                    >Next →</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AICourseGenerator({ onApply, categories = [] }) {
+  const [topic,      setTopic]      = useState("");
+  const [tone,       setTone]       = useState("Professional");
+  const [level,      setLevel]      = useState("Beginner");
+  const [duration,   setDuration]   = useState("6 Weeks");
+  const [category,   setCategory]   = useState(categories[0]?.name || "Foundation");
+  const [numModules, setNumModules] = useState(4);
+
+  const [loading,    setLoading]    = useState(false);
+  const [result,     setResult]     = useState(null);
+  const [error,      setError]      = useState("");
+  const [applied,    setApplied]    = useState(false);
+
+  const generate = async () => {
+    if (!topic.trim()) { setError("Please describe your course topic first."); return; }
+    setError("");
+    setLoading(true);
+    setResult(null);
+    setApplied(false);
+
+    try {
+      const token = localStorage.getItem("spaceece_auth_token");
+      const response = await fetch(`${API_BASE_URL}/api/courses/generate-from-ai`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ topic, category, level, duration, tone, numModules }),
+      });
+
+      if (!response.ok) {
+        let detail = "";
+        try { const errBody = await response.json(); detail = errBody?.message || errBody?.error || ""; } catch { /* ignore */ }
+        throw new Error(`Server error ${response.status}${detail ? ` — ${detail}` : ""}`);
+      }
+
+      const parsed = await response.json();
+      if (!parsed.course?.title) throw new Error("AI response was missing a course title. Try again.");
+
+      if (Array.isArray(parsed.course?.modules)) {
+        const stamp = Date.now();
+        parsed.course.modules = parsed.course.modules.map((m, mi) => ({
+          ...m,
+          id: stamp + mi,
+          quiz: !!m.quiz,
+          assignment: !!m.assignment,
+          lessons: Array.isArray(m.contents) ? m.contents.map((c, ci) => ({
+            ...c,
+            id: stamp + (mi * 100) + ci,
+            videoUrl: c.externalUrl || "",
+            notes: c.description || "",
+          })) : [],
+        }));
+      } else {
+        parsed.course.modules = [];
+      }
+
+      setResult(parsed.course);
+    } catch (err) {
+      setError(err.message || "AI course generation is currently unavailable. Please try again later.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApply = () => {
+    if (!result) return;
+    onApply(result);
+    setApplied(true);
+  };
+
+  const AS = {
+    label: { fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 },
+    input: { width: "100%", padding: "10px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, color: "#1c1917", fontFamily: "inherit", outline: "none", boxSizing: "border-box", marginBottom: 0, background: "#fafafa" },
+    pill: (active) => ({
+      padding: "8px 16px", borderRadius: 20, border: `2px solid ${active ? "#f59e0b" : "#e5e7eb"}`,
+      background: active ? "#fef3c7" : "white", color: active ? "#92400e" : "#6b7280",
+      fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s ease",
+    }),
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div style={{ background: "linear-gradient(135deg,#6366f1 0%,#4f46e5 60%,#4338ca 100%)", borderRadius: 14, padding: "20px", color: "white", position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: -30, right: -30, width: 120, height: 120, borderRadius: "50%", background: "rgba(255,255,255,0.1)" }} />
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#e0e7ff", letterSpacing: "1px", textTransform: "uppercase", marginBottom: 4 }}>{t("AI Course Generator")}</div>
+          <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6 }}>{t("Describe your course → AI builds it")}</div>
+          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.9)" }}>{t("Auto-fills title, description, curriculum modules, lessons, videos & notes")}</div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div>
+          <label style={AS.label}>{t("What is this course about?")} *</label>
+          <textarea
+            style={{ ...AS.input, height: 90, resize: "vertical", lineHeight: 1.6 }}
+            value={topic}
+            onChange={e => setTopic(e.target.value)}
+            placeholder="e.g. Early childhood classroom management techniques for anganwadi teachers, covering behaviour guidance, activity planning and parent communication..."
+          />
+          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>{t("Be specific — more detail = better output")}</div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <div>
+            <label style={AS.label}>{t("Category")}</label>
+            <select style={AS.input} value={category} onChange={e => setCategory(e.target.value)}>
+              {categories.length > 0
+                ? categories.map(c => <option key={c.id} value={c.name}>{c.icon} {c.name}</option>)
+                : <option value="Foundation">Foundation</option>}
+            </select>
+          </div>
+          <div>
+            <label style={AS.label}>{t("Duration")}</label>
+            <select style={AS.input} value={duration} onChange={e => setDuration(e.target.value)}>
+              {AI_DURATIONS.map(d => <option key={d}>{d}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <div>
+            <label style={AS.label}>{t("Tone")}</label>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {AI_TONES.map(t => (
+                <button key={t} onClick={() => setTone(t)} style={AS.pill(tone === t)}>{t}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label style={AS.label}>{t("Learner Level")}</label>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {AI_LEVELS.map(l => (
+                <button key={l} onClick={() => setLevel(l)} style={AS.pill(level === l)}>{l}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label style={AS.label}>{t("Number of Modules")}</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            {[2, 3, 4, 5, 6, 8].map(n => (
+              <button key={n} onClick={() => setNumModules(n)} style={{ ...AS.pill(numModules === n), flex: 1 }}>{n}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "12px 16px", fontSize: 13, color: "#991b1b", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 16 }}>⚠️</span>
+          {error}
+        </div>
+      )}
+
+      <button
+        onClick={generate}
+        disabled={loading}
+        style={{
+          width: "100%", padding: "14px", borderRadius: 10, border: "none", cursor: loading ? "not-allowed" : "pointer",
+          background: loading ? "#e5e7eb" : "linear-gradient(135deg,#6366f1,#4f46e5)",
+          color: loading ? "#9ca3af" : "white", fontSize: 14, fontWeight: 700, fontFamily: "inherit",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "all 0.2s ease",
+        }}>
+        {loading ? (
+          <>
+            <div style={{ width: 20, height: 20, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "white", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+            {t("Generating course...")}
+          </>
+        ) : "✨ " + t("Generate Course with AI")}
+      </button>
+
+      {result && (
+        <div style={{ background: "white", border: "2px solid #e5e7eb", borderRadius: 16, overflow: "hidden", boxShadow: "0 4px 20px rgba(0,0,0,0.05)" }}>
+          <div style={{ background: "#f8fafc", padding: "16px 20px", borderBottom: "1px solid #e5e7eb" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#6366f1", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 4 }}>✅ {t("Course Generated — Preview")}</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "#111827" }}>{result.title}</div>
+            {result.subtitle && <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>{result.subtitle}</div>}
+          </div>
+
+          <div style={{ padding: "20px" }}>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", marginBottom: 8 }}>{t("Description")}</div>
+              <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.7, background: "#fafafa", padding: "12px", borderRadius: 10, border: "1px solid #f1f5f9", maxHeight: 120, overflowY: "auto" }}>
+                {result.description}
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+<div style={{ background: "#fafafa", borderRadius: 10, padding: "12px", border: "1px solid #f1f5f9" }}>
+                <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{t("Tags")}</div>
+                <div style={{ fontSize: 13, color: "#374151" }}>{result.tags}</div>
+              </div>
+              <div style={{ background: "#fafafa", borderRadius: 10, padding: "12px", border: "1px solid #f1f5f9" }}>
+                <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{t("Duration")}</div>
+                <div style={{ fontSize: 13, color: "#374151" }}>{result.duration}</div>
+              </div>
+            </div>
+
+            {result.modules?.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", marginBottom: 10 }}>
+                  📚 {t("Curriculum")} — {result.modules.length} {t("Modules")} · {result.modules.reduce((a, m) => a + (m.lessons?.length || 0), 0)} {t("Lessons")}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {result.modules.map((mod, mi) => (
+                    <div key={mod.id} style={{ background: "white", borderRadius: 12, border: "1px solid #e5e7eb", overflow: "hidden" }}>
+                      <div style={{ padding: "12px 16px", background: "#f9fafb", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>
+                          <span style={{ color: "#f59e0b", marginRight: 8, fontWeight: 800 }}>M{mi + 1}</span>{mod.title}
+                        </span>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          {mod.quiz && <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 6, background: "#fef3c7", color: "#92400e" }}>📝 Quiz</span>}
+                          {mod.assignment && <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 6, background: "#dbeafe", color: "#1d4ed8" }}>📋 Assignment</span>}
+                        </div>
+                      </div>
+                      <div style={{ padding: "10px 16px" }}>
+                        {mod.lessons?.map((l, li) => {
+                          const ytMatch = l.videoUrl ? l.videoUrl.match(/(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?\/\s]{11})/) : null;
+                          const ytId = ytMatch ? ytMatch[1] : null;
+                          return (
+                            <div key={l.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 0", borderBottom: li < mod.lessons.length - 1 ? "1px solid #f9fafb" : "none" }}>
+                              <span style={{ fontSize: 12, color: "#9ca3af", fontWeight: 600, minWidth: 24, marginTop: 2 }}>L{li + 1}</span>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 4 }}>{l.title}</div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                  <span style={{ padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: l.type === "video" ? "#dbeafe" : l.type === "live" ? "#d1fae5" : "#f3f4f6", color: l.type === "video" ? "#1d4ed8" : l.type === "live" ? "#065f46" : "#6b7280" }}>
+                                    {l.type}
+                                  </span>
+                                  <span style={{ fontSize: 11, color: "#9ca3af" }}>{l.duration}</span>
+                                  {l.videoUrl && (
+                                    <a href={l.videoUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "#2563eb", textDecoration: "none" }}>🔗 Watch</a>
+                                  )}
+                                </div>
+                                {ytId && (
+                                  <div style={{ marginTop: 6, width: "100%", maxWidth: 280, aspectRatio: "16/9", borderRadius: 8, overflow: "hidden", border: "1px solid #f1f5f9" }}>
+                                    <iframe
+                                      src={`https://www.youtube.com/embed/${ytId}?rel=0&modestbranding=1`}
+                                      title={l.title}
+                                      style={{ width: "100%", height: "100%", border: "none" }}
+                                      allowFullScreen
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {result.metaTitle && (
+              <div style={{ background: "#f8fafc", borderRadius: 10, padding: "16px", border: "1px solid #e5e7eb", marginBottom: 16 }}>
+                <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>{t("SEO Preview")}</div>
+                <div style={{ fontSize: 14, color: "#1a0dab", fontWeight: 600 }}>{result.metaTitle}</div>
+                <div style={{ fontSize: 12, color: "#006621", marginTop: 4 }}>https://spaceece.in/courses/{result.title?.toLowerCase().replace(/\s+/g, "-")}</div>
+                <div style={{ fontSize: 13, color: "#545454", marginTop: 6 }}>{result.metaDesc}</div>
+              </div>
+            )}
+
+            <button
+              onClick={handleApply}
+              disabled={applied}
+              style={{
+                width: "100%", padding: "14px", borderRadius: 10, border: "none",
+                cursor: applied ? "default" : "pointer",
+                background: applied ? "#d1fae5" : "linear-gradient(135deg,#10b981,#059669)",
+                color: applied ? "#065f46" : "white",
+                fontSize: 14, fontWeight: 700, fontFamily: "inherit", transition: "all 0.2s ease",
+              }}>
+              {applied ? "✅ " + t("Applied to course form — switch to Basic Info to review") : "⬆️ " + t("Apply to Course Form")}
+            </button>
+            {!applied && (
+              <div style={{ fontSize: 12, color: "#9ca3af", textAlign: "center", marginTop: 8 }}>
+                {t("This fills in Title, Description, Tags, Curriculum, and SEO fields. You can edit everything after.")}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
 
 /* ══════════════════════════════════════════
    COURSE FORM — A3.2 (Full Multi-Section)
@@ -95,7 +603,7 @@ import { Modal, S, SearchBar, StatCard, StatusBadge, Toast } from "../components
   const updateModuleTitle = (id, val) => setModules(prev => prev.map(m => m.id === id ? { ...m, title:val } : m));
   const addLesson = (moduleId) => {
     setModules(prev => prev.map(m => m.id === moduleId
-      ? { ...m, lessons:[...m.lessons, { id:Date.now(), title:"New Lesson", type:"video", duration:"10 min" }] }
+      ? { ...m, lessons:[...m.lessons, { id:Date.now(), title:"New Lesson", type:"video", duration:"10 min", videoUrl:"", notes:"" }] }
       : m
     ));
   };
@@ -120,11 +628,49 @@ import { Modal, S, SearchBar, StatCard, StatusBadge, Toast } from "../components
   };
   const removeCoupon = (code) => setCoupons(prev => prev.filter(c => c.code !== code));
 
+  /* AI Generator → apply generated fields into the form */
+  const handleAIApply = (generated) => {
+    if (generated._id || generated.id) {
+      const saved = {
+        ...generated,
+        id: generated._id || generated.id,
+        modules: (generated.modules || []).map((module, index) => ({
+          ...module,
+          id: module._id || module.id || index + 1,
+          lessons: module.lessons || (module.contents || []).map((lesson, lessonIndex) => ({
+            ...lesson,
+            id: lesson._id || lesson.id || `${index + 1}-${lessonIndex + 1}`,
+            videoUrl: lesson.externalUrl || lesson.videoUrl || "",
+            duration: lesson.suggestedDuration || lesson.duration || `${lesson.durationMinutes || 45} min`,
+          })),
+        })),
+        enrolled: generated.enrolled || 0,
+        completion: generated.completion || 0,
+        revenue: generated.revenue || 0,
+        rating: generated.rating || 0,
+      };
+      onSave(saved);
+      setToast?.({ msg: "AI course generated and saved to MongoDB.", type: "success" });
+      return;
+    }
+    if (generated.title)       setTitle(generated.title);
+    if (generated.subtitle)    setSubtitle(generated.subtitle);
+    if (generated.description) setDescription(generated.description);
+    if (generated.tags)        setTags(generated.tags);
+    if (generated.duration)    setDuration(generated.duration);
+    if (generated.metaTitle)   setMetaTitle(generated.metaTitle);
+    if (generated.metaDesc)    setMetaDesc(generated.metaDesc);
+    if (generated.keywords)    setKeywords(generated.keywords);
+    if (generated.modules && generated.modules.length > 0) setModules(generated.modules);
+    setToast?.({ msg: "AI-generated content applied! Review each section before publishing.", type: "success" });
+    setActiveSection("basic");
+  };
+
   /* Save */
   const handleSave = () => {
     if (!title) { setToast({ msg:"Course title is required.", type:"error" }); setActiveSection("basic"); return; }
     const saved = {
-      id: course?.id || Date.now(),
+      id: course?._id || course?.id || Date.now(),
       title, subtitle, description, thumbnail, category, tags,
       duration, status,
       modules,
@@ -145,6 +691,7 @@ import { Modal, S, SearchBar, StatCard, StatusBadge, Toast } from "../components
 
   const sections = [
     { key:"basic",       label:"📋 Basic Info"       },
+    { key:"ai",          label:"🤖 AI Generator"     },
     { key:"curriculum",  label:"📚 Curriculum"       },
     { key:"pricing",     label:"💰 Pricing"          },
     { key:"eligibility", label:"🎓 Eligibility"      },
@@ -207,7 +754,9 @@ import { Modal, S, SearchBar, StatCard, StatusBadge, Toast } from "../components
                 <div>
                   <label style={S.label}>Category</label>
                   <select style={S.input} value={category} onChange={e=>setCategory(e.target.value)}>
-                    {categories.map(c => <option key={c.id}>{c.name}</option>)}
+                    {categories.length > 0
+                      ? categories.map(c => <option key={c.id}>{c.name}</option>)
+                      : <option value="Foundation">Foundation</option>}
                   </select>
                 </div>
                 <div>
@@ -234,6 +783,11 @@ import { Modal, S, SearchBar, StatCard, StatusBadge, Toast } from "../components
                 </select>
               </div>
             </div>
+          )}
+
+          {/* ── AI GENERATOR ── */}
+          {activeSection === "ai" && (
+            <AICourseGenerator onApply={handleAIApply} categories={categories} />
           )}
 
           {/* ── CURRICULUM ── */}
@@ -284,43 +838,77 @@ import { Modal, S, SearchBar, StatCard, StatusBadge, Toast } from "../components
                       </div>
                     </div>
 
-                    {/* Lessons */}
-                    <div style={{ padding:"10px 16px" }}>
-                      {mod.lessons.map((lesson, li) => (
-                        <div key={lesson.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", background:"white", borderRadius:8, marginBottom:6, border:"1px solid #f1f5f9" }}>
-                          <span style={{ fontSize:12, color:"#9ca3af" }}>L{li + 1}</span>
-                          <input
-                            style={{ flex:1, border:"none", background:"transparent", fontSize:12, color:"#374151", outline:"none", fontFamily:"inherit" }}
-                            value={lesson.title}
-                            onChange={e => updateLesson(mod.id, lesson.id, "title", e.target.value)}
-                          />
-                          <select
-                            value={lesson.type}
-                            onChange={e => updateLesson(mod.id, lesson.id, "type", e.target.value)}
-                            style={{ ...S.input, width:90, padding:"4px 8px", fontSize:11, marginBottom:0 }}>
-                            {["video","reading","live","quiz","assignment"].map(t => <option key={t}>{t}</option>)}
-                          </select>
-                          <input
-                            style={{ ...S.input, width:70, padding:"4px 8px", fontSize:11, marginBottom:0 }}
-                            value={lesson.duration}
-                            onChange={e => updateLesson(mod.id, lesson.id, "duration", e.target.value)}
-                            placeholder="10 min"
-                          />
-                          <button onClick={() => removeLesson(mod.id, lesson.id)} style={{ background:"none", border:"none", cursor:"pointer", color:"#dc2626", fontSize:14 }}>✕</button>
-                        </div>
-                      ))}
-                      <button onClick={() => addLesson(mod.id)} style={{ ...S.tblBtn, marginTop:4, fontSize:11 }}>+ Add Lesson</button>
-                      {mod.quiz && (
-                        <div style={{ marginTop:6, padding:"8px 10px", background:"#fef3c7", borderRadius:8, fontSize:11, color:"#92400e", border:"1px solid #fbbf24" }}>
-                          📝 Quiz attached to this module
-                        </div>
-                      )}
-                      {mod.assignment && (
-                        <div style={{ marginTop:6, padding:"8px 10px", background:"#dbeafe", borderRadius:8, fontSize:11, color:"#1d4ed8", border:"1px solid #93c5fd" }}>
-                          📋 Assignment attached to this module
-                        </div>
-                      )}
-                    </div>
+{/* Lessons */}
+                     <div style={{ padding:"10px 16px" }}>
+                       {mod.lessons.map((lesson, li) => (
+                         <div key={lesson.id} style={{ marginBottom:12 }}>
+                           <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px", background:"white", borderRadius:8, border:"1px solid #e5e7eb" }}>
+                             <span style={{ fontSize:12, color:"#9ca3af", fontWeight:600 }}>L{li + 1}</span>
+                             <input
+                               style={{ flex:1, border:"none", background:"transparent", fontSize:13, color:"#374151", outline:"none", fontFamily:"inherit" }}
+                               value={lesson.title}
+                               onChange={e => updateLesson(mod.id, lesson.id, "title", e.target.value)}
+                             />
+                             <select
+                               value={lesson.type}
+                               onChange={e => updateLesson(mod.id, lesson.id, "type", e.target.value)}
+                               style={{ ...S.input, width:90, padding:"4px 8px", fontSize:12, marginBottom:0 }}>
+                               {["video","reading","live","quiz","assignment"].map(t => <option key={t}>{t}</option>)}
+                             </select>
+                             <input
+                               style={{ ...S.input, width:70, padding:"4px 8px", fontSize:12, marginBottom:0 }}
+                               value={lesson.duration}
+                               onChange={e => updateLesson(mod.id, lesson.id, "duration", e.target.value)}
+                               placeholder="10 min"
+                             />
+                             <button onClick={() => removeLesson(mod.id, lesson.id)} style={{ background:"none", border:"none", cursor:"pointer", color:"#dc2626", fontSize:16, padding:"0 4px" }}>✕</button>
+                           </div>
+
+                           {/* Video URL section for video lessons */}
+                           {lesson.type === "video" && (
+                             <div style={{ marginTop:8, padding:"12px", background:"#eff6ff", borderRadius:8, border:"1px solid #bfdbfe" }}>
+                               <label style={{ ...S.label, fontSize:11, color:"#1d4ed8", marginBottom:4 }}>📹 Video URL</label>
+                               <input
+                                 style={{ ...S.input, width:"100%", padding:"8px 12px", fontSize:12, marginBottom:0, background:"white" }}
+                                 value={lesson.videoUrl || ""}
+                                 onChange={e => updateLesson(mod.id, lesson.id, "videoUrl", e.target.value)}
+                                 placeholder="https://youtube.com/... or video upload link"
+                               />
+                               {lesson.videoUrl && (
+                                 <div style={{ marginTop:8, display:"flex", alignItems:"center", gap:12 }}>
+                                   <a href={lesson.videoUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize:12, color:"#2563eb" }}>🔗 Preview Video</a>
+                                   <span style={{ fontSize:11, color:"#059669", fontWeight:600 }}>✓ Video attached</span>
+                                 </div>
+                               )}
+                             </div>
+                           )}
+
+                           {/* Notes section for video and reading lessons */}
+                           {(lesson.type === "video" || lesson.type === "reading") && (
+                             <div style={{ marginTop:8, padding:"12px", background:"#f0fdf4", borderRadius:8, border:"1px solid #bbf7d0" }}>
+                               <label style={{ ...S.label, fontSize:11, color:"#16a34a", marginBottom:4 }}>📝 Notes (visible to students)</label>
+                               <textarea
+                                 style={{ ...S.input, width:"100%", height:70, padding:"8px 12px", fontSize:12, marginBottom:0, resize:"vertical", background:"white" }}
+                                 value={lesson.notes || ""}
+                                 onChange={e => updateLesson(mod.id, lesson.id, "notes", e.target.value)}
+                                 placeholder="Add notes or key takeaways for this lesson..."
+                               />
+                             </div>
+                           )}
+                         </div>
+                       ))}
+                       <button onClick={() => addLesson(mod.id)} style={{ ...S.tblBtn, marginTop:4, fontSize:12 }}>+ Add Lesson</button>
+                       {mod.quiz && (
+                         <div style={{ marginTop:6, padding:"8px 10px", background:"#fef3c7", borderRadius:8, fontSize:11, color:"#92400e", border:"1px solid #fbbf24" }}>
+                           📝 Quiz attached to this module
+                         </div>
+                       )}
+                       {mod.assignment && (
+                         <div style={{ marginTop:6, padding:"8px 10px", background:"#dbeafe", borderRadius:8, fontSize:11, color:"#1d4ed8", border:"1px solid #93c5fd" }}>
+                           📋 Assignment attached to this module
+                         </div>
+                       )}
+                     </div>
                   </div>
                 ))}
               </div>
@@ -547,6 +1135,8 @@ import { Modal, S, SearchBar, StatCard, StatusBadge, Toast } from "../components
   );
 }
 
+
+
 /* ══════════════════════════════════════════
    CATEGORY MANAGEMENT — A3.3
 ══════════════════════════════════════════ */
@@ -723,6 +1313,8 @@ export default function CourseManagementTab({ courses, setCourses, categories, s
   const [formModal,   setFormModal]   = useState(false);
   const [editCourse,  setEditCourse]  = useState(null);
   const [catModal,    setCatModal]    = useState(false);
+  const [watchCourse, setWatchCourse] = useState(null);
+  const [previewProgress, setPreviewProgress] = useState({});
 
   /* Filter */
   const filtered = courses.filter(c => {
@@ -734,30 +1326,62 @@ export default function CourseManagementTab({ courses, setCourses, categories, s
   });
 
   const toggleStatus = (id) => {
-    setCourses(prev => prev.map(c => c.id===id
-      ? { ...c, status:c.status==="published"?"draft":"published" }
-      : c
-    ));
-    setToast({ msg:"Course status updated!", type:"success" });
+    const course = courses.find(c => getCourseId(c) === id);
+    if (!course) return;
+    const nextStatus = course.status === "published" ? "draft" : "published";
+    updateCourse(id, { ...course, status: nextStatus })
+      .then((res) => {
+        const updated = { ...res.course, id: res.course._id || res.course.id };
+        setCourses(prev => prev.map(c => getCourseId(c) === id ? updated : c));
+        setToast({ msg:"Course status updated!", type:"success" });
+      })
+      .catch(err => setToast({ msg: err.message, type:"error" }));
   };
 
   const archiveCourse = (id) => {
-    setCourses(prev => prev.map(c => c.id===id ? { ...c, status:"archived" } : c));
-    setToast({ msg:"Course archived.", type:"success" });
+    const course = courses.find(c => getCourseId(c) === id);
+    if (!course) return;
+    updateCourse(id, { ...course, status: "archived" })
+      .then((res) => {
+        const updated = { ...res.course, id: res.course._id || res.course.id };
+        setCourses(prev => prev.map(c => getCourseId(c) === id ? updated : c));
+        setToast({ msg:"Course archived.", type:"success" });
+      })
+      .catch(err => setToast({ msg: err.message, type:"error" }));
   };
 
   const deleteCourse = (id) => {
-    setCourses(prev => prev.filter(c => c.id !== id));
-    setToast({ msg:"Course deleted.", type:"error" });
+    deleteCourseApi(id)
+      .then(() => {
+        setCourses(prev => prev.filter(c => getCourseId(c) !== id));
+        setToast({ msg:"Course deleted.", type:"error" });
+      })
+      .catch(err => setToast({ msg: err.message, type:"error" }));
   };
 
   const handleSave = (saved) => {
     if (editCourse) {
-      setCourses(prev => prev.map(c => c.id === saved.id ? saved : c));
-      setToast({ msg:"Course updated!", type:"success" });
+      const id = getCourseId(editCourse);
+      updateCourse(id, saved)
+        .then((res) => {
+          const updated = { ...res.course, id: res.course._id || res.course.id };
+          setCourses(prev => prev.map(c => getCourseId(c) === id ? updated : c));
+          setToast({ msg:"Course updated!", type:"success" });
+        })
+        .catch(err => setToast({ msg: err.message, type:"error" }));
     } else {
-      setCourses(prev => [...prev, saved]);
-      setToast({ msg:"Course added!", type:"success" });
+      if (saved._id) {
+        setCourses(prev => [{ ...saved, id: saved._id }, ...prev.filter(c => getCourseId(c) !== saved._id)]);
+        setToast({ msg:"Course added!", type:"success" });
+      } else {
+        createCourse(saved)
+          .then((res) => {
+            const created = { ...res.course, id: res.course._id || res.course.id };
+            setCourses(prev => [created, ...prev]);
+            setToast({ msg:"Course added!", type:"success" });
+          })
+          .catch(err => setToast({ msg: err.message, type:"error" }));
+      }
     }
     setFormModal(false);
     setEditCourse(null);
@@ -799,6 +1423,20 @@ export default function CourseManagementTab({ courses, setCourses, categories, s
           setCategories={setCategories}
           setToast={setToast}
           onClose={() => setCatModal(false)}
+        />
+      )}
+      {watchCourse && (
+        <CoursePreviewModal
+          course={watchCourse}
+          onProgress={(pct) => {
+            const courseId = getCourseId(watchCourse);
+            setPreviewProgress((prev) => ({ ...prev, [courseId]: Math.max(prev[courseId] || 0, pct) }));
+            setCourses((prev) => prev.map((course) => {
+              if (getCourseId(course) !== courseId) return course;
+              return { ...course, completion: Math.max(course.completion || 0, pct) };
+            }));
+          }}
+          onClose={() => setWatchCourse(null)}
         />
       )}
 
@@ -864,7 +1502,7 @@ export default function CourseManagementTab({ courses, setCourses, categories, s
           </thead>
           <tbody>
             {filtered.map((c, i) => (
-              <tr key={c.id} style={{ borderBottom:"1px solid #f9fafb", background:i%2===0?"white":"#fafafa" }}>
+              <tr key={getCourseId(c)} style={{ borderBottom:"1px solid #f9fafb", background:i%2===0?"white":"#fafafa" }}>
                 {/* Course */}
                 <td style={{ padding:"12px 16px" }}>
                   <div style={{ fontSize:13, fontWeight:700, color:"#1c1917", maxWidth:220 }}>{c.title}</div>
@@ -876,19 +1514,26 @@ export default function CourseManagementTab({ courses, setCourses, categories, s
                   <span style={{ padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
                     background:`${categories.find(cat=>cat.name===c.category)?.color||"#f59e0b"}20`,
                     color:categories.find(cat=>cat.name===c.category)?.color||"#92400e" }}>
-                    {categories.find(cat=>cat.name===c.category)?.icon||"📚"} {c.category}
+                    {categories.find(cat=>cat.name===c.category)?.icon||"\uD83D\uDCDA"} {c.category}
                   </span>
                 </td>
                 {/* Enrolled */}
-                <td style={{ padding:"12px 16px", fontSize:13, fontWeight:600, color:"#374151" }}>{c.enrolled}</td>
+                <td style={{ padding:"12px 16px", fontSize:13, fontWeight:600, color:"#374151" }}>{c.enrolled || 0}</td>
                 {/* Completion */}
                 <td style={{ padding:"12px 16px" }}>
+                  {(() => {
+                    const progress = typeof c.completion === "number"
+                      ? c.completion
+                      : (previewProgress[getCourseId(c)] || 0);
+                    return (
                   <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                     <div style={{ width:52, height:5, background:"#f3f4f6", borderRadius:3, overflow:"hidden" }}>
-                      <div style={{ height:"100%", width:`${c.completion}%`, background:c.completion>=70?"#10b981":"#f59e0b" }}/>
+                      <div style={{ height:"100%", width:`${progress}%`, background:progress>=70?"#10b981":"#f59e0b", transition:"width 0.4s" }}/>
                     </div>
-                    <span style={{ fontSize:11, fontWeight:700, color:c.completion>=70?"#10b981":"#f59e0b" }}>{c.completion}%</span>
+                    <span style={{ fontSize:11, fontWeight:700, color:progress>=70?"#10b981":"#f59e0b" }}>{progress}%</span>
                   </div>
+                    );
+                  })()}
                 </td>
                 {/* Revenue */}
                 <td style={{ padding:"12px 16px", fontSize:13, fontWeight:600, color:"#374151" }}>
@@ -896,22 +1541,29 @@ export default function CourseManagementTab({ courses, setCourses, categories, s
                 </td>
                 {/* Rating */}
                 <td style={{ padding:"12px 16px", fontSize:13, color:"#f59e0b", fontWeight:700 }}>
-                  {c.rating > 0 ? `⭐ ${c.rating}` : "—"}
+                  {c.rating > 0 ? `\u2B50 ${c.rating}` : "\u2014"}
                 </td>
                 {/* Status */}
                 <td style={{ padding:"12px 16px" }}><StatusBadge status={c.status}/></td>
                 {/* Actions */}
                 <td style={{ padding:"12px 16px" }}>
                   <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
-                    <button onClick={() => toggleStatus(c.id)}
+                    <button
+                      onClick={() => setWatchCourse(c)}
+                      style={{ ...S.tblBtn, color:"#7c3aed", borderColor:"#c4b5fd" }}
+                      title="Preview course videos"
+                    >
+                      \uD83C\uDFAC Watch
+                    </button>
+                    <button onClick={() => toggleStatus(getCourseId(c))}
                       style={{ ...S.tblBtn, color:c.status==="published"?"#dc2626":"#059669", borderColor:c.status==="published"?"#fca5a5":"#86efac" }}>
                       {c.status==="published" ? "Unpublish" : "Publish"}
                     </button>
-                    <button onClick={() => openEdit(c)} style={S.tblBtn}>✏️ Edit</button>
+                    <button onClick={() => openEdit(c)} style={S.tblBtn}>\u270F\uFE0F Edit</button>
                     {c.status !== "archived" && (
-                      <button onClick={() => archiveCourse(c.id)} style={S.tblBtn}>🗄️</button>
+                      <button onClick={() => archiveCourse(getCourseId(c))} style={S.tblBtn}>\uD83D\uDDC4\uFE0F</button>
                     )}
-                    <button onClick={() => deleteCourse(c.id)} style={{ ...S.tblBtn, color:"#dc2626", borderColor:"#fca5a5" }}>🗑️</button>
+                    <button onClick={() => deleteCourse(getCourseId(c))} style={{ ...S.tblBtn, color:"#dc2626", borderColor:"#fca5a5" }}>\uD83D\uDDD1\uFE0F</button>
                   </div>
                 </td>
               </tr>

@@ -8,6 +8,8 @@ import { CourseAssignment } from "./models/CourseAssignment.js";
 import { LessonPlan } from "./models/LessonPlan.js";
 import { LessonPlanAssignment } from "./models/LessonPlanAssignment.js";
 import { Trainer } from "./models/Trainer.js";
+import { Batch } from "./models/Batch.js";
+import { AttendanceAlert } from "./models/AttendanceAlert.js";
 
 export async function autoSeed() {
   console.log("Seeding database with initial portal data...");
@@ -214,6 +216,120 @@ export async function autoSeed() {
   }
 
   // Feedback data is created by users through the feedback submission form — no seed data needed
+
+  const sampleLessons = [
+    {
+      title: "Number Patterns & Counting",
+      course: course._id,
+      objectives: "Introduce counting and visual number patterns.",
+      instructions: "Use blocks and picture cards.",
+      activities: "Sorting, grouping, and matching activity.",
+      resources: "Flash cards, blocks",
+      scheduleDate: new Date(Date.now() + 86400000),
+      createdBy: admin._id,
+    },
+    {
+      title: "Phonics & Letter Sounds",
+      course: course._id,
+      objectives: "Teach letter recognition and phonetic sounds.",
+      instructions: "Use alphabet charts and songs.",
+      activities: "Singing, tracing letters, matching objects.",
+      resources: "Alphabet charts, crayons, worksheets",
+      scheduleDate: new Date(Date.now() + 2 * 86400000),
+      createdBy: admin._id,
+    },
+    {
+      title: "Storytelling & Moral Values",
+      course: course._id,
+      objectives: "Develop listening skills and moral understanding.",
+      instructions: "Use picture books and puppets.",
+      activities: "Group story time, role play, discussion.",
+      resources: "Story books, puppets, charts",
+      scheduleDate: new Date(Date.now() + 3 * 86400000),
+      createdBy: admin._id,
+    },
+    {
+      title: "Colors & Shapes Exploration",
+      course: course._id,
+      objectives: "Identify and differentiate colors and shapes.",
+      instructions: "Use color cards and shape cutouts.",
+      activities: "Coloring, sorting shapes, collage making.",
+      resources: "Color cards, scissors, glue, paper",
+      scheduleDate: new Date(Date.now() + 4 * 86400000),
+      createdBy: admin._id,
+    },
+    {
+      title: "Circle Time & Calendar",
+      course: course._id,
+      objectives: "Build routine and calendar awareness.",
+      instructions: "Use a large calendar and song charts.",
+      activities: "Good morning song, date/weather discussion.",
+      resources: "Calendar, weather chart, song chart",
+      scheduleDate: new Date(Date.now() + 5 * 86400000),
+      createdBy: admin._id,
+    },
+  ];
+
+  for (const lessonData of sampleLessons) {
+    const lesson = await LessonPlan.findOneAndUpdate(
+      { title: lessonData.title, course: lessonData.course },
+      lessonData,
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    for (const teacher of teachers) {
+      await LessonPlanAssignment.findOneAndUpdate(
+        { lessonPlan: lesson._id, teacher: teacher._id },
+        {
+          lessonPlan: lesson._id,
+          teacher: teacher._id,
+          center: center._id,
+          class: classRecord._id,
+          assignedDate: lesson.scheduleDate,
+          status: "pending",
+        },
+        { upsert: true, new: true }
+      );
+    }
+  }
+
+  const existingBatch = await Batch.findOne({ code: "BATCH-ECCE-2026-01" });
+  if (!existingBatch) {
+    await Batch.create({
+      name: "ECCE Foundation Batch - June 2026",
+      code: "BATCH-ECCE-2026-01",
+      description: "Foundation batch for new ECCE teachers starting June 2026.",
+      course: course._id,
+      center: center._id,
+      trainer: (await User.findOne({ role: "trainer" }))?._id || admin._id,
+      teachers: teachers.map((t) => t._id),
+      startDate: new Date(),
+      endDate: new Date(Date.now() + 180 * 86400000),
+      schedule: {
+        days: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+        startTime: "09:00",
+        endTime: "12:00",
+        timezone: "Asia/Kolkata",
+      },
+      maxTeachers: 30,
+      enrolledCount: teachers.length,
+      status: "ongoing",
+      createdBy: admin._id,
+    });
+  }
+
+  const attendanceAlertData = [
+    { teacher: teachers[0]._id, center: center._id, class: classRecord._id, attendanceRate: 72, threshold: 75, alertType: "low_attendance", severity: "warning", message: "Attendance below 75% threshold. Please ensure regular attendance." },
+    { teacher: teachers[1]._id, center: center._id, class: classRecord._id, attendanceRate: 58, threshold: 75, alertType: "critical_low_attendance", severity: "critical", message: "Attendance critically low at 58%. Immediate action required." },
+    { teacher: teachers[2]._id, center: center._id, class: classRecord._id, attendanceRate: 88, threshold: 75, alertType: "low_attendance", severity: "info", message: "Attendance recovering well at 88%. Keep it up!" },
+  ];
+
+  for (const alertData of attendanceAlertData) {
+    const existingAlert = await AttendanceAlert.findOne({ teacher: alertData.teacher, center: alertData.center, class: alertData.class, alertType: alertData.alertType });
+    if (!existingAlert) {
+      await AttendanceAlert.create(alertData);
+    }
+  }
 
   console.log("Automatic database seeding complete.");
   console.log("Admin account: admin@spaceece.com / Admin@123");

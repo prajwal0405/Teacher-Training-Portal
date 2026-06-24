@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Logo, Toast, globalCSS } from "../components/Shared";
+import { t } from "../services/i18n";
 import OverviewTab from "../admin/OverviewTab";
 import CenterManagementTab from "../admin/CenterManagementTab";
 import TeacherManagementTab from "../admin/TeacherManagementTab";
@@ -73,34 +74,29 @@ export default function AdminDashboard({ user, onLogout }) {
       score: assignment.score,
       rubric,
       trainer: assignment.trainer || "",
+      reviewedBy: assignment.reviewedBy || "",
+      reviewedAt: assignment.reviewedAt || "",
       notified: assignment.notified || false,
       annotations: assignment.annotations || [],
     };
   };
 
   const navItems = [
-    { key:"overview",     label:"Admin Dashboard",     icon:"DB" },
-    { key:"centers",      label:"Center Management",   icon:"CT" },
-    { key:"teachers",     label:"Teacher Management",  icon:"TM", badge:pending.length },
-    { key: "curriculum",  label: "Course Management",  icon: "CM" },
-    { key: "activities",  label: "Activity Monitoring",icon: "AM" },
-    { key: "lessonplans", label: "Lesson Plans",       icon: "LP" },
-    { key: "children",    label: "Children & Classes", icon: "CC" },
-    { key:"trainers",     label:"Trainer Management",  icon:"TR" },
-    { key:"assignments",  label:"Assignment Review",   icon:"AR", badge:assignments.filter(a=>a.status==="pending").length },
-    { key:"attendance",   label:"Attendance",          icon:"AT" },
+    { key:"overview",     label:"Admin Dashboard",          icon:"\uD83D\uDCCA" },
+    { key:"centers",      label:"Center Management", icon:"\uD83C\uDFEB" },
+    { key:"teachers",     label:"Teacher Management",icon:"\uD83D\uDC69\u200D\uD83C\uDFEB", badge:pending.length },
+    { key: "curriculum", label: "Course Management", icon: "\uD83D\uDCDA" },
+    { key: "activities", label: "Activity Monitoring", icon: "\uD83D\uDCF8" },
+    { key: "lessonplans", label: "Lesson Plans", icon: "\uD83D\uDCCB" },
+    { key: "children", label: "Children & Classes", icon: "\uD83D\uDC76" },
+    { key:"trainers",     label:"Trainer Management",icon:"\uD83C\uDF93" },
+    { key:"assignments",  label:"Assignment Review", icon:"\uD83D\uDCDD", badge:assignments.filter(a=>a.status==="pending").length },
+    { key:"attendance",   label:"Attendance",        icon:"\uD83D\uDCC5" },
    
-    { key:"reports",      label:"Reports & Analytics",icon:"RA" },
-    { key:"notifications",label:"Notifications",      icon:"NT" },
-    { key:"settings",     label:"Settings & Roles",   icon:"SR" },
-    { key:"feedback",     label:"Feedback",           icon:"FB" },
-    //{ key:"courses",      label:"Course Management", icon:"CR" },
-    //{ key:"batches",      label:"Batch Management",  icon:"BT" },
-    // { key:"content",      label:"Learning Content", icon:"LC" },
-    // { key:"assessments",  label:"Assessment Management", icon:"AS" },
-    // { key:"certificates", label:"Certificates",     icon:"CF" },
-    //{ key:"sessions",     label:"Live Sessions",     icon:"LS" },
-    
+    { key:"reports",      label:"Reports & Analytics",icon:"\uD83D\uDCC8" },
+    { key:"notifications",label:"Notifications",     icon:"\uD83D\uDD14" },
+    { key:"settings",     label:"Settings & Roles",  icon:"\u2699\uFE0F" },
+    { key:"feedback",     label:"Feedback",              icon:"\uD83D\uDCAC" },
   ];
   const persistTeachers = (updater) => {
   setTeachers(prev => {
@@ -121,45 +117,49 @@ export default function AdminDashboard({ user, onLogout }) {
   const renderContent = () => {
     switch(activeTab) {
       case "overview":     return <OverviewTab teachers={teachers} courses={courses} batches={[]} sessions={[]}/>;
-      case "centers": return <CenterManagementTab teachers={teachers} setToast={setToast}/>;
+      case "centers": return <CenterManagementTab allTeachers={teachers} setToast={setToast}/>;
       case "teachers": return <TeacherManagementTab teachers={teachers} setTeachers={persistTeachers} setToast={setToast}/>;
       case "curriculum": return <CurriculumTrainingTab setToast={setToast}/>;
       case "activities": return <ActivityMonitoringTab setToast={setToast}/>;
       case "lessonplans": return <LessonPlanManagementTab setToast={setToast} />;
       case "children": return <ChildrenManagementTab setToast={setToast}/>;
       case "trainers": return <TrainerManagementTab batches={[]} setToast={setToast}/>;
-      case "assignments":  return <AssignmentReviewTab assignments={assignments} setAssignments={setAssignments} setToast={setToast}/>;
+      case "assignments":  return <AssignmentReviewTab assignments={assignments} setAssignments={setAssignments} setToast={setToast} teachers={teachers} user={user}/>;
       case "attendance":   return <AttendanceTab teachers={teachers} sessions={[]}/>;
       case "reports":      return <ReportsTab teachers={teachers} courses={courses} batches={[]}/>;
       case "notifications":return <NotificationsTab teachers={teachers} setToast={setToast}/>;
       case "settings":     return <SettingsTab setToast={setToast}/>;
       case "feedback":     return <FeedbackManagementTab setToast={setToast}/>;
-      //case "sessions": return <LiveSessionsTab sessions={sessions} setSessions={setSessions} teachers={teachers} batches={[]} setToast={setToast}/>;
-      //case "courses":      return <CourseManagementTab courses={courses} setCourses={setCourses} categories={categories} setCategories={setCategories} setToast={setToast}/>;
-      //case "batches": return <BatchManagementTab batches={batches} setBatches={setBatches} teachers={teachers} setToast={setToast}/>;
-      //case "content":      return <LearningContentManagementTab contentItems={contentItems} setContentItems={setContentItems} setToast={setToast}/>;
-      //case "assessments":  return <AssessmentManagementTab assessmentsData={assessmentsData} setAssessmentsData={setAssessmentsData} setToast={setToast}/>;
-      //case "certificates": return <CertificateManagementTab certificates={certificates} setCertificates={setCertificates} setToast={setToast}/>;
-      
       default:             return null;
     }
   };
   useEffect(() => {
     let ignore = false;
+    let isInitialLoad = true;
 
-    Promise.all([getAdminTeachers(), getCourses(), getCourseAssignments()])
-      .then(([teacherRes, courseRes, assignmentRes]) => {
-        if (ignore) return;
-        setTeachers(teacherRes.teachers || []);
-        setCourses(courseRes.courses || []);
-        setAssignments((assignmentRes.assignments || []).map(mapCourseAssignmentForReview));
-      })
-      .catch((error) => {
-        if (!ignore) setToast({ msg: error.message || "Could not load dashboard data from MongoDB.", type: "error" });
-      });
+    const fetchDashboardData = () => {
+      Promise.all([getAdminTeachers(), getCourses(), getCourseAssignments()])
+        .then(([teacherRes, courseRes, assignmentRes]) => {
+          if (ignore) return;
+          setTeachers(teacherRes.teachers || []);
+          setCourses(courseRes.courses || []);
+          setAssignments((assignmentRes.assignments || []).map(mapCourseAssignmentForReview));
+          isInitialLoad = false;
+        })
+        .catch((error) => {
+          if (!ignore && isInitialLoad) {
+            setToast({ msg: error.message || "Could not load dashboard data from MongoDB.", type: "error" });
+          }
+          console.error("Dashboard poll failed:", error);
+        });
+    };
+
+    fetchDashboardData();
+    const interval = setInterval(fetchDashboardData, 30000);
 
     return () => {
       ignore = true;
+      clearInterval(interval);
     };
   }, []);
 
@@ -174,7 +174,7 @@ export default function AdminDashboard({ user, onLogout }) {
           <Logo size={120}/>
           <div style={{ textAlign:"center", padding:"4px 12px", borderRadius:20, fontSize:11, fontWeight:700,
             background:"#fef3c7", color:"#92400e", border:"1px solid #fbbf24", margin:"6px auto 0", display:"inline-block", width:"fit-content", letterSpacing:"0.3px" }}>
-            Admin Panel
+            🛡️ {t("Admin Panel")}
           </div>
         </div>
 
@@ -187,7 +187,7 @@ export default function AdminDashboard({ user, onLogout }) {
                 cursor:"pointer", fontFamily:"inherit", textAlign:"left", marginBottom:2,
                 transition:"all 0.18s" }}>
               <span style={{ fontSize:15 }}>{item.icon}</span>
-              <span style={{ flex:1 }}>{item.label}</span>
+              <span style={{ flex:1 }}>{t(item.label)}</span>
               {item.badge>0 && <span style={{ background:"#ef4444", color:"white", borderRadius:20, fontSize:10, fontWeight:800, padding:"1px 7px", minWidth:18, textAlign:"center" }}>{item.badge}</span>}
             </button>
           ))}
@@ -199,12 +199,12 @@ export default function AdminDashboard({ user, onLogout }) {
             <div style={{ fontSize:12, fontWeight:700, color:"#1c1917" }}>Admin</div>
             <div style={{ fontSize:10, color:"#9ca3af", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user?.email}</div>
           </div>
-          <button onClick={onLogout} title="Sign Out"
-            style={{ background:"none", border:"none", cursor:"pointer", fontSize:12, color:"#9ca3af", padding:4, fontWeight:700 }}>Sign Out</button>
+          <button onClick={onLogout} title={t("Sign Out")}
+            style={{ background:"none", border:"none", cursor:"pointer", fontSize:16, color:"#9ca3af", padding:4 }}>⏻</button>
         </div>
       </div>
 
-      {/* Main */}
+      {/* Main Content */}
       <div style={{ flex:1, padding:"28px 32px", overflowY:"auto", maxHeight:"100vh" }}>
         {/* Top bar with logout button, top-right corner */}
         <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:16 }}>

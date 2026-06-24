@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Logo, Toast, Badge, StatusBadge, StatCard, SectionCard, S, globalCSS } from "../components/Shared";
+import { t, setLanguage, getLanguageList, getCurrentLanguage, LANG_CHANGE_EVENT } from "../services/i18n";
 import AttendanceManager from "./AttendanceManager";
 import TrainingAndClassroomManager from "./TrainingAndClassroomManager";
 import GeotagAttendance from "./GeotagAttendance";
@@ -7,30 +8,67 @@ import ProctoredAssessment from "./Proctoredassessment";
 import {
   getTeacherProgress,
   getNotifications,
-  getTeacherGrades,
-  getTeacherMe,
-  getTeacherSchedules,
   markNotificationRead,
   askTeacherChatbot,
   updateCourseAssignmentProgress,
   updateTeacherMe,
-  getCourses,
+  getTeacherMe,
+  getTeacherAssessmentResults,
   uploadFile,
-  changeTeacherPassword
+  changeTeacherPassword,
+  submitFeedback,
+  getFeedbacks,
+  updateTeacherLanguage,
+  getTeacherCourseNotes
 } from "../services/api";
-/* ═══════════════════════════════════════════
-   TAB COMPONENTS
-═══════════════════════════════════════════ */
 
+/* Resolve a profile photo path to a full URL */
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+
+/* Returns teacher's real photo URL or DiceBear fallback */
+const getTeacherPhotoUrl = (teacher) => {
+  const photo = teacher?.teacherProfile?.profilePhoto || teacher?.teacherProfile?.photo || teacher?.photoUrl || teacher?.profilePhoto;
+  if (!photo) return null;
+  if (typeof photo === "string") return photo.startsWith("http") ? photo : `${API_BASE_URL}${photo}`;
+  const url = photo.publicUrl || photo.url || photo.path;
+  return url || null;
+};
+
+/* ── Sidebar Avatar Component ── */
+function SidebarAvatar({ teacher, size = 34 }) {
+  const [imgError, setImgError] = useState(false);
+  const photoUrl = getTeacherPhotoUrl(teacher);
+  
+  if (!photoUrl || imgError) {
+    return (
+      <div style={{ width: size, height: size, borderRadius: "50%", background: "linear-gradient(135deg,#3b82f6,#1d4ed8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: "white", flexShrink: 0 }}>
+        {teacher?.name?.[0] || "?"}
+      </div>
+    );
+  }
+  
+  return (
+    <div style={{ position: "relative", flexShrink: 0 }}>
+      <img src={photoUrl} alt={teacher?.name} onError={() => setImgError(true)}
+        style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", border: "2px solid #e2e8f0" }} />
+      <span style={{ position: "absolute", bottom: 0, right: 0, background: "#10b981", borderRadius: "50%", width: 12, height: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, border: "1.5px solid white" }}>📷</span>
+    </div>
+  );
+}
+
+/* ── OverviewTab ── */
 function OverviewTab({ user, setActiveTab, courses = [], assignments = [], lessons = [], activities = [], summary = {} }) {
   const attendance = summary.attendanceRate !== undefined ? summary.attendanceRate : 0;
   const attColor   = attendance>=85 ? "#10b981" : attendance>=70 ? "#f59e0b" : "#ef4444";
+  const photoUrl = getTeacherPhotoUrl(user);
 
   const certificatesCount = courses.filter(c => c.status === "completed" || c.progressPercent === 100).length;
   const pendingTasksCount = assignments.filter(a => a.status === "assigned" || a.status === "revision").length;
   const gradedAssignments = assignments.filter(a => a.score !== null && a.score !== undefined);
   const averageScore = gradedAssignments.length ? Math.round(gradedAssignments.reduce((sum, a) => sum + Number(a.score || 0), 0) / gradedAssignments.length) : 0;
-  const centerName = user.workingCenter || user.teacherProfile?.center?.name || "Center not assigned";
+  const centerName = user.teacherProfile?.center
+    ? [user.teacherProfile.center.name, user.teacherProfile.center.city].filter(Boolean).join(", ")
+    : (user.workingCenter || "Center not assigned");
   const className = user.teacherProfile?.class?.name || "No class assigned";
   const studentsCount = summary.totalChildren || user.students || 0;
 
@@ -41,7 +79,16 @@ function OverviewTab({ user, setActiveTab, courses = [], assignments = [], lesso
           <h1 style={{ fontSize: 22, fontWeight: 900, margin: "0 0 6px", letterSpacing: "-0.3px" }}>Good morning, {user.name?.split(" ")[0] || "Teacher"}!</h1>
           <p style={{ fontSize: 13, margin: 0, opacity: 0.88 }}>{user.subject || user.teacherProfile?.subject || "Teacher"} - {className} - {new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long"})}</p>
         </div>
-        <div style={{ fontSize: 32, opacity: 0.8 }}>Teacher</div>
+        <div style={{ position: "relative", flexShrink: 0 }}>
+          <div style={{ width: 48, height: 48, borderRadius: "50%", overflow: "hidden", border: "3px solid rgba(255,255,255,0.3)", background: "#f59e0b", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {photoUrl ? (
+              <img src={photoUrl} alt={user.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => { e.target.style.display = "none"; }} />
+            ) : (
+              <span style={{ fontSize: 22, fontWeight: 800, color: "white" }}>{user.name?.[0] || "?"}</span>
+            )}
+          </div>
+          {photoUrl && <span style={{ position: "absolute", bottom: 0, right: 0, background: "#10b981", borderRadius: "50%", width: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, border: "2px solid white" }}>📷</span>}
+        </div>
       </div>
 
       <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700 }}>
@@ -142,34 +189,95 @@ function OverviewTab({ user, setActiveTab, courses = [], assignments = [], lesso
 /* ═══════════════════════════════════════════
    COURSE CONTENT DATA
 ═══════════════════════════════════════════ */
-const getCourseContent = (assignment) => {
+const getCourseContent = (assignment, notes = []) => {
   const dbCourse = assignment?.course;
   if (!dbCourse) return null;
 
-  const modules = (dbCourse.modules || []).map((module, moduleIndex) => {
-    const contents = (module.contents || []).map((content, contentIndex) => {
-      const id = content._id || `content-${moduleIndex}-${contentIndex}`;
-      const url = content.externalUrl || content.file?.publicUrl || "";
-      const youtubeMatch = url.match(/(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?\/\s]{11})/);
+  const rawModules = dbCourse.modules && dbCourse.modules.length ? dbCourse.modules : [];
+
+  const courseNotes = notes.filter(n => !n.moduleIndex && n.moduleIndex !== 0);
+  const baseNotesText = courseNotes.map(n => n.content).join('\n\n').trim();
+  const dbNotes = dbCourse.description || "";
+
+  const mapContentItem = (content, moduleIndex, contentIndex) => {
+    const id = content._id || `content-${moduleIndex}-${contentIndex}`;
+    // Support both externalUrl (from DB contents) and videoUrl (from admin form lessons)
+    const url = content.externalUrl || content.videoUrl || content.url || content.file?.publicUrl || "";
+    const youtubeMatch = url.match(/(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?\/\s]{11})/);
+    const contentNotes = notes.filter(n => n.moduleIndex === moduleIndex && n.contentIndex === contentIndex);
+    return {
+      id,
+      title: content.title || `Content ${contentIndex + 1}`,
+      type: content.type || (url ? "video" : "document"),
+      url,
+      ytId: youtubeMatch?.[1] || "",
+      duration: content.suggestedDuration || content.duration || (content.type === "video" ? "Video" : content.type || "Content"),
+      notes: contentNotes.map(n => n.content).join('\n\n').trim() || content.notes || content.description || ""
+    };
+  };
+
+  let modules;
+  if (rawModules.length > 0) {
+    modules = rawModules.map((module, moduleIndex) => {
+      // Support both module.contents (DB schema) and module.lessons (admin form schema)
+      const rawItems = module.contents?.length ? module.contents
+        : module.lessons?.length ? module.lessons
+        : [];
+      const contents = rawItems.map((content, ci) => mapContentItem(content, moduleIndex, ci));
+
+      const moduleNotesList = notes.filter(n => n.moduleIndex === moduleIndex && !n.contentIndex);
+      const notesText = moduleNotesList.map(n => n.content).join('\n\n').trim();
+      const effectiveNotes = notesText || module.description || dbNotes || "No notes added by admin yet.";
+
       return {
-        id,
-        title: content.title || `Content ${contentIndex + 1}`,
-        type: content.type || "document",
-        url,
-        ytId: youtubeMatch?.[1] || "",
-        duration: content.type === "video" ? "Video" : content.type || "Content"
+        id: module._id || `module-${moduleIndex}`,
+        title: module.title || `Module ${moduleIndex + 1}`,
+        description: module.description || "",
+        contents,
+        items: contents,
+        notes: effectiveNotes
       };
     });
+  } else if (dbCourse.contentLink || dbCourse.youtubeId) {
+    const ytId = dbCourse.youtubeId || (() => {
+      const m = (dbCourse.contentLink || "").match(/(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?\/\s]{11})/);
+      return m ? m[1] : null;
+    })();
 
-    return {
-      id: module._id || `module-${moduleIndex}`,
-      title: module.title || `Module ${moduleIndex + 1}`,
-      description: module.description || "",
-      contents,
-      items: contents,
-      notes: module.description || dbCourse.description || "No notes added by admin yet."
-    };
-  });
+    const singleItem = ytId ? [{
+      id: `content-0`,
+      title: dbCourse.title || "Course Video",
+      type: "video",
+      url: dbCourse.contentLink || `https://www.youtube.com/watch?v=${ytId}`,
+      ytId: ytId || "",
+      duration: "Video"
+    }] : [{
+      id: `content-0`,
+      title: dbCourse.title || "Course Material",
+      type: "document",
+      url: dbCourse.contentLink || "",
+      ytId: "",
+      duration: "Document"
+    }];
+
+    modules = [{
+      id: `module-0`,
+      title: dbCourse.title || "Course Content",
+      description: dbCourse.description || "",
+      contents: singleItem,
+      items: singleItem,
+      notes: baseNotesText || dbCourse.description || "No content has been added to this course yet. Please contact your administrator."
+    }];
+  } else {
+    modules = [{
+      id: `module-0`,
+      title: dbCourse.title || "Course Content",
+      description: dbCourse.description || "",
+      contents: [],
+      items: [],
+      notes: baseNotesText || dbCourse.description || "No content has been added to this course yet. Please contact your administrator."
+    }];
+  }
 
   return {
     color: "#f59e0b",
@@ -183,10 +291,44 @@ function CoursesTab({ assignments = [], onMarkDone }) {
   const [activeAssignmentId, setActiveAssignmentId] = useState(null);
   const [activeModuleId, setActiveModuleId]   = useState(null);
   const [activeVideoId,  setActiveVideoId]    = useState(null);
-  const [activeTab,      setActiveTab]        = useState("video"); // "video"|"notes"
+  const [activeTab,      setActiveTab]        = useState("video");
+  const [notesMap,       setNotesMap]         = useState({});
 
   const activeAssignment = assignments.find(a => a._id === activeAssignmentId);
-  const enrichedContent  = getCourseContent(activeAssignment);
+  const activeNotes = activeAssignmentId ? (notesMap[activeAssignmentId] || []) : [];
+  const enrichedContent  = getCourseContent(activeAssignment, activeNotes);
+
+  useEffect(() => {
+    let ignore = false;
+    if (!activeAssignmentId) return;
+    const courseId = activeAssignment?.course?._id || activeAssignment?.course?.id;
+    if (!courseId) return;
+    getTeacherCourseNotes(courseId)
+      .then(res => {
+        if (!ignore) setNotesMap(prev => ({ ...prev, [activeAssignmentId]: res.notes || [] }));
+      })
+      .catch(err => console.error("Failed to load course notes:", err));
+    return () => { ignore = true; };
+  }, [activeAssignmentId]);
+
+  const handleMarkDone = (assign, videoId) => {
+    if (!assign) return;
+    const completedContent = [...(assign.completedContent || [])];
+    if (!completedContent.includes(videoId)) {
+      completedContent.push(videoId);
+    }
+    const allVids = enrichedContent.modules.flatMap(m => m.items);
+    // Guard against division by zero
+    const progressPercent = allVids.length > 0
+      ? Math.round((completedContent.length / allVids.length) * 100)
+      : completedContent.length > 0 ? 100 : 0;
+
+    onMarkDone && onMarkDone(assign._id, {
+      completedContent,
+      progressPercent,
+      status: progressPercent === 100 ? "completed" : "ongoing"
+    });
+  };
 
   const isVideoDone = (assign, videoId) => {
     return assign?.completedContent?.includes(videoId) || false;
@@ -196,22 +338,6 @@ function CoursesTab({ assignments = [], onMarkDone }) {
     const allKeys = module.items.map(v => v.id);
     const done = allKeys.filter(k => isVideoDone(assign, k)).length;
     return { done, total: allKeys.length };
-  };
-
-  const handleMarkDone = (assign, videoId) => {
-    if (!assign) return;
-    const completedContent = [...(assign.completedContent || [])];
-    if (!completedContent.includes(videoId)) {
-      completedContent.push(videoId);
-    }
-    const allVids = enrichedContent.modules.flatMap(m => m.items);
-    const progressPercent = Math.round((completedContent.length / allVids.length) * 100);
-    
-    onMarkDone && onMarkDone(assign._id, {
-      completedContent,
-      progressPercent,
-      status: progressPercent === 100 ? "completed" : "ongoing"
-    });
   };
 
   // ── Course list view ──
@@ -464,7 +590,7 @@ const getAssignmentTitle = (item) => item.title || item.course?.title || "Assign
 const isReviewedAssignment = (item) => item.score !== null && item.score !== undefined;
 const isCertificateReady = (item) => item.status === "completed" || item.progressPercent === 100 || item.status === "approved" || item.status === "reviewed";
 
-function ScheduleTab({ user, lessons = [], schedules = [] }) {
+function ScheduleTab({ user, lessons = [] }) {
   const [filter, setFilter] = useState("all");
   const items = lessons
     .map((item) => ({
@@ -476,23 +602,11 @@ function ScheduleTab({ user, lessons = [], schedules = [] }) {
       objectives: item.lessonPlan?.objectives || item.lessonPlan?.description || ""
     }))
     .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
-
-  // Map schedule documents into same display shape and merge
-  const scheduleItems = (schedules || []).map(s => ({
-    id: s._id,
-    title: s.topic || "Scheduled Lesson",
-    course: s.className || "Class",
-    date: s.time || s.createdAt,
-    status: s.status || "upcoming",
-    objectives: s.notes || ""
-  })).sort((a,b)=> new Date(a.date||0)-new Date(b.date||0));
-
-  const merged = [...items, ...scheduleItems].sort((a,b)=> new Date(a.date||0)-new Date(b.date||0));
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const upcoming = merged.filter((item) => item.date && new Date(item.date) >= today && item.status !== "completed");
-  const completed = merged.filter((item) => item.status === "completed").length;
-  const visibleItems = merged.filter((item) => {
+  const upcoming = items.filter((item) => item.date && new Date(item.date) >= today && item.status !== "completed");
+  const completed = items.filter((item) => item.status === "completed").length;
+  const visibleItems = items.filter((item) => {
     if (filter === "upcoming") return item.date && new Date(item.date) >= today && item.status !== "completed";
     if (filter === "completed") return item.status === "completed";
     if (filter === "pending") return item.status !== "completed";
@@ -538,9 +652,9 @@ function ScheduleTab({ user, lessons = [], schedules = [] }) {
   );
 }
 
-function GradesTab({ assignments = [], grades = [] }) {
+function GradesTab({ assignments = [] }) {
   const [filter, setFilter] = useState("all");
-  const graded = grades || [];
+  const graded = assignments.filter(isReviewedAssignment);
   const average = graded.length ? Math.round(graded.reduce((sum, item) => sum + Number(item.score || 0), 0) / graded.length) : 0;
   const topScore = graded.length ? Math.max(...graded.map((item) => Number(item.score || 0))) : 0;
   const revisions = assignments.filter((item) => item.status === "revision").length;
@@ -557,29 +671,29 @@ function GradesTab({ assignments = [], grades = [] }) {
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
-      <h1 style={S.pageTitle}>Grades</h1>
-      <p style={S.pageSub}>Scores and feedback added by admin after review.</p>
+      <h1 style={S.pageTitle}>{t("Grades")}</h1>
+      <p style={S.pageSub}>{t("Scores and feedback added by admin after review.")}</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 16, marginBottom: 20 }}>
-        <StatCard icon="%" label="Average Score" val={graded.length ? average + "%" : "--"} color="#8b5cf6" bg="#ede9fe" />
-        <StatCard icon="#" label="Reviewed Assignments" val={graded.length} color="#10b981" bg="#d1fae5" />
-        <StatCard icon="★" label="Best Score" val={graded.length ? topScore + "%" : "--"} color="#f59e0b" bg="#fef3c7" />
-        <StatCard icon="↻" label="Needs Revision" val={revisions} color="#ef4444" bg="#fee2e2" />
+        <StatCard icon="%" label={t("Average Score")} val={graded.length ? average + "%" : "--"} color="#8b5cf6" bg="#ede9fe" />
+        <StatCard icon="#" label={t("Reviewed Assignments")} val={graded.length} color="#10b981" bg="#d1fae5" />
+        <StatCard icon="★" label={t("Best Score")} val={graded.length ? topScore + "%" : "--"} color="#f59e0b" bg="#fef3c7" />
+        <StatCard icon="↻" label={t("Needs Revision")} val={revisions} color="#ef4444" bg="#fee2e2" />
       </div>
-      <SectionCard title="Reviewed Work">
+      <SectionCard title={t("Reviewed Work")}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-          {filterBtn("all", "All reviewed")}
-          {filterBtn("excellent", "85% and above")}
-          {filterBtn("needs-work", "Below 60%")}
+          {filterBtn("all", t("All reviewed"))}
+          {filterBtn("excellent", t("85% and above"))}
+          {filterBtn("needs-work", t("Below 60%"))}
         </div>
         {visibleGrades.length === 0 ? (
-          <div style={{ padding: 30, textAlign: "center", color: "#94a3b8", border: "1px dashed #cbd5e1", borderRadius: 12 }}>No grades published for this filter.</div>
+          <div style={{ padding: 30, textAlign: "center", color: "#94a3b8", border: "1px dashed #cbd5e1", borderRadius: 12 }}>{t("No grades published for this filter.")}</div>
         ) : visibleGrades.map((item) => (
           <div key={item._id} style={{ padding: 14, border: "1px solid #f1f5f9", borderRadius: 10, marginBottom: 10, background: "white" }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917" }}>{getAssignmentTitle(item)}</div>
-                <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{item.feedback || "No written feedback added."}</div>
-                <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 5 }}>Reviewed: {formatTeacherDate(item.reviewedAt || item.updatedAt || item.createdAt)}</div>
+                <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{item.feedback || t("No written feedback added.")}</div>
+                <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 5 }}>{t("Reviewed:")} {formatTeacherDate(item.reviewedAt || item.updatedAt || item.createdAt)}</div>
               </div>
               <div style={{ minWidth: 92, textAlign: "right" }}>
                 <div style={{ fontSize: 24, fontWeight: 900, color: Number(item.score) >= 75 ? "#10b981" : Number(item.score) >= 60 ? "#f59e0b" : "#ef4444" }}>{item.score}/100</div>
@@ -822,10 +936,6 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const fileInputRef = useRef(null);
   
-  // Debug: log initial state
-  console.log("ProfileTab - Initial user.photoUrl:", user.photoUrl);
-  console.log("ProfileTab - Initial profilePhoto state:", profilePhoto);
-  
   // Password change state
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
@@ -851,14 +961,10 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
 
   const [savedForm, setSavedForm] = useState({ ...form });
 
-  // Sync profile photo when user prop changes
   useEffect(() => {
-    console.log("ProfileTab - user.photoUrl changed:", user.photoUrl);
-    console.log("ProfileTab - current profilePhoto:", profilePhoto);
     if (user.photoUrl && user.photoUrl !== profilePhoto) {
-      console.log("ProfileTab - updating profilePhoto from user prop");
       setProfilePhoto(user.photoUrl);
-      setImageLoadError(false); // Reset error state when photo URL changes
+      setImageLoadError(false);
     }
   }, [user.photoUrl]);
 
@@ -882,17 +988,14 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
     setMessage("");
     try {
       const uploadRes = await uploadFile(file);
-      console.log("Upload response:", uploadRes);
       
       if (uploadRes && uploadRes.asset) {
         let photoUrl = uploadRes.asset.publicUrl;
-        console.log("Photo URL from upload:", photoUrl);
         
         // Convert relative URL to absolute if needed
         if (photoUrl.startsWith("/uploads/")) {
           const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
           photoUrl = `${API_BASE_URL}${photoUrl}`;
-          console.log("Converted to absolute URL:", photoUrl);
         }
         
         // Set the photo URL immediately for display
@@ -901,11 +1004,9 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
         
         // Then save to backend
         const res = await updateTeacherMe({ photoUrl });
-        console.log("Update teacher response:", res);
         
         // Update parent user object if callback provided
         if (res.teacher && onUserUpdate) {
-          console.log("Updating parent user with photoUrl:", res.teacher.photoUrl);
           onUserUpdate(res.teacher);
         }
         
@@ -913,7 +1014,6 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
         setMessageType("success");
       }
     } catch (error) {
-      console.error("Photo upload error:", error);
       setMessage(error.message || "Failed to upload profile picture.");
       setMessageType("error");
     } finally {
@@ -940,11 +1040,8 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
       console.log("Profile save payload:", payload);
       
       const res = await updateTeacherMe(payload);
-      console.log("Profile save response:", res);
       
       const updated = res.teacher || {};
-      console.log("Updated teacher object:", updated);
-      console.log("Updated teacher photoUrl:", updated.photoUrl);
       
       const updatedCenter = updated.teacherProfile?.center;
       const updatedCenterName = typeof updatedCenter === "object" ? [updatedCenter.name, updatedCenter.city].filter(Boolean).join(", ") : form.workingCenter;
@@ -965,7 +1062,6 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
       
       // Update profile photo state if backend returned a different URL
       if (updated.photoUrl && updated.photoUrl !== profilePhoto) {
-        console.log("Updating profilePhoto from backend response:", updated.photoUrl);
         setProfilePhoto(updated.photoUrl);
       }
       
@@ -979,7 +1075,6 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
       setMessageType("success");
       setEditing(false);
     } catch (error) {
-      console.error("Profile save error:", error);
       setMessage(error.message || "Profile update failed.");
       setMessageType("error");
     } finally {
@@ -1201,19 +1296,11 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
             )}
           </div>
           
-          <div>
-            <label style={S.label}>Working Center</label>
-            {editing ? (
-              <input 
-                style={{ ...S.input, padding: "8px 12px", fontSize: 14, background: "white" }} 
-                value={form.workingCenter} 
-                onChange={e => setForm({ ...form, workingCenter: e.target.value })}
-                placeholder="e.g. Dhayri, Pune, Maharashtra"
-              />
-            ) : (
-              <div style={{ fontSize: 14, color: "#374151", padding: "8px 0" }}>{form.workingCenter || "Not assigned"}</div>
-            )}
-          </div>
+<div>
+             <label style={S.label}>Working Center</label>
+             <div style={{ fontSize: 14, color: "#374151", padding: "8px 0" }}>{form.workingCenter || "Not assigned"}</div>
+             <div style={{ fontSize: 10, color: "#9ca3af", marginTop: -4 }}>(Assigned by admin)</div>
+           </div>
         </div>
         
         <div>
@@ -1259,6 +1346,34 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
               {user.createdAt ? new Date(user.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "Not available"}
             </div>
           </div>
+
+<div>
+              <label style={S.label}>{t("teacherLanguage")}</label>
+              <div style={{ padding: "4px 0" }}>
+                <select
+                  style={{ ...S.input, padding: "6px 10px", background: "white", maxWidth: 160, fontSize: 12 }}
+                  value={getCurrentLanguage()}
+                  onChange={async (e) => {
+                    const newLang = e.target.value;
+                    setLanguage(newLang);
+                    try {
+                      await updateTeacherLanguage(newLang);
+                      setMessage(t("Language") + " updated! Changes applied instantly.");
+                      setMessageType("success");
+                    } catch (err) {
+                      console.error("Failed to save language preference:", err);
+                      setMessage("Language updated locally");
+                      setMessageType("success");
+                    }
+                  }}
+                >
+                  {getLanguageList().map((l) => (
+                    <option key={l}>{l}</option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>Language applies instantly — no reload needed.</div>
+              </div>
+            </div>
         </div>
       </div>
 
@@ -1388,32 +1503,187 @@ function NotificationsTab({ notifications = [], onMarkRead, onMarkAllRead }) {
   );
 }
 
+function TeacherFeedbackTab({ user, setToast }) {
+  const [rating, setRating]         = useState(0);
+  const [trainerRating, setTRating] = useState(0);
+  const [suggestion, setSuggestion] = useState("");
+  const [course, setCourse]         = useState("");
+  const [tag, setTag]               = useState("Content Quality");
+  const [anonymous, setAnonymous]   = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [myFeedbacks, setMyFeedbacks] = useState([]);
+  const [loading, setLoading]       = useState(true);
+
+  const TAGS = ["Content Quality", "Platform UX", "Trainer", "Schedule", "Price"];
+  const stars = (n, size=20) => Array.from({length:5},(_,i) => (
+    <span key={i} style={{fontSize:size, cursor:"pointer", color: i < n ? "#f59e0b" : "#e5e7eb"}}>{i < n ? "★" : "☆"}</span>
+  ));
+
+  useEffect(() => {
+    getFeedbacks()
+      .then(data => {
+        // Show only feedbacks from current user
+        const mine = (data.feedbacks || []).filter(f =>
+          (f.learner && f.learner !== "Anonymous" && f.learner === user.name) ||
+          (f.teacherId && String(f.teacherId) === String(user._id))
+        );
+        setMyFeedbacks(mine);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!rating) { setToast?.({ msg: "Please rate the course.", type: "error" }); return; }
+    if (!suggestion.trim()) { setToast?.({ msg: "Please write your feedback.", type: "error" }); return; }
+    setSubmitting(true);
+    try {
+      const trainerRatingPayload = trainerRating > 0 ? trainerRating : undefined;
+      await submitFeedback({
+        learner: anonymous ? "Anonymous" : user.name,
+        teacherId: user._id,
+        course: course || "General Training",
+        ...(trainerRatingPayload !== undefined ? { trainerRating: trainerRatingPayload } : {}),
+        rating,
+        tag,
+        suggestion,
+        anonymous,
+        status: "pending"
+      });
+      setToast?.({ msg: "Feedback submitted successfully! Thank you.", type: "success" });
+      setSuggestion(""); setRating(0); setTRating(0); setCourse(""); setAnonymous(false);
+    } catch(err) {
+      setToast?.({ msg: err.message || "Failed to submit feedback.", type: "error" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{ animation: "fadeIn 0.3s ease" }}>
+      <h1 style={S.pageTitle}>Submit Feedback</h1>
+      <p style={S.pageSub}>Share your training experience and help us improve.</p>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
+        {/* Submit Form */}
+        <SectionCard title="📝 New Feedback">
+          <form onSubmit={handleSubmit}>
+            <label style={S.label}>Course / Training (optional)</label>
+            <input style={{...S.input, marginBottom:12}} value={course} onChange={e=>setCourse(e.target.value)} placeholder="e.g. Child Development Basics"/>
+
+            <label style={S.label}>Tag / Category</label>
+            <div style={{display:"flex", gap:6, flexWrap:"wrap", marginBottom:12}}>
+              {TAGS.map(tg => (
+                <button type="button" key={tg} onClick={()=>setTag(tg)}
+                  style={{padding:"5px 12px", borderRadius:20, border:"1.5px solid", fontSize:11, fontWeight:600, cursor:"pointer",
+                    borderColor: tag===tg ? "#f59e0b" : "#e5e7eb",
+                    background: tag===tg ? "#fef3c7" : "white",
+                    color: tag===tg ? "#92400e" : "#6b7280"}}>
+                  {tg}
+                </button>
+              ))}
+            </div>
+
+            <label style={S.label}>Course Rating *</label>
+            <div style={{display:"flex", gap:4, marginBottom:12, cursor:"pointer"}}>
+              {[1,2,3,4,5].map(i => (
+                <span key={i} onClick={()=>setRating(i)} style={{fontSize:28, color: i<=rating?"#f59e0b":"#e5e7eb"}}>
+                  {i<=rating?"★":"☆"}
+                </span>
+              ))}
+              {rating > 0 && <span style={{fontSize:12, color:"#6b7280", marginLeft:8, alignSelf:"center"}}>{rating}/5</span>}
+            </div>
+
+            <label style={S.label}>Trainer Rating</label>
+            <div style={{display:"flex", gap:4, marginBottom:12, cursor:"pointer"}}>
+              {[1,2,3,4,5].map(i => (
+                <span key={i} onClick={()=>setTRating(i)} style={{fontSize:22, color: i<=trainerRating?"#f59e0b":"#e5e7eb"}}>
+                  {i<=trainerRating?"★":"☆"}
+                </span>
+              ))}
+            </div>
+
+            <label style={S.label}>Your Feedback *</label>
+            <textarea style={{...S.input, height:100, resize:"vertical", marginBottom:12}}
+              value={suggestion} onChange={e=>setSuggestion(e.target.value)}
+              placeholder="Share your thoughts about the course content, trainer, or overall experience..."/>
+
+            <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:16}}>
+              <div onClick={()=>setAnonymous(!anonymous)}
+                style={{width:38, height:22, borderRadius:11, background:anonymous?"#6366f1":"#e5e7eb", position:"relative", cursor:"pointer", transition:"background 0.3s"}}>
+                <div style={{position:"absolute", top:2, left:anonymous?18:2, width:18, height:18, borderRadius:"50%", background:"white", transition:"left 0.3s", boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+              </div>
+              <label style={{fontSize:12, color:"#374151", fontWeight:600, cursor:"pointer"}} onClick={()=>setAnonymous(!anonymous)}>
+                🔒 Submit anonymously
+              </label>
+            </div>
+
+            <button type="submit" disabled={submitting} style={{...S.primaryBtn, width:"100%"}}>
+              {submitting ? "Submitting..." : "📤 Submit Feedback"}
+            </button>
+          </form>
+        </SectionCard>
+
+        {/* My Previous Feedbacks */}
+        <SectionCard title="📋 My Previous Submissions">
+          {loading ? (
+            <div style={{textAlign:"center", padding:30, color:"#9ca3af"}}>Loading...</div>
+          ) : myFeedbacks.length === 0 ? (
+            <div style={{textAlign:"center", padding:30, color:"#94a3b8"}}>
+              <div style={{fontSize:36, marginBottom:8}}>💬</div>
+              <div style={{fontSize:13}}>You haven't submitted any feedback yet.</div>
+            </div>
+          ) : (
+            <div style={{display:"flex", flexDirection:"column", gap:10}}>
+              {myFeedbacks.map((f,i) => (
+                <div key={f._id||i} style={{padding:"12px 14px", background:"#f9fafb", borderRadius:12, border:"1px solid #f3f4f6"}}>
+                  <div style={{display:"flex", justifyContent:"space-between", marginBottom:4}}>
+                    <div style={{fontSize:13, fontWeight:700, color:"#1c1917"}}>{f.course || "General"}</div>
+                    <StatusBadge status={f.status || "pending"}/>
+                  </div>
+                  <div style={{display:"flex", gap:4, marginBottom:6}}>
+                    {[1,2,3,4,5].map(j=><span key={j} style={{fontSize:14, color:j<=f.rating?"#f59e0b":"#e5e7eb"}}>★</span>)}
+                    <span style={{fontSize:11, color:"#6b7280", marginLeft:4}}>{f.rating}/5</span>
+                  </div>
+                  <div style={{fontSize:12, color:"#6b7280", fontStyle:"italic"}}>"{(f.suggestion||"").substring(0,80)}..."</div>
+                  {f.adminResponse && (
+                    <div style={{marginTop:8, padding:"6px 10px", background:"#f0f9ff", borderRadius:8, fontSize:11, color:"#0369a1"}}>
+                      💬 Admin: {f.adminResponse}
+                    </div>
+                  )}
+                  <div style={{fontSize:10, color:"#9ca3af", marginTop:6}}>
+                    {f.tag} · {f.date || new Date(f.createdAt).toLocaleDateString("en-IN")}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════
    MAIN TEACHER DASHBOARD
 ═══════════════════════════════════════════ */
 export default function TeacherDashboard({ user, onLogout }) {
   const [activeTab, setActiveTab]         = useState("overview");
   const [toast, setToast]                 = useState({ msg: "", type: "" });
-  const [workingCenter, setWorkingCenter] = useState(user.workingCenter || "Dhayri, Pune, Maharashtra");
+  const [workingCenter, setWorkingCenter] = useState("");
   const [currentUser, setCurrentUser]     = useState(user);
 
-  // Backend States
-  const [courses, setCourses] = useState([]);
-  const [assignments, setAssignments] = useState([]);
+  const [courses, setCourses]             = useState([]);
   const [notifications, setNotifications] = useState([]);
-  const [lessons, setLessons] = useState([]);
-  const [grades, setGrades] = useState([]);
-  const [schedules, setSchedules] = useState([]);
-  const [activities, setActivities] = useState([]);
-  const [summary, setSummary] = useState({});
-  const [loading, setLoading] = useState(true);
+  const [lessons, setLessons]             = useState([]);
+  const [activities, setActivities]       = useState([]);
+  const [summary, setSummary]             = useState({});
+  const [assessmentResults, setAssessmentResults] = useState([]);
+  const [courseNotes, setCourseNotes]     = useState({});
+  const [loading, setLoading]            = useState(true);
+  const [tabLoading, setTabLoading]      = useState(false);
 
-  // Handle user updates from profile tab
-  const handleUserUpdate = (updatedUser) => {
-    setCurrentUser(updatedUser);
-  };
-
-  // Chatbot States
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([
     { sender: "bot", text: `Hello ${user.name?.split(" ")[0] || "there"}! I'm your SpaceCE AI Assistant. How can I assist you with your class, attendance, courses, or lesson plans today?` }
@@ -1421,25 +1691,20 @@ export default function TeacherDashboard({ user, onLogout }) {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
 
-  const refreshData = async () => {
+  const refreshCoreData = async () => {
     try {
-      const progressRes = await getTeacherProgress();
+      const [progressRes, notificationsRes, teacherRes] = await Promise.all([
+        getTeacherProgress(),
+        getNotifications(),
+        getTeacherMe(),
+      ]);
       if (progressRes) {
         setCourses(progressRes.courses || []);
         setLessons(progressRes.lessons || []);
         setActivities(progressRes.activities || []);
         setSummary(progressRes.summary || {});
       }
-      const gradesRes = await getTeacherGrades();
-      if (gradesRes && gradesRes.grades) setGrades(gradesRes.grades);
-      const schedRes = await getTeacherSchedules();
-      if (schedRes && schedRes.schedules) setSchedules(schedRes.schedules);
-      const assignmentsRes = await getCourses();
-      if (assignmentsRes && assignmentsRes.courses) {
-        setAssignments(assignmentsRes.courses);
-      }
-      const notificationsRes = await getNotifications();
-      if (notificationsRes && notificationsRes.notifications) {
+      if (notificationsRes?.notifications) {
         const mapped = notificationsRes.notifications.map(n => {
           let timeVal = "Just now";
           if (n.createdAt) {
@@ -1452,38 +1717,45 @@ export default function TeacherDashboard({ user, onLogout }) {
               else timeVal = `${Math.floor(diffHrs / 24)}d ago`;
             }
           }
-          return {
-            id: n._id,
-            type: n.type || "info",
-            msg: n.body ? `${n.title}: ${n.body}` : n.title || "",
-            time: timeVal,
-            read: n.read
-          };
+          return { id: n._id, type: n.type || "info", msg: n.body ? `${n.title}: ${n.body}` : n.title || "", time: timeVal, read: n.read };
         });
         setNotifications(mapped);
       }
-      // Fetch updated teacher profile including photoUrl
-      const teacherRes = await getTeacherMe();
-      if (teacherRes && teacherRes.teacher) {
-        console.log("Updated teacher profile from refresh:", teacherRes.teacher);
-        setCurrentUser(teacherRes.teacher);
-      }
+      if (teacherRes?.teacher) setCurrentUser(teacherRes.teacher);
     } catch (err) {
       console.error("Error fetching teacher dashboard data:", err);
-    } finally {
-      setLoading(false);
+    }
+  };
+
+  const refreshAssessmentResults = async () => {
+    try {
+      const res = await getTeacherAssessmentResults();
+      setAssessmentResults(res?.results || []);
+    } catch (err) {
+      console.error("Error fetching assessment results:", err);
     }
   };
 
   useEffect(() => {
-    refreshData();
+    setLoading(true);
+    refreshCoreData().finally(() => setLoading(false));
   }, [user]);
+
+  useEffect(() => {
+    if (activeTab === "assessment") refreshAssessmentResults();
+  }, [activeTab]);
+
+  const handleTabSwitch = (tab) => {
+    if (activeTab !== tab) setTabLoading(true);
+    setActiveTab(tab);
+    setTimeout(() => setTabLoading(false), 300);
+  };
 
   const handleMarkDone = async (assignId, payload) => {
     try {
       await updateCourseAssignmentProgress(assignId, payload);
       setToast({ msg: "Progress saved! ✓", type: "success" });
-      refreshData();
+      refreshCoreData();
     } catch (err) {
       setToast({ msg: "Failed to save progress.", type: "error" });
     }
@@ -1492,13 +1764,13 @@ export default function TeacherDashboard({ user, onLogout }) {
   const handleSubmitAssignment = async (assignId, payload) => {
     await updateCourseAssignmentProgress(assignId, payload);
     setToast({ msg: "Assignment submitted successfully! 📤", type: "success" });
-    refreshData();
+    refreshCoreData();
   };
 
   const handleMarkNotifRead = async (notifId) => {
     try {
       await markNotificationRead(notifId);
-      refreshData();
+      refreshCoreData();
     } catch (err) {
       console.error(err);
     }
@@ -1509,7 +1781,7 @@ export default function TeacherDashboard({ user, onLogout }) {
       const unread = notifications.filter(n => !n.read);
       await Promise.all(unread.map(n => markNotificationRead(n.id)));
       setToast({ msg: "All notifications marked as read.", type: "success" });
-      refreshData();
+      refreshCoreData();
     } catch (err) {
       console.error(err);
     }
@@ -1536,7 +1808,7 @@ export default function TeacherDashboard({ user, onLogout }) {
   };
 
   const unreadCount = notifications.filter(n=>!n.read).length;
-  const pendingAssignmentsCount = assignments.filter(a=>a.status==="assigned"||a.status==="revision").length;
+  const pendingAssignmentsCount = courses.filter(a=>a.status==="assigned"||a.status==="revision").length;
 
   const navItems = [
     { key: "overview",      label: "Teacher's Dashboard", icon: "📊" },
@@ -1550,6 +1822,7 @@ export default function TeacherDashboard({ user, onLogout }) {
     { key: "assignments",   label: "Assignments",         icon: "✏️", badge: pendingAssignmentsCount },
     { key: "certificates",  label: "Certificates",        icon: "🏆" },
     { key: "notifications", label: "Notifications",       icon: "🔔", badge: unreadCount },
+    { key: "feedback",      label: "Feedback",             icon: "💬" },
     { key: "profile",       label: "My Profile",          icon: "👤" },
   ];
 
@@ -1563,19 +1836,27 @@ export default function TeacherDashboard({ user, onLogout }) {
         </div>
       );
     }
+    if (tabLoading) {
+      return (
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "40vh", fontSize: 14, fontWeight: 600, color: "#d97706" }}>
+          🔄 Loading...
+        </div>
+      );
+    }
     switch(activeTab) {
-      case "overview":      return <OverviewTab user={enrichedUser} setActiveTab={setActiveTab} courses={courses} assignments={assignments} lessons={lessons} activities={activities} summary={summary}/>;
+      case "overview":      return <OverviewTab user={enrichedUser} setActiveTab={handleTabSwitch} courses={courses} assignments={courses} lessons={lessons} activities={activities} summary={summary}/>;
       case "children_att":  return <AttendanceManager user={enrichedUser}/>;
       case "geotag":        return <GeotagAttendance user={enrichedUser}/>;
       case "training":      return <TrainingAndClassroomManager user={enrichedUser}/>;
-      case "courses":       return <CoursesTab assignments={assignments} onMarkDone={handleMarkDone}/>;
-      case "assessment":    return <ProctoredAssessment user={enrichedUser}/>;
-      case "schedule":      return <ScheduleTab user={enrichedUser} lessons={lessons} schedules={schedules}/>;
-      case "grades":        return <GradesTab assignments={assignments} grades={grades}/>;
-      case "assignments":   return <AssignmentsTab assignments={assignments} onSubmitAssignment={handleSubmitAssignment}/>;
-      case "certificates":  return <CertificatesTab assignments={assignments}/>;
+      case "courses":       return <CoursesTab assignments={courses} onMarkDone={handleMarkDone}/>;
+      case "assessment":    return <ProctoredAssessment user={enrichedUser} assessmentResults={assessmentResults}/>;
+      case "schedule":      return <ScheduleTab user={enrichedUser} lessons={lessons}/>;
+      case "grades":        return <GradesTab assignments={courses}/>;
+      case "assignments":   return <AssignmentsTab assignments={courses} onSubmitAssignment={handleSubmitAssignment}/>;
+      case "certificates":  return <CertificatesTab assignments={courses}/>;
       case "notifications": return <NotificationsTab notifications={notifications} onMarkRead={handleMarkNotifRead} onMarkAllRead={handleMarkAllNotifRead}/>;
-      case "profile":       return <ProfileTab user={enrichedUser} onWorkingCenterChange={setWorkingCenter} onUserUpdate={handleUserUpdate}/>;
+      case "feedback":      return <TeacherFeedbackTab user={enrichedUser} setToast={setToast}/>;
+      case "profile":       return <ProfileTab user={enrichedUser} onWorkingCenterChange={setWorkingCenter} onUserUpdate={setCurrentUser}/>;
       default:              return null;
     }
   };
@@ -1590,59 +1871,30 @@ export default function TeacherDashboard({ user, onLogout }) {
         <div style={{ padding: "20px 16px 12px" }}>
           <Logo size={120}/>
           <div style={{ textAlign: "center", padding: "4px 12px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: "#dbeafe", color: "#1e40af", border: "1px solid #bfdbfe", margin: "6px auto 0", display: "inline-block", width: "fit-content" }}>
-            🎓 Teacher Panel
+            🎓 {t("Teacher Panel")}
           </div>
         </div>
         <nav style={{ padding: "4px 10px", flex: 1 }}>
           {navItems.map(item=>(
             <button key={item.key} onClick={()=>setActiveTab(item.key)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", border: "none", borderRadius: 10, background: activeTab===item.key?"#dbeafe":"transparent", color: activeTab===item.key?"#1e40af":"#6b7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", textAlign: "left", marginBottom: 2, transition: "all 0.18s" }}>
               <span style={{ fontSize: 15 }}>{item.icon}</span>
-              <span style={{ flex: 1 }}>{item.label}</span>
+              <span style={{ flex: 1 }}>{t(item.label)}</span>
               {item.badge>0 && <span style={{ background: "#ef4444", color: "white", borderRadius: 20, fontSize: 10, fontWeight: 800, padding: "1px 7px" }}>{item.badge}</span>}
             </button>
           ))}
         </nav>
         <div style={{ padding: "12px 16px", borderTop: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg,#3b82f6,#1d4ed8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: "white", flexShrink: 0 }}>{user.name?.[0]}</div>
+          <SidebarAvatar teacher={currentUser} size={34} />
           <div style={{ flex: 1, overflow: "hidden" }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#1c1917" }}>{user.name?.split(" ")[0]}</div>
             <div style={{ fontSize: 10, color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.subject}</div>
           </div>
-          <button onClick={onLogout} title="Sign Out" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#9ca3af", padding: 4 }}>⏻</button>
+          <button onClick={onLogout} title={t("Sign Out")} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#9ca3af", padding: 4 }}>⏻</button>
         </div>
       </div>
 
       {/* Main Content */}
       <div style={{ flex: 1, width: "0px", minWidth: "0px", padding: "28px 32px", overflowY: "auto", maxHeight: "100vh" }}>
-        {/* Top bar with logout button, top-right corner */}
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
-          <button
-            onClick={onLogout}
-            title="Sign Out"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "8px 16px",
-              borderRadius: 10,
-              border: "1px solid #fbbf24",
-              background: "#fef3c7",
-              color: "#92400e",
-              fontSize: 12,
-              fontWeight: 700,
-              fontFamily: "inherit",
-              cursor: "pointer",
-              transition: "all 0.18s",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "#fde68a"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "#fef3c7"; }}
-          >
-            <span style={{ fontSize: 14, lineHeight: 1 }}>⎋</span>
-            Logout
-          </button>
-        </div>
-
         {renderContent()}
       </div>
 
@@ -1734,3 +1986,4 @@ export default function TeacherDashboard({ user, onLogout }) {
     </div>
   );
 }
+

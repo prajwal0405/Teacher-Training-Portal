@@ -1,23 +1,26 @@
 import express from "express";
+import jwt from "jsonwebtoken";
+import http from "http";
+import net from "net";
 import cors from "cors";
 import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import multer from "multer";
+import mongoose from "mongoose";
 import { connectDb } from "./db.js";
-import { createPasswordResetToken, hashPassword, requireAuth, requireRole, signToken, verifyPassword, verifyPasswordResetToken } from "./auth.js";
+import { hashPassword, requireAuth, requireRole, signToken, verifyPassword, validatePasswordAgainstPolicy, createPasswordResetToken, verifyPasswordResetToken } from "./auth.js";
 import { autoSeed } from "./auto-seed.js";
-import { sendBulkEmails } from "./email.js";
-import courseAiRouter from "./routes/courseAi.js";
-import gradesRouter from "./routes/grades.js";
-import schedulesRouter from "./routes/schedules.js";
+import { generateAICourse } from "./services/aiCourseGenerator.js";
 import { User } from "./models/User.js";
 import { Center } from "./models/Center.js";
 import { ClassModel } from "./models/Class.js";
+import { ClassLog } from "./models/ClassLog.js";
 import { Child } from "./models/Child.js";
 import { Course } from "./models/Course.js";
 import { CourseAssignment } from "./models/CourseAssignment.js";
+import { Note } from "./models/Note.js";
 import { LessonPlan } from "./models/LessonPlan.js";
 import { LessonPlanAssignment } from "./models/LessonPlanAssignment.js";
 import { LessonCompletionReport } from "./models/LessonCompletionReport.js";
@@ -29,6 +32,7 @@ import { ChildAttendanceSession, TeacherAttendanceRecord } from "./models/Attend
 import { Notification } from "./models/Notification.js";
 import { ReportJob } from "./models/ReportJob.js";
 import { PortalSetting } from "./models/PortalSetting.js";
+import { sendBulkEmails, sendEmail, getTwilioConfig } from "./email.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "../.env") });
@@ -36,35 +40,130 @@ dotenv.config({ path: path.join(__dirname, "../.env") });
 const app = express();
 const port = process.env.PORT || 5000;
 const databaseModels = [
-  ActivitySubmission,
-  Center,
-  ChildAttendanceSession,
-  Child,
-  ClassModel,
-  CourseAssignment,
-  Course,
-  Feedback,
-  FileAsset,
-  LessonCompletionReport,
-  LessonPlan,
-  LessonPlanAssignment,
-  Notification,
-  ReportJob,
-  TeacherAttendanceRecord,
-  Trainer,
-  User,
-  PortalSetting,
-];
+   ActivitySubmission,
+   Center,
+   ChildAttendanceSession,
+   Child,
+   ClassLog,
+   ClassModel,
+   CourseAssignment,
+   Course,
+   Feedback,
+   FileAsset,
+   LessonCompletionReport,
+   LessonPlan,
+   LessonPlanAssignment,
+   Note,
+   Notification,
+   PortalSetting,
+   ReportJob,
+   TeacherAttendanceRecord,
+   Trainer,
+   User,
+  ];
+
+function isPresentObjectId(value) {
+  return value !== undefined && value !== null && value !== "" && value !== "undefined" && mongoose.isValidObjectId(value);
+}
+
+function requireObjectId(value, fieldName) {
+  if (!isPresentObjectId(value)) {
+    const err = new Error(`${fieldName} must be a valid id.`);
+    err.status = 400;
+    throw err;
+  }
+}
+
+function objectIdFilter(queryValue, fieldName) {
+  if (queryValue === undefined || queryValue === null || queryValue === "" || queryValue === "undefined") {
+    return null;
+  }
+  requireObjectId(queryValue, fieldName);
+  return queryValue;
+}
+
+function mapFormModulesToCourse(modules = []) {
+  return (Array.isArray(modules) ? modules : []).map((module, moduleIndex) => ({
+    title: module.title || `Module ${moduleIndex + 1}`,
+    order: module.order || moduleIndex + 1,
+    description: module.description || "",
+    learningOutcomes: module.learningOutcomes || [],
+    detailedNotes: module.detailedNotes || "",
+    keyTakeaways: module.keyTakeaways || [],
+    assessments: module.assessments || undefined,
+    studyMaterials: module.studyMaterials || undefined,
+    contents: (module.contents || module.lessons || []).map((lesson, lessonIndex) => ({
+      title: lesson.title || `Lesson ${lessonIndex + 1}`,
+      type: lesson.type === "reading" ? "document" : lesson.type || "video",
+      externalUrl: lesson.externalUrl || lesson.videoUrl || lesson.url || "",
+      description: lesson.description || lesson.notes || "",
+      detailedLearningContent: lesson.detailedLearningContent || lesson.content || "",
+      practicalExamples: lesson.practicalExamples || [],
+      suggestedDuration: lesson.suggestedDuration || lesson.duration || "",
+      durationMinutes: lesson.durationMinutes || Number.parseInt(lesson.duration, 10) || undefined,
+      videoTitle: lesson.videoTitle || "",
+      notes: lesson.notes || lesson.detailedLearningContent || lesson.description || "",
+      order: lesson.order || lessonIndex + 1,
+      isRequired: lesson.isRequired ?? true,
+    })),
+  }));
+}
+
+function normalizeCoursePayload(payload, userId) {
+  return {
+    ...payload,
+    createdBy: userId,
+    modules: mapFormModulesToCourse(payload.modules),
+  };
+}
+
+async function createCourseWithNotes(coursePayload, notesPayload, createdBy) {
+  const course = await Course.create(coursePayload);
+  try {
+    const notes = Array.isArray(notesPayload) && notesPayload.length
+      ? await Note.insertMany(notesPayload.map((note) => ({
+          title: note.title,
+          content: note.content,
+          moduleIndex: note.moduleIndex,
+          contentIndex: note.contentIndex,
+          fileUrl: note.fileUrl,
+          fileName: note.fileName,
+          fileSize: note.fileSize,
+          mimeType: note.mimeType,
+          course: course._id,
+          createdBy,
+        })))
+      : [];
+    console.log("[course-save] created", JSON.stringify({ courseId: course._id, notes: notes.length }));
+    return { course, notes };
+  } catch (error) {
+    await Course.findByIdAndDelete(course._id);
+    console.error("[course-save] rolled_back", JSON.stringify({ courseId: course._id, error: error.message }));
+    throw error;
+  }
+}
 
 async function ensureDatabaseReady() {
   for (const model of databaseModels) {
-    await model.createCollection();
-    await model.syncIndexes();
+    try {
+      await model.createCollection();
+      await model.syncIndexes();
+    } catch (error) {
+      if (error.code === 11000 || error.code === 11001) {
+        console.warn(`Index sync skipped for ${model.modelName} due to duplicate data.`);
+      } else {
+        throw error;
+      }
+    }
   }
 
   const teacherCount = await User.countDocuments({ role: "teacher" });
   if (teacherCount === 0) {
-    await autoSeed();
+    try {
+      await autoSeed();
+    } catch (error) {
+      console.warn("Auto-seed encountered an issue (data may already exist):", error.message);
+    }
   } else {
     const adminEmail = process.env.ADMIN_EMAIL || "admin@spaceece.com";
     const adminPassword = process.env.ADMIN_PASSWORD || "Admin@123";
@@ -127,6 +226,48 @@ app.use(
 );
 app.use(express.json({ limit: "2mb" }));
 
+const bypassRoutes = [
+  "/health",
+  "/api/auth/login",
+  "/api/auth/register-teacher",
+  "/api/auth/forgot-password",
+  "/api/auth/reset-password",
+  "/api/auth/reset-password/verify"
+];
+
+app.use(async (req, res, next) => {
+  // Allow health check, login, register, reset-password, and static uploads
+  if (bypassRoutes.includes(req.path) || req.path.startsWith("/uploads/") || req.path.startsWith("/assets/")) {
+    return next();
+  }
+
+  try {
+    const maintenanceDoc = await PortalSetting.findOne({ key: "maintenanceMode" });
+    const isMaintenance = maintenanceDoc ? (maintenanceDoc.value === true || maintenanceDoc.value === "true") : false;
+
+    if (isMaintenance) {
+      const authHeader = req.headers.authorization || "";
+      const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+      let userRole = null;
+      if (token) {
+        try {
+          const payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET || "dev_access_secret_change_me");
+          userRole = payload.role;
+        } catch (e) {
+          // Token invalid, let it pass to requireAuth middleware to handle normally
+        }
+      }
+
+      if (userRole !== "admin" && userRole !== "super_admin") {
+        return res.status(503).json({ message: "The portal is currently undergoing maintenance. Please try again later." });
+      }
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "teacher-training-portal-api", database: "mongodb" });
 });
@@ -174,6 +315,12 @@ app.post("/api/auth/login", async (req, res, next) => {
 app.post("/api/auth/register-teacher", async (req, res, next) => {
   try {
     const { name, email, phone, password, qualification, subject, experience, address, center, class: classId } = req.body;
+    
+    const policyResult = await validatePasswordAgainstPolicy(password);
+    if (!policyResult.valid) {
+      return res.status(400).json({ message: policyResult.message });
+    }
+
     const passwordHash = await hashPassword(password);
 
     const teacher = await User.create({
@@ -200,6 +347,115 @@ app.post("/api/auth/register-teacher", async (req, res, next) => {
     if (error.code === 11000) {
       return res.status(409).json({ message: "Email already registered" });
     }
+    next(error);
+  }
+});
+
+app.post("/api/auth/forgot-password", async (req, res, next) => {
+  try {
+    const email = String(req.body.email || "").toLowerCase().trim();
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const user = await User.findOne({ email }).select("_id email");
+    const response = {
+      success: true,
+      message: "If the account exists, a password reset link has been generated.",
+    };
+
+    if (!user) {
+      return res.json(response);
+    }
+
+    const resetToken = createPasswordResetToken(user.email);
+    res.json({
+      ...response,
+      resetToken,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/auth/reset-password/verify", async (req, res, next) => {
+  try {
+    const token = String(req.body.token || "");
+    if (!token) {
+      return res.status(400).json({ message: "Reset token is required" });
+    }
+
+    const payload = verifyPasswordResetToken(token);
+    const user = await User.findOne({ email: payload.email }).select("email");
+
+    if (!user) {
+      return res.status(404).json({ message: "Account not found" });
+    }
+
+    res.json({ valid: true, email: user.email });
+  } catch (error) {
+    res.status(400).json({ message: "Reset link is invalid or expired" });
+  }
+});
+
+app.post("/api/auth/reset-password", async (req, res, next) => {
+  try {
+    const token = String(req.body.token || "");
+    const password = String(req.body.password || "");
+
+    if (!token || !password) {
+      return res.status(400).json({ message: "Reset token and password are required" });
+    }
+
+    const policyResult = await validatePasswordAgainstPolicy(password);
+    if (!policyResult.valid) {
+      return res.status(400).json({ message: policyResult.message });
+    }
+
+    const payload = verifyPasswordResetToken(token);
+    const user = await User.findOne({ email: payload.email });
+
+    if (!user) {
+      return res.status(404).json({ message: "Account not found" });
+    }
+
+    user.passwordHash = await hashPassword(password);
+    await user.save();
+
+    res.json({ success: true, message: "Password updated successfully" });
+  } catch (error) {
+    res.status(400).json({ message: "Reset link is invalid or expired" });
+  }
+});
+
+app.post("/api/teacher/change-password", requireAuth, async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Current password and new password are required" });
+    }
+
+    const policyResult = await validatePasswordAgainstPolicy(newPassword);
+    if (!policyResult.valid) {
+      return res.status(400).json({ message: policyResult.message });
+    }
+
+    const user = await User.findById(req.user.id).select("passwordHash");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const isCurrentPasswordValid = await verifyPassword(currentPassword, user.passwordHash);
+    if (!isCurrentPasswordValid) {
+      return res.status(401).json({ message: "Current password is incorrect" });
+    }
+
+    const newPasswordHash = await hashPassword(newPassword);
+    await User.findByIdAndUpdate(req.user.id, { $set: { passwordHash: newPasswordHash } });
+
+    res.json({ message: "Password changed successfully" });
+  } catch (error) {
     next(error);
   }
 });
@@ -290,38 +546,6 @@ app.post("/api/centers", requireAuth, requireRole("admin"), async (req, res, nex
   }
 });
 
-app.get("/api/admin/classes", requireAuth, requireRole("admin"), async (req, res, next) => {
-  try {
-    const filter = req.query.centerId ? { center: req.query.centerId } : {};
-    const classes = await ClassModel.find(filter).populate("center", "name city").sort({ createdAt: -1 });
-    res.json({ classes });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.post("/api/admin/classes", requireAuth, requireRole("admin"), async (req, res, next) => {
-  try {
-    const classRecord = await ClassModel.create(req.body);
-    res.status(201).json({ class: classRecord });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.get("/api/admin/users", requireAuth, requireRole("admin"), async (req, res, next) => {
-  try {
-    const filter = {};
-    if (req.query.role) filter.role = req.query.role;
-    const users = await User.find(filter)
-      .select("-passwordHash")
-      .sort({ createdAt: -1 });
-    res.json({ users });
-  } catch (error) {
-    next(error);
-  }
-});
-
 app.get("/api/admin/teachers", requireAuth, requireRole("admin"), async (_req, res, next) => {
   try {
     const teachers = await User.find({ role: "teacher" })
@@ -353,8 +577,10 @@ app.patch("/api/admin/teachers/:id/status", requireAuth, requireRole("admin"), a
 app.get("/api/admin/children", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
     const filter = {};
-    if (req.query.centerId) filter.center = req.query.centerId;
-    if (req.query.classId) filter.class = req.query.classId;
+    const centerId = objectIdFilter(req.query.centerId, "centerId");
+    const classId = objectIdFilter(req.query.classId, "classId");
+    if (centerId) filter.center = centerId;
+    if (classId) filter.class = classId;
 
     const children = await Child.find(filter)
       .populate("center", "name city")
@@ -369,9 +595,37 @@ app.get("/api/admin/children", requireAuth, requireRole("admin"), async (req, re
 
 app.post("/api/admin/children", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    const child = await Child.create(req.body);
+    const centerId = req.body.centerId || req.body.center;
+    const classId = req.body.classId || req.body.class;
+    if (!centerId || centerId === "undefined" || centerId === "") {
+      return res.status(400).json({ message: "Please select a center for the child." });
+    }
+    if (!classId || classId === "undefined" || classId === "") {
+      return res.status(400).json({ message: "Please select a class for the child." });
+    }
+    requireObjectId(centerId, "center");
+    requireObjectId(classId, "class");
+    const childPayload = { ...req.body };
+    delete childPayload.centerId;
+    delete childPayload.classId;
+    const child = await Child.create({
+      ...childPayload,
+      center: centerId,
+      class: classId,
+      rollNo: req.body.rollNo || await getNextChildRollNo(classId),
+      status: req.body.status || "active",
+    });
     res.status(201).json({ child });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({ message: "A child with this roll number already exists in this class. Please try again." });
+    }
+    if (error.name === "ValidationError") {
+      return res.status(400).json({ message: error.message });
+    }
+    if (error.status === 400) {
+      return res.status(400).json({ message: error.message });
+    }
     next(error);
   }
 });
@@ -379,8 +633,54 @@ app.post("/api/admin/children", requireAuth, requireRole("admin"), async (req, r
 app.get("/api/courses", requireAuth, async (req, res, next) => {
   try {
     if (req.user.role === "admin") {
-      const courses = await Course.find().sort({ createdAt: -1 });
-      return res.json({ courses });
+      const [courses, assignmentStats] = await Promise.all([
+        Course.find().sort({ createdAt: -1 }),
+        CourseAssignment.aggregate([
+          {
+            $group: {
+              _id: "$course",
+              assignedCount: { $sum: 1 },
+              completedCount: {
+                $sum: {
+                  $cond: [
+                    {
+                      $or: [
+                        { $eq: ["$status", "completed"] },
+                        { $eq: ["$status", "approved"] },
+                        { $eq: ["$status", "reviewed"] },
+                        { $eq: ["$progressPercent", 100] },
+                      ],
+                    },
+                    1,
+                    0,
+                  ],
+                },
+              },
+            },
+          },
+        ]),
+      ]);
+
+      const statsByCourseId = new Map(
+        assignmentStats.map((item) => [
+          String(item._id),
+          {
+            assignedCount: item.assignedCount || 0,
+            completedCount: item.completedCount || 0,
+            completion: item.assignedCount > 0 ? Math.round((item.completedCount / item.assignedCount) * 100) : 0,
+          },
+        ])
+      );
+
+      const decoratedCourses = courses.map((course) => {
+        const stats = statsByCourseId.get(String(course._id)) || { assignedCount: 0, completedCount: 0, completion: 0 };
+        return {
+          ...course.toObject(),
+          ...stats,
+        };
+      });
+
+      return res.json({ courses: decoratedCourses });
     }
 
     const assignments = await CourseAssignment.find({ teacher: req.user.id })
@@ -395,9 +695,21 @@ app.get("/api/courses", requireAuth, async (req, res, next) => {
 
 app.post("/api/courses", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    const course = await Course.create({ ...req.body, createdBy: req.user.id });
-    res.status(201).json({ course });
+    const existing = await Course.findOne({ title: req.body.title, createdBy: req.user.id });
+    if (existing) {
+      return res.status(409).json({ message: "A course with this title already exists.", course: existing });
+    }
+    const { notes, ...courseInput } = req.body;
+    const { course, notes: savedNotes } = await createCourseWithNotes(
+      normalizeCoursePayload(courseInput, req.user.id),
+      notes,
+      req.user.id
+    );
+    res.status(201).json({ course, notes: savedNotes });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({ message: "A course with this title already exists." });
+    }
     next(error);
   }
 });
@@ -415,258 +727,15 @@ app.get("/api/teacher/me", requireAuth, requireRole("teacher"), async (req, res,
   }
 });
 
-app.post("/api/auth/forgot-password", async (req, res, next) => {
+app.get("/api/teacher/classes", requireAuth, requireRole("teacher"), async (req, res, next) => {
   try {
-    const email = String(req.body.email || "").toLowerCase().trim();
-    if (!email) {
-      return res.status(400).json({ message: "Email is required" });
+    const teacher = await User.findById(req.user.id).select("teacherProfile");
+    const classId = teacher?.teacherProfile?.class;
+    if (!classId) {
+      return res.json({ classes: [] });
     }
-
-    const user = await User.findOne({ email }).select("_id email");
-    const response = {
-      success: true,
-      message: "If the account exists, a password reset link has been generated.",
-    };
-
-    if (!user) {
-      return res.json(response);
-    }
-
-    const resetToken = createPasswordResetToken(user.email);
-    res.json({
-      ...response,
-      resetToken,
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.post("/api/auth/reset-password/verify", async (req, res, next) => {
-  try {
-    const token = String(req.body.token || "");
-    if (!token) {
-      return res.status(400).json({ message: "Reset token is required" });
-    }
-
-    const payload = verifyPasswordResetToken(token);
-    const user = await User.findOne({ email: payload.email }).select("email");
-
-    if (!user) {
-      return res.status(404).json({ message: "Account not found" });
-    }
-
-    res.json({ valid: true, email: user.email });
-  } catch (error) {
-    res.status(400).json({ message: "Reset link is invalid or expired" });
-  }
-});
-
-app.post("/api/auth/reset-password", async (req, res, next) => {
-  try {
-    const token = String(req.body.token || "");
-    const password = String(req.body.password || "");
-
-    if (!token || !password) {
-      return res.status(400).json({ message: "Reset token and password are required" });
-    }
-
-    if (password.length < 8) {
-      return res.status(400).json({ message: "Password must be at least 8 characters long" });
-    }
-
-    const payload = verifyPasswordResetToken(token);
-    const user = await User.findOne({ email: payload.email });
-
-    if (!user) {
-      return res.status(404).json({ message: "Account not found" });
-    }
-
-    user.passwordHash = await hashPassword(password);
-    await user.save();
-
-    res.json({ success: true, message: "Password updated successfully" });
-  } catch (error) {
-    res.status(400).json({ message: "Reset link is invalid or expired" });
-  }
-});
-
-app.get("/api/admin/notifications", requireAuth, requireRole("admin"), async (_req, res, next) => {
-  try {
-    const notifications = await Notification.find()
-      .populate("recipient", "name email status")
-      .sort({ createdAt: -1 })
-      .limit(500);
-    res.json({ notifications });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.post("/api/admin/notifications/broadcast", requireAuth, requireRole("admin"), async (req, res, next) => {
-  try {
-    const {
-      subject,
-      body,
-      channel = "in_app",
-      audience = "all",
-      teacherIds = [],
-    } = req.body;
-
-    if (!subject || !body) {
-      return res.status(400).json({ message: "Subject and message are required" });
-    }
-
-    let filter = { role: "teacher" };
-    if (Array.isArray(teacherIds) && teacherIds.length > 0) {
-      filter._id = { $in: teacherIds };
-    } else if (audience === "approved") {
-      filter.status = "approved";
-    } else if (audience === "pending") {
-      filter.status = "pending";
-    }
-
-    const recipients = await User.find(filter).select("_id name email phone status");
-
-    if (recipients.length === 0) {
-      return res.status(200).json({ notifications: [], recipientCount: 0 });
-    }
-
-    // For in_app channel, just create notification documents
-    if (channel === "in_app") {
-      const docs = recipients.map((teacher) => ({
-        recipient: teacher._id,
-        channel,
-        title: subject,
-        body,
-        status: "delivered",
-        sentAt: new Date(),
-      }));
-
-      const notifications = await Notification.insertMany(docs);
-      return res.status(201).json({ notifications, recipientCount: recipients.length });
-    }
-
-    // For email channel, actually send via SMTP
-    if (channel === "email") {
-      const emailResults = await sendBulkEmails({
-        recipients: recipients.map((r) => ({ _id: r._id, email: r.email, name: r.name })),
-        subject,
-        body,
-      });
-
-      const docs = emailResults.map((result) => ({
-        recipient: result.recipientId,
-        channel: "email",
-        title: subject,
-        body,
-        status: result.success ? "delivered" : "failed",
-        error: result.error || null,
-        sentAt: new Date(),
-      }));
-
-      const notifications = docs.length ? await Notification.insertMany(docs) : [];
-      const failedCount = emailResults.filter((r) => !r.success).length;
-
-      return res.status(201).json({
-        notifications,
-        recipientCount: recipients.length,
-        delivered: recipients.length - failedCount,
-        failed: failedCount,
-      });
-    }
-
-    // SMS and WhatsApp require a configured external provider.
-    if (channel === "sms" || channel === "whatsapp") {
-      const docs = recipients.map((teacher) => ({
-        recipient: teacher._id,
-        channel,
-        title: subject,
-        body,
-        status: "failed",
-        error: `${channel.toUpperCase()} provider is not configured. Add a real provider integration before sending to phone numbers.`,
-        sentAt: new Date(),
-      }));
-
-      const notifications = docs.length ? await Notification.insertMany(docs) : [];
-      return res.status(501).json({
-        notifications,
-        recipientCount: recipients.length,
-        delivered: 0,
-        failed: recipients.length,
-        message: `${channel.toUpperCase()} provider is not configured.`,
-      });
-    }
-
-    const docs = recipients.map((teacher) => ({
-      recipient: teacher._id,
-      channel,
-      title: subject,
-      body,
-      status: "delivered",
-      sentAt: new Date(),
-    }));
-
-    const notifications = docs.length ? await Notification.insertMany(docs) : [];
-    res.status(201).json({ notifications, recipientCount: recipients.length });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.patch("/api/teacher/me", requireAuth, requireRole("teacher"), async (req, res, next) => {
-  try {
-    const { name, phone, photoUrl, teacherProfile = {} } = req.body;
-    const allowedProfileFields = ["qualification", "subject", "experience", "address"];
-    const update = {};
-
-    if (name !== undefined) update.name = name;
-    if (phone !== undefined) update.phone = phone;
-    if (photoUrl !== undefined) update.photoUrl = photoUrl;
-
-    for (const field of allowedProfileFields) {
-      if (teacherProfile[field] !== undefined) {
-        update[`teacherProfile.${field}`] = teacherProfile[field];
-      }
-    }
-
-    const teacher = await User.findByIdAndUpdate(req.user.id, { $set: update }, { new: true })
-      .select("-passwordHash")
-      .populate("teacherProfile.center", "name address city pincode contactPerson phone email")
-      .populate("teacherProfile.class", "name ageGroup curriculumLevel schedule");
-
-    res.json({ teacher });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.post("/api/teacher/change-password", requireAuth, requireRole("teacher"), async (req, res, next) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
-
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ message: "Current password and new password are required" });
-    }
-
-    if (newPassword.length < 8) {
-      return res.status(400).json({ message: "New password must be at least 8 characters long" });
-    }
-
-    const user = await User.findById(req.user.id).select("passwordHash");
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    const isCurrentPasswordValid = await verifyPassword(currentPassword, user.passwordHash);
-    if (!isCurrentPasswordValid) {
-      return res.status(401).json({ message: "Current password is incorrect" });
-    }
-
-    const newPasswordHash = await hashPassword(newPassword);
-    await User.findByIdAndUpdate(req.user.id, { $set: { passwordHash: newPasswordHash } });
-
-    res.json({ message: "Password changed successfully" });
+    const cls = await ClassModel.find({ _id: classId });
+    res.json({ classes: cls });
   } catch (error) {
     next(error);
   }
@@ -735,10 +804,7 @@ app.post("/api/teacher/children", requireAuth, requireRole("teacher"), async (re
 
 app.get("/api/teacher/progress", requireAuth, requireRole("teacher"), async (req, res, next) => {
   try {
-    const teacher = await User.findById(req.user.id).select("teacherProfile.class");
-    const classId = teacher?.teacherProfile?.class;
-
-    const [courses, lessons, activities, attendance, totalChildren] = await Promise.all([
+    const [courses, lessons, activities, attendance] = await Promise.all([
       CourseAssignment.find({ teacher: req.user.id }).populate("course"),
       LessonPlanAssignment.find({ teacher: req.user.id }).populate("lessonPlan", "title scheduleDate"),
       ActivitySubmission.find({ teacher: req.user.id }).sort({ activityDate: -1 }),
@@ -898,9 +964,78 @@ app.delete("/api/centers/:id", requireAuth, requireRole("admin"), async (req, re
 // ==========================================
 // CLASS MANAGEMENT
 // ==========================================
+
+async function logClassAction(action, classId, className, centerId, performedBy, performedByName, changes = null) {
+  try {
+    await ClassLog.create({
+      action,
+      classId,
+      className: className || "",
+      centerId,
+      performedBy,
+      performedByName: performedByName || "",
+      changes,
+    });
+  } catch (error) {
+    console.error("Failed to write class audit log:", error);
+  }
+}
+
+app.get("/api/admin/classes", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const centerId = objectIdFilter(req.query.centerId, "centerId");
+    const filter = centerId ? { center: centerId } : {};
+    const classes = await ClassModel.find(filter).populate("center", "_id name city").sort({ createdAt: -1 });
+    res.json({ classes });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/admin/classes", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { center, name, ...rest } = req.body;
+    if (!center || !name) {
+      return res.status(400).json({ message: "center and name are required." });
+    }
+    requireObjectId(center, "center");
+    const classRecord = await ClassModel.findOneAndUpdate(
+      { center, name },
+      { center, name, ...rest },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+    await logClassAction("create", classRecord._id, classRecord.name, classRecord.center, req.user.id, req.user.name, rest);
+    res.status(201).json({ class: classRecord });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({ message: "A class with this name already exists for the selected center." });
+    }
+    next(error);
+  }
+});
+
+app.get("/api/admin/classes/logs", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const classId = objectIdFilter(req.query.classId, "classId");
+    const filter = classId ? { classId } : {};
+    const logs = await ClassLog.find(filter)
+      .populate("performedBy", "name email role")
+      .populate("centerId", "name city")
+      .sort({ createdAt: -1 })
+      .limit(200);
+    res.json({ logs });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.patch("/api/admin/classes/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
+    requireObjectId(req.params.id, "class id");
+    const existing = await ClassModel.findById(req.params.id);
+    if (!existing) return res.status(404).json({ message: "Class not found." });
     const classRecord = await ClassModel.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    await logClassAction("update", classRecord._id, classRecord.name, classRecord.center, req.user.id, req.user.name, { before: existing?.toObject(), after: req.body });
     res.json({ class: classRecord });
   } catch (error) {
     next(error);
@@ -909,7 +1044,11 @@ app.patch("/api/admin/classes/:id", requireAuth, requireRole("admin"), async (re
 
 app.delete("/api/admin/classes/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
+    requireObjectId(req.params.id, "class id");
+    const existing = await ClassModel.findById(req.params.id);
+    if (!existing) return res.status(404).json({ message: "Class not found." });
     await ClassModel.findByIdAndDelete(req.params.id);
+    await logClassAction("delete", existing?._id, existing?.name || "", existing?.center, req.user.id, req.user.name);
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -921,7 +1060,16 @@ app.delete("/api/admin/classes/:id", requireAuth, requireRole("admin"), async (r
 // ==========================================
 app.patch("/api/admin/children/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    const child = await Child.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    requireObjectId(req.params.id, "child id");
+    const { centerId, classId, ...updatePayload } = req.body;
+    if (centerId !== undefined) requireObjectId(centerId, "centerId");
+    if (classId !== undefined) requireObjectId(classId, "classId");
+    const child = await Child.findByIdAndUpdate(req.params.id, {
+      ...updatePayload,
+      ...(centerId !== undefined ? { center: centerId } : {}),
+      ...(classId !== undefined ? { class: classId } : {}),
+    }, { new: true });
+    if (!child) return res.status(404).json({ message: "Child not found." });
     res.json({ child });
   } catch (error) {
     next(error);
@@ -930,7 +1078,9 @@ app.patch("/api/admin/children/:id", requireAuth, requireRole("admin"), async (r
 
 app.delete("/api/admin/children/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    await Child.findByIdAndDelete(req.params.id);
+    requireObjectId(req.params.id, "child id");
+    const child = await Child.findByIdAndDelete(req.params.id);
+    if (!child) return res.status(404).json({ message: "Child not found." });
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -973,12 +1123,57 @@ app.delete("/api/admin/teachers/:id", requireAuth, requireRole("admin"), async (
   }
 });
 
+app.patch("/api/admin/teachers/:id/block", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const teacher = await User.findOneAndUpdate(
+      { _id: req.params.id, role: "teacher" },
+      { status: "blocked" },
+      { new: true }
+    ).select("-passwordHash");
+    if (!teacher) return res.status(404).json({ message: "Teacher not found." });
+    res.json({ teacher });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/admin/teachers/:id/unblock", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const teacher = await User.findOneAndUpdate(
+      { _id: req.params.id, role: "teacher" },
+      { status: "approved" },
+      { new: true }
+    ).select("-passwordHash");
+    if (!teacher) return res.status(404).json({ message: "Teacher not found." });
+    res.json({ teacher });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/admin/teachers/:id/assign-center", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { centerId } = req.body;
+    const updateData = { "teacherProfile.center": centerId || null };
+    const teacher = await User.findByIdAndUpdate(req.params.id, updateData, { new: true })
+      .select("-passwordHash")
+      .populate("teacherProfile.center", "name city")
+      .populate("teacherProfile.class", "name ageGroup");
+    if (!teacher) return res.status(404).json({ message: "Teacher not found." });
+    res.json({ teacher });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ==========================================
 // COURSE MANAGEMENT
 // ==========================================
 app.patch("/api/courses/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    const course = await Course.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    requireObjectId(req.params.id, "course id");
+    const course = await Course.findByIdAndUpdate(req.params.id, normalizeCoursePayload(req.body, req.user.id), { new: true });
+    if (!course) return res.status(404).json({ message: "Course not found." });
     res.json({ course });
   } catch (error) {
     next(error);
@@ -987,7 +1182,10 @@ app.patch("/api/courses/:id", requireAuth, requireRole("admin"), async (req, res
 
 app.delete("/api/courses/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    await Course.findByIdAndDelete(req.params.id);
+    requireObjectId(req.params.id, "course id");
+    const course = await Course.findByIdAndDelete(req.params.id);
+    if (!course) return res.status(404).json({ message: "Course not found." });
+    await Note.deleteMany({ course: req.params.id });
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -996,16 +1194,18 @@ app.delete("/api/courses/:id", requireAuth, requireRole("admin"), async (req, re
 
 // AI Course Generation (mounted router with auth + admin middleware)
 app.use("/api/courses", requireAuth, requireRole("admin"), courseAiRouter);
-
+import courseAiRouter from "./routes/courseAi.js";
 // Grades routes
 app.use("/api/grades", gradesRouter);
-
+import gradesRouter from "./routes/grades.js";
 // Schedules
-app.use("/api/schedules", schedulesRouter);
+//app.use("/api/schedules", schedulesRouter);
 
 app.post("/api/courses/:id/assign", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
     const { teacherId, dueDate } = req.body;
+    requireObjectId(req.params.id, "course id");
+    requireObjectId(teacherId, "teacherId");
     const assignment = await CourseAssignment.findOneAndUpdate(
       { course: req.params.id, teacher: teacherId },
       { course: req.params.id, teacher: teacherId, assignedBy: req.user.id, dueDate, status: "assigned" },
@@ -1028,7 +1228,8 @@ app.get("/api/admin/courses/assignments", requireAuth, requireRole("admin"), asy
   try {
     const assignments = await CourseAssignment.find()
       .populate("course")
-      .populate("teacher", "name email");
+      .populate("teacher", "name email")
+      .populate("reviewedBy", "name email");
     res.json({ assignments });
   } catch (error) {
     next(error);
@@ -1037,21 +1238,29 @@ app.get("/api/admin/courses/assignments", requireAuth, requireRole("admin"), asy
 
 app.patch("/api/admin/courses/assignments/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    const { status, feedback, score, rubric, trainer, notified, annotations } = req.body;
+    const { status, feedback, score, rubric, trainer, reviewedBy, reviewedAt, notified, annotations } = req.body;
     const update = {};
     if (status !== undefined) update.status = status;
     if (feedback !== undefined) update.feedback = feedback;
     if (score !== undefined) update.score = score;
     if (rubric !== undefined) update.rubric = rubric;
     if (trainer !== undefined) update.trainer = trainer;
+    if (reviewedBy !== undefined && mongoose.isValidObjectId(reviewedBy)) update.reviewedBy = reviewedBy;
+    if (reviewedAt !== undefined) update.reviewedAt = reviewedAt;
     if (notified !== undefined) update.notified = notified;
     if (annotations !== undefined) update.annotations = annotations;
+    if (status && ["reviewed", "approved", "revision"].includes(status) && !update.reviewedAt) {
+      update.reviewedAt = new Date();
+    }
+    if (status && ["reviewed", "approved", "revision"].includes(status) && !update.reviewedBy) {
+      update.reviewedBy = req.user.id;
+    }
 
     const assignment = await CourseAssignment.findByIdAndUpdate(
       req.params.id,
       update,
       { new: true }
-    ).populate("course").populate("teacher", "name email");
+    ).populate("course").populate("teacher", "name email").populate("reviewedBy", "name email");
     
     res.json({ assignment });
   } catch (error) {
@@ -1086,6 +1295,84 @@ app.patch("/api/teacher/courses/assignments/:id", requireAuth, requireRole("teac
   }
 });
 
+app.post("/api/ai/generate-course", requireAuth, async (req, res, next) => {
+  try {
+    const result = await generateAICourse(req.body || {});
+    res.json({ course: result });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ message: error.message });
+    next(error);
+  }
+});
+
+app.post("/api/courses/generate-from-ai", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    console.log("[ai-course] generate_and_save_start", JSON.stringify({ userId: req.user.id, topic: req.body?.topic || req.body?.title }));
+    const result = await generateAICourse(req.body || {});
+    const existing = await Course.findOne({ title: result.title, createdBy: req.user.id });
+    if (existing) {
+      return res.status(409).json({ message: "A course with this generated title already exists.", course: existing });
+    }
+    const { notes, ...courseInput } = result;
+    const saved = await createCourseWithNotes(
+      normalizeCoursePayload(courseInput, req.user.id),
+      notes,
+      req.user.id
+    );
+    console.log("[ai-course] generate_and_save_success", JSON.stringify({ courseId: saved.course._id, notes: saved.notes.length }));
+    res.status(201).json(saved);
+  } catch (error) {
+    console.error("[ai-course] generate_and_save_failed", JSON.stringify({ message: error.message, status: error.status }));
+    if (error.status) return res.status(error.status).json({ message: error.message });
+    next(error);
+  }
+});
+
+app.get("/api/courses/:courseId/notes", requireAuth, async (req, res, next) => {
+  try {
+    const notes = await Note.find({ course: req.params.courseId }).populate("createdBy", "name email").sort({ createdAt: -1 });
+    res.json({ notes });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/courses/:courseId/notes", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const note = await Note.create({ ...req.body, course: req.params.courseId, createdBy: req.user.id });
+    res.status(201).json({ note });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/courses/notes/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const note = await Note.findByIdAndUpdate(req.params.id, req.body, { new: true }).populate("createdBy", "name email");
+    res.json({ note });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/courses/notes/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    await Note.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/teacher/courses/:courseId/notes", requireAuth, requireRole("teacher"), async (req, res, next) => {
+  try {
+    const notes = await Note.find({ course: req.params.courseId }).populate("createdBy", "name email").sort({ createdAt: -1 });
+    res.json({ notes });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ==========================================
 // LESSON PLANS & ASSIGNMENTS
 // ==========================================
@@ -1109,7 +1396,9 @@ app.post("/api/lesson-plans", requireAuth, requireRole("admin"), async (req, res
 
 app.patch("/api/lesson-plans/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
+    requireObjectId(req.params.id, "lesson plan id");
     const lessonPlan = await LessonPlan.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!lessonPlan) return res.status(404).json({ message: "Lesson plan not found." });
     res.json({ lessonPlan });
   } catch (error) {
     next(error);
@@ -1118,7 +1407,9 @@ app.patch("/api/lesson-plans/:id", requireAuth, requireRole("admin"), async (req
 
 app.delete("/api/lesson-plans/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    await LessonPlan.findByIdAndDelete(req.params.id);
+    requireObjectId(req.params.id, "lesson plan id");
+    const lessonPlan = await LessonPlan.findByIdAndDelete(req.params.id);
+    if (!lessonPlan) return res.status(404).json({ message: "Lesson plan not found." });
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -1128,6 +1419,10 @@ app.delete("/api/lesson-plans/:id", requireAuth, requireRole("admin"), async (re
 app.post("/api/lesson-plans/assign", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
     const { lessonPlanId, teacherId, centerId, classId, assignedDate } = req.body;
+    requireObjectId(lessonPlanId, "lessonPlanId");
+    if (teacherId) requireObjectId(teacherId, "teacherId");
+    if (centerId) requireObjectId(centerId, "centerId");
+    if (classId) requireObjectId(classId, "classId");
     const assignment = await LessonPlanAssignment.create({
       lessonPlan: lessonPlanId,
       teacher: teacherId,
@@ -1166,12 +1461,14 @@ app.get("/api/admin/lesson-plans/assignments", requireAuth, requireRole("admin")
 
 app.patch("/api/admin/lesson-plans/assignments/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
+    requireObjectId(req.params.id, "assignment id");
     const { status } = req.body;
     const assignment = await LessonPlanAssignment.findByIdAndUpdate(
       req.params.id,
       { status },
       { new: true }
     );
+    if (!assignment) return res.status(404).json({ message: "Lesson assignment not found." });
     res.json({ assignment });
   } catch (error) {
     next(error);
@@ -1181,6 +1478,7 @@ app.patch("/api/admin/lesson-plans/assignments/:id", requireAuth, requireRole("a
 
 app.post("/api/teacher/lesson-plans/:id/complete", requireAuth, requireRole("teacher"), async (req, res, next) => {
   try {
+    requireObjectId(req.params.id, "assignment id");
     const { teachingNotes, activityDescription, files } = req.body;
     const assignment = await LessonPlanAssignment.findOne({ _id: req.params.id, teacher: req.user.id });
     if (!assignment) return res.status(404).json({ message: "Assignment not found" });
@@ -1300,8 +1598,8 @@ app.patch("/api/activities/:id", requireAuth, requireRole("admin"), async (req, 
 app.get("/api/attendance/children", requireAuth, async (req, res, next) => {
   try {
     const filter = {};
-    if (req.query.centerId) filter.center = req.query.centerId;
-    if (req.query.classId) filter.class = req.query.classId;
+    if (req.query.centerId && req.query.centerId !== "undefined") filter.center = req.query.centerId;
+    if (req.query.classId && req.query.classId !== "undefined") filter.class = req.query.classId;
     if (req.query.date) {
       const d = new Date(req.query.date);
       filter.attendanceDate = {
@@ -1358,7 +1656,7 @@ app.get("/api/attendance/teachers", requireAuth, async (req, res, next) => {
     if (req.user.role === "teacher") {
       filter.teacher = req.user.id;
     } else {
-      if (req.query.teacherId) filter.teacher = req.query.teacherId;
+      if (req.query.teacherId && req.query.teacherId !== "undefined") filter.teacher = req.query.teacherId;
     }
     if (req.query.date) {
       const d = new Date(req.query.date);
@@ -1418,7 +1716,26 @@ app.get("/api/trainers", requireAuth, async (req, res, next) => {
 
 app.post("/api/trainers", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    const trainer = await Trainer.create(req.body);
+    const trainerData = req.body;
+    const trainer = await Trainer.create(trainerData);
+
+    // Synchronize to User collection if not already present
+    if (trainer.email) {
+      const emailLower = trainer.email.toLowerCase().trim();
+      const existingUser = await User.findOne({ email: emailLower });
+      if (!existingUser) {
+        const passwordHash = await hashPassword("Trainer@123");
+        await User.create({
+          role: "trainer",
+          name: trainer.name,
+          email: emailLower,
+          phone: trainer.phone || "",
+          passwordHash,
+          status: trainer.status === "inactive" ? "inactive" : "approved",
+        });
+      }
+    }
+
     res.status(201).json({ trainer });
   } catch (error) {
     next(error);
@@ -1427,7 +1744,39 @@ app.post("/api/trainers", requireAuth, requireRole("admin"), async (req, res, ne
 
 app.patch("/api/trainers/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
+    const oldTrainer = await Trainer.findById(req.params.id);
+    const oldEmail = oldTrainer?.email ? oldTrainer.email.toLowerCase().trim() : null;
+
     const trainer = await Trainer.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    
+    // Synchronize with User collection
+    if (trainer.email) {
+      const emailLower = trainer.email.toLowerCase().trim();
+      const userStatus = trainer.status === "inactive" ? "inactive" : "approved";
+      
+      const userQuery = oldEmail ? { email: oldEmail } : { email: emailLower };
+      const user = await User.findOne(userQuery);
+      
+      if (user) {
+        user.name = trainer.name;
+        user.email = emailLower;
+        user.phone = trainer.phone || user.phone;
+        user.status = userStatus;
+        user.role = "trainer";
+        await user.save();
+      } else {
+        const passwordHash = await hashPassword("Trainer@123");
+        await User.create({
+          role: "trainer",
+          name: trainer.name,
+          email: emailLower,
+          phone: trainer.phone || "",
+          passwordHash,
+          status: userStatus,
+        });
+      }
+    }
+
     res.json({ trainer });
   } catch (error) {
     next(error);
@@ -1436,7 +1785,13 @@ app.patch("/api/trainers/:id", requireAuth, requireRole("admin"), async (req, re
 
 app.delete("/api/trainers/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    await Trainer.findByIdAndDelete(req.params.id);
+    const trainer = await Trainer.findById(req.params.id);
+    if (trainer) {
+      if (trainer.email) {
+        await User.findOneAndDelete({ email: trainer.email.toLowerCase().trim() });
+      }
+      await Trainer.findByIdAndDelete(req.params.id);
+    }
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -1620,16 +1975,494 @@ app.patch("/api/admin/report-jobs/:id", requireAuth, requireRole("admin"), async
   }
 });
 
+// ==========================================
+// ADMIN USERS
+// ==========================================
+app.get("/api/admin/users", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const filter = {};
+    if (req.query.role) filter.role = req.query.role;
+    const users = await User.find(filter)
+      .select("-passwordHash")
+      .sort({ createdAt: -1 });
+    res.json({ users });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/admin/users/:id/role", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { role } = req.body;
+    if (!["admin", "teacher", "trainer", "super_admin"].includes(role)) {
+      return res.status(400).json({ message: "Invalid role specified" });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const oldRole = user.role;
+    user.role = role;
+    await user.save();
+
+    // Promoted to trainer: ensure a Trainer document exists
+    if (role === "trainer" && oldRole !== "trainer") {
+      const emailLower = user.email ? user.email.toLowerCase().trim() : "";
+      const existingTrainer = await Trainer.findOne({ email: emailLower });
+      if (!existingTrainer) {
+        await Trainer.create({
+          name: user.name,
+          email: emailLower,
+          phone: user.phone || "",
+          subject: "General ECCE",
+          qualification: "N/A",
+          status: user.status === "inactive" ? "inactive" : "active",
+        });
+      }
+    }
+
+    // Demoted from trainer: delete Trainer document
+    if (oldRole === "trainer" && role !== "trainer") {
+      const emailLower = user.email ? user.email.toLowerCase().trim() : "";
+      await Trainer.findOneAndDelete({ email: emailLower });
+    }
+
+    res.json({ success: true, user });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/admin/users/:id/status", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { status } = req.body;
+    if (!["pending", "approved", "rejected", "inactive"].includes(status)) {
+      return res.status(400).json({ message: "Invalid status specified" });
+    }
+
+    const user = await User.findByIdAndUpdate(req.params.id, { $set: { status } }, { new: true }).select("-passwordHash");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // If user is trainer, sync status to Trainer collection
+    if (user.role === "trainer") {
+      const emailLower = user.email ? user.email.toLowerCase().trim() : "";
+      const trainerStatus = status === "approved" ? "active" : "inactive";
+      await Trainer.findOneAndUpdate({ email: emailLower }, { $set: { status: trainerStatus } });
+    }
+
+    res.json({ success: true, user });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/admin/users/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (user.role === "trainer") {
+      const emailLower = user.email ? user.email.toLowerCase().trim() : "";
+      await Trainer.findOneAndDelete({ email: emailLower });
+    }
+
+    await User.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==========================================
+// PORTAL SETTINGS
+// ==========================================
+app.get("/api/admin/settings", requireAuth, requireRole("admin"), async (_req, res, next) => {
+  try {
+    const docs = await PortalSetting.find({});
+    const settings = {};
+    docs.forEach((doc) => {
+      settings[doc.key] = doc.value;
+    });
+    res.json({ settings });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put("/api/admin/settings", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const payload = req.body;
+    const settingsObj = payload.settings || payload;
+    const entries = Object.entries(settingsObj).filter(([, v]) => v !== undefined && v !== null && v !== "");
+    if (entries.length === 0) {
+      return res.json({ settings: {} });
+    }
+    const bulkOps = entries.map(([key, value]) => ({
+      updateOne: {
+        filter: { key },
+        update: { $set: { key, value, description: key } },
+        upsert: true,
+      },
+    }));
+    await PortalSetting.bulkWrite(bulkOps);
+    const response = {};
+    entries.forEach(([key, value]) => {
+      response[key] = value;
+    });
+    res.json({ settings: response });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==========================================
+// ADMIN SETTINGS — TEST EMAIL
+// ==========================================
+app.post("/api/admin/settings/test-email", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { to } = req.body;
+    if (!to) {
+      return res.status(400).json({ success: false, message: "Recipient email address (to) is required." });
+    }
+
+    const result = await sendEmail({
+      to,
+      subject: "✅ SpacECE Portal — Test Email",
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px;">
+          <h2 style="color:#f59e0b;">🎉 Test Email Successful!</h2>
+          <p>This is a test email sent from the <strong>SpacECE Teacher Training Portal</strong>.</p>
+          <p>If you received this message, your SMTP configuration is working correctly.</p>
+          <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">
+          <p style="font-size:12px;color:#9ca3af;">Sent at ${new Date().toISOString()} · SpacECE Admin Panel</p>
+        </div>
+      `,
+    });
+
+    if (result.success) {
+      return res.json({ success: true, message: `Test email sent to ${to} successfully.`, messageId: result.messageId });
+    } else {
+      return res.status(500).json({ success: false, message: result.error || "Failed to send test email." });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==========================================
+// ADMIN NOTIFICATIONS
+// ==========================================
+app.get("/api/admin/notifications", requireAuth, requireRole("admin"), async (_req, res, next) => {
+  try {
+    const notifications = await Notification.find()
+      .populate("recipient", "name email status")
+      .sort({ createdAt: -1 })
+      .limit(500);
+    res.json({ notifications });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/admin/notifications/broadcast", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const {
+      subject,
+      body,
+      channel = "in_app",
+      audience = "all",
+      teacherIds = [],
+      scheduledFor,
+      isRetry,
+      originalNotificationId,
+    } = req.body;
+
+    if (!subject || !body) {
+      return res.status(400).json({ message: "Subject and message are required" });
+    }
+
+    const now = new Date();
+
+    // ─── RETRY LOGIC ───
+    if (isRetry && originalNotificationId) {
+      const originalNotif = await Notification.findById(originalNotificationId).populate("recipient", "_id name email phone status");
+      if (!originalNotif) {
+        return res.status(404).json({ message: "Original notification not found" });
+      }
+
+      const recipient = originalNotif.recipient;
+      if (!recipient) {
+        return res.status(404).json({ message: "Recipient not found" });
+      }
+
+      let success = false;
+      let errorMsg = null;
+
+      if (channel === "email") {
+        if (!recipient.email) {
+          errorMsg = "Recipient has no email address";
+        } else {
+          const result = await sendEmail({
+            to: recipient.email,
+            subject,
+            html: `<h2>${subject}</h2><p>${body}</p><p><a href="${process.env.FRONTEND_URL || "http://localhost:5173"}">Open SpacECE Portal</a></p>`,
+          });
+          success = result.success;
+          errorMsg = result.error || null;
+        }
+      } else if (channel === "sms" || channel === "whatsapp") {
+        const twilioConf = await getTwilioConfig();
+        if (!twilioConf) {
+          errorMsg = "Twilio credentials are not configured in settings.";
+        } else if (!recipient.phone) {
+          errorMsg = "Recipient has no phone number";
+        } else {
+          const cleanPhone = recipient.phone.replace(/\s+/g, "");
+          const toNumber = channel === "whatsapp" ? `whatsapp:${cleanPhone}` : cleanPhone;
+          const fromNumber = channel === "whatsapp" ? `whatsapp:${twilioConf.from}` : twilioConf.from;
+          const twilioBase = `https://api.twilio.com/2010-04-01/Accounts/${twilioConf.sid}/Messages.json`;
+
+          try {
+            const resp = await fetch(twilioBase, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                Authorization: "Basic " + Buffer.from(`${twilioConf.sid}:${twilioConf.token}`).toString("base64"),
+              },
+              body: new URLSearchParams({ To: toNumber, From: fromNumber, Body: `${subject}\n\n${body}` }).toString(),
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+              success = true;
+            } else {
+              errorMsg = data.message || "Twilio delivery failed";
+            }
+          } catch (err) {
+            errorMsg = err.message || "Twilio network error";
+          }
+        }
+      } else {
+        success = true;
+      }
+
+      originalNotif.status = success ? "delivered" : "failed";
+      originalNotif.error = errorMsg;
+      originalNotif.sentAt = success ? now : undefined;
+      originalNotif.read = false;
+      originalNotif.readAt = null;
+      await originalNotif.save();
+
+      return res.status(200).json({ notifications: [originalNotif], recipientCount: 1 });
+    }
+
+    // ─── REGULAR BROADCAST LOGIC ───
+    let filter = { role: "teacher" };
+    if (Array.isArray(teacherIds) && teacherIds.length > 0) {
+      filter._id = { $in: teacherIds };
+    } else if (audience === "approved") {
+      filter.status = "approved";
+    } else if (audience === "pending") {
+      filter.status = "pending";
+    }
+
+    const recipients = await User.find(filter).select("_id name email phone status");
+    if (recipients.length === 0) {
+      return res.status(200).json({ notifications: [], recipientCount: 0 });
+    }
+
+    const meta = { subject, priority: "normal", category: "system" };
+    const buildDoc = (recipientId, notifChannel, notifStatus, opts = {}) => ({
+      recipient: recipientId,
+      channel: notifChannel,
+      title: subject,
+      body,
+      status: notifStatus,
+      metadata: meta,
+      scheduledFor: scheduledFor ? new Date(scheduledFor) : undefined,
+      sentAt: opts.sentAt || (notifStatus === "delivered" ? now : undefined),
+      error: opts.error || null,
+    });
+
+    let notifications = [];
+
+    // For in_app, immediately insert as delivered
+    if (channel === "in_app" || channel === "all") {
+      const docs = recipients.map((teacher) => buildDoc(teacher._id, "in_app", "delivered"));
+      const created = await Notification.insertMany(docs);
+      notifications.push(...created);
+    }
+
+    // For email, send via SMTP
+    if (channel === "email" || channel === "all") {
+      const emailRecipients = recipients.filter(r => r.email);
+      const emailResults = await sendBulkEmails({
+        recipients: emailRecipients.map((r) => ({ _id: r._id, email: r.email, name: r.name })),
+        subject,
+        body,
+      });
+
+      const docs = emailResults.map((result) =>
+        buildDoc(result.recipientId, "email", result.success ? "delivered" : "failed", {
+          error: result.error || null,
+          sentAt: result.success ? now : undefined
+        })
+      );
+      const created = docs.length ? await Notification.insertMany(docs) : [];
+      notifications.push(...created);
+    }
+
+    // For SMS/WhatsApp, send via Twilio
+    if (channel === "sms" || channel === "whatsapp") {
+      const twilioConf = await getTwilioConfig();
+
+      if (!twilioConf) {
+        const docs = recipients.map((teacher) =>
+          buildDoc(teacher._id, channel, "failed", {
+            error: `${channel.toUpperCase()} provider is not configured. Add Twilio credentials in Settings & Roles.`
+          })
+        );
+        const created = docs.length ? await Notification.insertMany(docs) : [];
+        notifications.push(...created);
+      } else {
+        const twilioBase = `https://api.twilio.com/2010-04-01/Accounts/${twilioConf.sid}/Messages.json`;
+        const messageResults = await Promise.allSettled(
+          recipients.map(async (r) => {
+            if (!r.phone) return { recipientId: r._id, success: false, error: "No phone number on record" };
+            const cleanPhone = r.phone.replace(/\s+/g, "");
+            const toNumber = channel === "whatsapp" ? `whatsapp:${cleanPhone}` : cleanPhone;
+            const fromNumber = channel === "whatsapp" ? `whatsapp:${twilioConf.from}` : twilioConf.from;
+
+            const resp = await fetch(twilioBase, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                Authorization: "Basic " + Buffer.from(`${twilioConf.sid}:${twilioConf.token}`).toString("base64"),
+              },
+              body: new URLSearchParams({ To: toNumber, From: fromNumber, Body: `${subject}\n\n${body}` }).toString(),
+            });
+            const data = await resp.json();
+            if (!resp.ok) return { recipientId: r._id, success: false, error: data.message || "Twilio error" };
+            return { recipientId: r._id, success: true };
+          })
+        );
+
+        const results = messageResults.map((r, i) =>
+          r.status === "fulfilled" ? r.value : { recipientId: recipients[i]?._id, success: false, error: r.reason?.message }
+        );
+
+        const docs = results.map((result) =>
+          buildDoc(result.recipientId, channel, result.success ? "delivered" : "failed", {
+            error: result.error || null,
+            sentAt: result.success ? now : undefined
+          })
+        );
+        const created = docs.length ? await Notification.insertMany(docs) : [];
+        notifications.push(...created);
+      }
+    }
+
+    res.status(201).json({ notifications, recipientCount: recipients.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/admin/notifications/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    await Notification.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Send email notification for course assignment
+app.post("/api/admin/courses/:courseId/assign-with-email", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { teacherId, dueDate } = req.body;
+    requireObjectId(req.params.courseId, "course id");
+    requireObjectId(teacherId, "teacher id");
+
+    const assignment = await CourseAssignment.findOneAndUpdate(
+      { course: req.params.courseId, teacher: teacherId },
+      { course: req.params.courseId, teacher: teacherId, assignedBy: req.user.id, dueDate, status: "assigned" },
+      { upsert: true, new: true }
+    );
+
+    // Create in-app notification
+    const notification = await Notification.create({
+      recipient: teacherId,
+      channel: "email",
+      title: "New course assigned",
+      body: "A training course has been assigned to your teacher portal.",
+      status: "pending",
+    });
+
+    // Try to send email
+    const { sendNotificationEmail } = await import("./email.js");
+    const emailResult = await sendNotificationEmail({
+      recipient: teacherId,
+      title: "New Course Assigned",
+      body: "A new training course has been assigned to you. Please log in to view and begin your training.",
+    });
+
+    console.log("[notification] course_assigned", JSON.stringify({
+      courseId: req.params.courseId,
+      teacherId,
+      email: emailResult.success ? "sent" : "failed",
+    }));
+
+    res.status(201).json({ assignment, notification, emailSent: emailResult.success });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Admin activities alias - returns all activities for admin monitoring
+app.get("/api/admin/activities", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const activities = await ActivitySubmission.find()
+      .populate("teacher", "name email")
+      .populate("center", "name")
+      .populate("class", "name")
+      .populate("lessonPlan", "title")
+      .populate("files")
+      .sort({ createdAt: -1 });
+    res.json({ activities });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.use((error, _req, res, _next) => {
   void _next;
   console.error(error);
-  res.status(500).json({ message: "Server error", detail: error.message });
+  if (error.name === "CastError") {
+    return res.status(400).json({ message: `Invalid ${error.path || "id"} supplied.` });
+  }
+  if (error.name === "ValidationError") {
+    return res.status(400).json({ message: error.message });
+  }
+  if (error.code === 11000) {
+    return res.status(409).json({ message: "A record with these unique fields already exists." });
+  }
+  res.status(error.status || 500).json({
+    message: error.status ? error.message : "Server error",
+    ...(process.env.NODE_ENV !== "production" ? { detail: error.message } : {}),
+  });
 });
 
 await connectDb();
 await ensureDatabaseReady();
 
-const server = app.listen(port, () => {
+const server = http.createServer(app);
+server.listen(port, () => {
   console.log(`API running on http://localhost:${port}`);
 });
 

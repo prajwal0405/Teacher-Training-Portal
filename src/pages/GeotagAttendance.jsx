@@ -377,9 +377,13 @@ export default function GeotagAttendance({ user }) {
                 <div style={{ fontSize: "11px", fontWeight: "700", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>
                   Assigned Campus Location
                 </div>
-                <div style={{ fontSize: "13px", fontWeight: "800", color: "#1c1917" }}>
-                  🏫 <span style={{ color: "#d97706" }}>{user?.configuredCenter || "Dhayri Pune, Maharashtra"}</span>
-                </div>
+<div style={{ fontSize: "13px", fontWeight: "800", color: "#1c1917" }}>
+                   🏫 <span style={{ color: "#d97706" }}>
+                     {user?.teacherProfile?.center?.name 
+                       ? `${user.teacherProfile.center.name}${user.teacherProfile.center.city ? `, ${user.teacherProfile.center.city}` : ""}` 
+                       : "Center not assigned"}
+                   </span>
+                 </div>
                 <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "4px", fontFamily: "monospace" }}>
                   Lat {CAMPUS_LAT} // Lng {CAMPUS_LNG} · 1.5km radius
                 </div>

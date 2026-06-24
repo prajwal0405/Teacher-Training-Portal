@@ -362,13 +362,30 @@ function RegisterForm({ onBack }) {
   const handleRegister = (e) => {
     e.preventDefault();
     const { name, email, phone, address, subject, password, confirmPassword } = form;
-    if (!name || !email || !phone || !address || !subject || !password || !confirmPassword) { setToast({ msg: "Please fill all fields.", type: "error" }); return; }
-    if (password !== confirmPassword) { setToast({ msg: "Passwords do not match.", type: "error" }); return; }
-    if (password.length < 8)          { setToast({ msg: "Password must be at least 8 characters.", type: "error" }); return; }
+    if (!name || !email || !phone || !address || !subject || !password || !confirmPassword) {
+      setToast({ msg: "Please fill all required fields.", type: "error" });
+      return;
+    }
+
+    // Validate email format strictly
+    const emailRegex = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email.trim())) {
+      setToast({ msg: "Please enter a valid email address (e.g. teacher@school.com)", type: "error" });
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setToast({ msg: "Passwords do not match.", type: "error" });
+      return;
+    }
+    if (password.length < 8) {
+      setToast({ msg: "Password must be at least 8 characters.", type: "error" });
+      return;
+    }
 
     registerTeacher({
-      name,
-      email,
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
       phone,
       password,
       qualification: "B.Ed",
@@ -411,15 +428,26 @@ function RegisterForm({ onBack }) {
           </div>
         </div>
         {[
-          { key: "email", label: "Email", icon: "📧", type: "email", ph: "teacher@school.edu" },
-          { key: "phone", label: "Phone", icon: "📱", type: "tel", ph: "+91 98765 43210" },
+          { key: "email", label: "Email Address *", icon: "📧", type: "email", ph: "teacher@school.edu" },
+          { key: "phone", label: "Phone *", icon: "📱", type: "tel", ph: "+91 98765 43210" },
         ].map(f => (
           <div key={f.key}>
             <label style={S.label}>{f.label}</label>
-            <div style={{ position: "relative", marginBottom: 12 }}>
+            <div style={{ position: "relative", marginBottom: f.key === "email" ? 4 : 12 }}>
               <span style={S.fieldIcon}>{f.icon}</span>
-              <input style={{ ...S.input, paddingLeft: 32 }} type={f.type} value={form[f.key]} onChange={e => setForm({ ...form, [f.key]: e.target.value })} placeholder={f.ph} />
+              <input
+                style={{ ...S.input, paddingLeft: 32, borderColor: f.key === "email" && form.email && !/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(form.email) ? "#ef4444" : "#e5e7eb" }}
+                type={f.type}
+                value={form[f.key]}
+                onChange={e => setForm({ ...form, [f.key]: e.target.value })}
+                placeholder={f.ph}
+              />
             </div>
+            {f.key === "email" && form.email && (
+              <p style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, marginTop: 2, color: /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(form.email) ? "#10b981" : "#ef4444" }}>
+                {/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(form.email) ? "✅ Valid email address" : "❌ Invalid email — use format: name@domain.com"}
+              </p>
+            )}
           </div>
         ))}
         <div style={{ marginBottom: 12 }}>

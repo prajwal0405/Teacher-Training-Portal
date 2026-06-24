@@ -38,6 +38,8 @@ const courseAssignmentSchema = new mongoose.Schema(
     score: { type: Number, default: null },
     rubric: { type: [rubricItemSchema], default: [] },
     trainer: { type: String, default: "" },
+    reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    reviewedAt: Date,
     notified: { type: Boolean, default: false },
     annotations: { type: [annotationSchema], default: [] },
     submissionFiles: { type: [submissionFileSchema], default: [] }

@@ -1,50 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
-import { Modal, S, SectionCard, StatCard, StatusBadge } from "../components/Shared";
+import { Modal, S, StatCard } from "../components/Shared";
 import { getAdminNotifications, sendAdminNotification, deleteNotification } from "../services/api";
 
-// Template subjects only — body left empty for admin to write original content
 const NOTIFICATION_TEMPLATES = [
-  { name: "Welcome",       subject: "Welcome to SpacECE Teacher Training Portal",          channel: "in_app" },
-  { name: "Assignment",    subject: "Assignment Submission Reminder",                       channel: "in_app" },
-  { name: "Session",       subject: "Upcoming Live Session Reminder",                      channel: "in_app" },
-  { name: "Course Update", subject: "New Course Content Available",                         channel: "in_app" },
-  { name: "Feedback",      subject: "We Value Your Feedback — Share Your Thoughts",         channel: "in_app" },
-  { name: "Announcement",  subject: "Important Announcement for All Teachers",              channel: "in_app" },
+  { name: "Welcome", subject: "Welcome to SpacECE Teacher Training Portal", channel: "in_app" },
+  { name: "Assignment", subject: "Assignment Submission Reminder", channel: "in_app" },
+  { name: "Session", subject: "Upcoming Live Session Reminder", channel: "in_app" },
+  { name: "Course Update", subject: "New Course Content Available", channel: "in_app" },
+  { name: "Feedback", subject: "We Value Your Feedback — Share Your Thoughts", channel: "in_app" },
+  { name: "Announcement", subject: "Important Announcement for All Teachers", channel: "in_app" },
 ];
 
-function groupNotifications(items) {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const weekAgo = new Date(today);
-  weekAgo.setDate(weekAgo.getDate() - 7);
-
-  const groups = { today: [], yesterday: [], week: [], older: [] };
-
-  items.forEach((item) => {
-    const d = item.createdAt ? new Date(item.createdAt) : null;
-    if (!d) { groups.older.push(item); return; }
-    if (d >= today) groups.today.push(item);
-    else if (d >= yesterday) groups.yesterday.push(item);
-    else if (d >= weekAgo) groups.week.push(item);
-    else groups.older.push(item);
-  });
-
-  return groups;
-}
-
-const GROUP_LABELS = {
-  today: "Today",
-  yesterday: "Yesterday",
-  week: "This Week",
-  older: "Older",
+const CHANNEL_CONFIG = {
+  in_app: { icon: "📱", label: "In-app", color: "#6366f1", bg: "#e0e7ff" },
+  email: { icon: "📧", label: "Email", color: "#0ea5e9", bg: "#cffafe" },
+  sms: { icon: "💬", label: "SMS", color: "#10b981", bg: "#d1fae5" },
+  whatsapp: { icon: "🟢", label: "WhatsApp", color: "#25d366", bg: "#dcfce7" },
 };
 
 export default function NotificationsTab({ teachers = [], setToast }) {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [audience, setAudience] = useState("all");
+  const [selectedTeacherId, setSelectedTeacherId] = useState("");
   const [channel, setChannel] = useState("in_app");
   const [sending, setSending] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -53,19 +31,19 @@ export default function NotificationsTab({ teachers = [], setToast }) {
   const [logSearch, setLogSearch] = useState("");
   const [logChannelFilter, setLogChannelFilter] = useState("all");
   const [logStatusFilter, setLogStatusFilter] = useState("all");
-  const [expandedId, setExpandedId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [retryingId, setRetryingId] = useState(null);
 
-  const refreshNotifications = () => {
+  const refreshNotifications = async () => {
     setLoading(true);
-    getAdminNotifications()
-      .then((data) => {
-        setNotifications(data?.notifications || []);
-      })
-      .catch((error) => {
-        setToast?.({ msg: error.message || "Failed to load notifications.", type: "error" });
-      })
-      .finally(() => setLoading(false));
+    try {
+      const data = await getAdminNotifications();
+      setNotifications(data?.notifications || []);
+    } catch (error) {
+      setToast?.({ msg: error.message || "Failed to load notifications.", type: "error" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -78,13 +56,24 @@ export default function NotificationsTab({ teachers = [], setToast }) {
     return teachers.length;
   }, [audience, teachers]);
 
-  const deliveryStats = useMemo(() => ({
-    total: notifications.length,
-    sent: notifications.filter((item) => ["sent"].includes(item.status)).length,
-    delivered: notifications.filter((item) => item.status === "delivered").length,
-    unread: notifications.filter((item) => !item.read).length,
-    failed: notifications.filter((item) => item.status === "failed").length,
-  }), [notifications]);
+  const deliveryStats = useMemo(() => {
+    const byChannel = {};
+    notifications.forEach((n) => {
+      const ch = n.channel || "in_app";
+      if (!byChannel[ch]) byChannel[ch] = { total: 0, delivered: 0, failed: 0 };
+      byChannel[ch].total += 1;
+      if (n.status === "delivered") byChannel[ch].delivered += 1;
+      if (n.status === "failed") byChannel[ch].failed += 1;
+    });
+    return {
+      total: notifications.length,
+      delivered: notifications.filter((item) => item.status === "delivered").length,
+      sent: notifications.filter((item) => item.status === "sent").length,
+      unread: notifications.filter((item) => !item.read).length,
+      failed: notifications.filter((item) => item.status === "failed").length,
+      byChannel,
+    };
+  }, [notifications]);
 
   const bodyCharCount = body.length;
   const bodyMaxChars = 5000;
@@ -114,15 +103,20 @@ export default function NotificationsTab({ teachers = [], setToast }) {
       const data = await sendAdminNotification({
         subject: subject.trim(),
         body: body.trim(),
-        audience,
+        audience: selectedTeacherId ? "specific" : audience,
         channel,
+        teacherIds: selectedTeacherId ? [selectedTeacherId] : [],
       });
-      if (!keepForm) {
-        clearForm();
-      }
-      setToast?.({ msg: `Notification sent to ${data?.recipientCount || 0} teachers.`, type: "success" });
+
+      if (!keepForm) clearForm();
+
+      setToast?.({
+        msg: `Notification sent to ${data?.recipientCount || 0} teachers.`,
+        type: "success",
+      });
+
       setShowPreview(false);
-      refreshNotifications();
+      await refreshNotifications();
     } catch (error) {
       setToast?.({ msg: error.message || "Failed to send notification.", type: "error" });
     } finally {
@@ -130,12 +124,49 @@ export default function NotificationsTab({ teachers = [], setToast }) {
     }
   };
 
-  const handleRetry = (item) => {
-    setSubject(item.title || "");
-    setBody(item.body || "");
-    setChannel(item.channel || "in_app");
-    setAudience("approved");
-    setToast?.({ msg: "Failed notification loaded for resend.", type: "success" });
+  const handleRetry = async (item) => {
+    if (retryingId) return;
+
+    setRetryingId(item._id);
+    try {
+      const retryPayload = {
+        subject: item.subject || item.title || "",
+        body: item.body || "",
+        channel: item.channel || "in_app",
+        audience: item.audience || (item.recipient ? "specific" : "approved"),
+        teacherIds: item.recipient ? [item.recipient._id || item.recipient] : [],
+        isRetry: true,
+        originalNotificationId: item._id,
+      };
+
+      const data = await sendAdminNotification(retryPayload);
+
+      if (data?.recipientCount > 0) {
+        setNotifications((prev) =>
+          prev.map((n) =>
+            n._id === item._id
+              ? {
+                  ...n,
+                  status: "delivered",
+                  error: null,
+                  read: false,
+                  readAt: null,
+                }
+              : n
+          )
+        );
+        setToast?.({
+          msg: `Notification resent successfully to ${data?.recipientCount} teachers.`,
+          type: "success",
+        });
+      } else {
+        setToast?.({ msg: "Retry failed - no recipients found.", type: "error" });
+      }
+    } catch (error) {
+      setToast?.({ msg: error.message || "Retry failed.", type: "error" });
+    } finally {
+      setRetryingId(null);
+    }
   };
 
   const handleDelete = async (id) => {
@@ -158,44 +189,67 @@ export default function NotificationsTab({ teachers = [], setToast }) {
     setToast?.({ msg: "All notifications marked as read.", type: "success" });
   };
 
-  // Filtered delivery log
   const filteredNotifications = useMemo(() => {
     return notifications.filter((item) => {
-      const q = logSearch.toLowerCase();
+      const q = logSearch.toLowerCase().trim();
+
       const matchSearch =
         !q ||
         item.title?.toLowerCase().includes(q) ||
+        item.subject?.toLowerCase().includes(q) ||
         item.body?.toLowerCase().includes(q) ||
         item.recipient?.name?.toLowerCase().includes(q) ||
         item.recipient?.email?.toLowerCase().includes(q);
+
       const matchChannel = logChannelFilter === "all" || item.channel === logChannelFilter;
       const matchStatus = logStatusFilter === "all" || item.status === logStatusFilter;
+
       return matchSearch && matchChannel && matchStatus;
     });
   }, [notifications, logSearch, logChannelFilter, logStatusFilter]);
 
-  const grouped = useMemo(() => groupNotifications(filteredNotifications), [filteredNotifications]);
   const channelOptions = ["all", "in_app", "email", "sms", "whatsapp"];
   const statusOptions = ["all", "sent", "delivered", "failed"];
-
   const hasUnread = notifications.some((n) => !n.read);
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
-      {/* Preview Modal */}
       {showPreview && (
         <Modal title="📨 Preview Notification" onClose={() => setShowPreview(false)}>
-          <div style={{ padding: "16px", background: "#f9fafb", borderRadius: 12, border: "1px solid #f3f4f6", marginBottom: 16 }}>
-            <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>To</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#1c1917" }}>
+          <div
+            style={{
+              padding: "16px",
+              background: "#f8fafc",
+              borderRadius: 12,
+              border: "1px solid #e2e8f0",
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ fontSize: 11, color: "#64748b", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>
+              To
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>
               {audience === "all" ? "All teachers" : audience === "approved" ? "Approved teachers" : "Pending teachers"}
+            </div>
+            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
+              {audienceCount} recipient(s) · {CHANNEL_CONFIG[channel]?.label || "In-app"}
             </div>
             <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{audienceCount} recipient(s) · {channel.replace("_", " ")}</div>
           </div>
-          <div style={{ padding: "16px", background: "white", borderRadius: 12, border: "1px solid #e5e7eb", marginBottom: 16 }}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: "#1c1917", marginBottom: 8 }}>{subject}</div>
-            <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{body}</div>
+
+          <div
+            style={{
+              padding: "16px",
+              background: "white",
+              borderRadius: 12,
+              border: "1px solid #e2e8f0",
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", marginBottom: 8 }}>{subject}</div>
+            <div style={{ fontSize: 13, color: "#334155", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{body}</div>
           </div>
+
           <div style={{ display: "flex", gap: 10 }}>
             <button onClick={() => setShowPreview(false)} style={{ ...S.tblBtn, flex: 1, textAlign: "center" }}>
               Edit
@@ -221,26 +275,30 @@ export default function NotificationsTab({ teachers = [], setToast }) {
         <p style={S.pageSub}>Send real notifications to teachers and review the delivery log.</p>
       </div>
 
-      {/* Stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 14, marginBottom: 20 }}>
-        <StatCard icon="📨" label="Total Sent" val={deliveryStats.total} color="#f59e0b" bg="#fef3c7" />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 14, marginBottom: 20 }}>
+        <StatCard icon="📨" label="Total Sent" val={deliveryStats.total} color="#6366f1" bg="#e0e7ff" />
         <StatCard icon="✅" label="Delivered" val={deliveryStats.delivered} color="#10b981" bg="#d1fae5" />
-        <StatCard icon="🔔" label="Unread" val={deliveryStats.unread} color="#3b82f6" bg="#dbeafe" />
+        <StatCard icon="🔔" label="Unread" val={deliveryStats.unread} color="#0ea5e9" bg="#cffafe" />
         <StatCard icon="⚠️" label="Failed" val={deliveryStats.failed} color="#ef4444" bg="#fee2e2" />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 20 }}>
-        {/* Compose */}
-        <SectionCard title="Compose notification">
-          {/* Templates */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+        <div style={{ background: "white", borderRadius: 16, border: "1px solid #e5e7eb", padding: 20 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 12 }}>Compose Notification</div>
+
           <div style={{ marginBottom: 12 }}>
-            <label style={S.label}>Quick Templates</label>
-            <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 6 }}>Quick Templates</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {NOTIFICATION_TEMPLATES.map((t, i) => (
                 <button
                   key={i}
                   onClick={() => applyTemplate(t)}
-                  style={{ ...S.tblBtn, fontSize: 10, padding: "4px 10px" }}
+                  style={{
+                    ...S.tblBtn,
+                    fontSize: 11,
+                    padding: "5px 10px",
+                    background: "#f1f5f9",
+                  }}
                   title={t.name}
                 >
                   {t.name}
@@ -249,52 +307,79 @@ export default function NotificationsTab({ teachers = [], setToast }) {
             </div>
           </div>
 
-          <label style={S.label}>Audience</label>
-          <select value={audience} onChange={(e) => setAudience(e.target.value)} style={{ ...S.input, marginBottom: 12 }}>
-            <option value="all">All teachers ({teachers.length})</option>
-            <option value="approved">Approved teachers ({teachers.filter((t) => t.status === "approved").length})</option>
-            <option value="pending">Pending teachers ({teachers.filter((t) => t.status === "pending").length})</option>
-          </select>
-
-          <label style={S.label}>Channel</label>
-          <select value={channel} onChange={(e) => setChannel(e.target.value)} style={{ ...S.input, marginBottom: 12 }}>
-            <option value="in_app">In-app notification</option>
-            <option value="email">Email</option>
-            <option value="sms">SMS</option>
-            <option value="whatsapp">WhatsApp</option>
-          </select>
-
-          <div style={{ marginBottom: 12, fontSize: 12, color: "#64748b" }}>
-            Estimated recipients: <b>{audienceCount}</b>
+          <div style={{ marginBottom: 12 }}>
+            <label style={S.label}>Audience</label>
+            <select
+              value={audience}
+              onChange={(e) => { setAudience(e.target.value); setSelectedTeacherId(""); }}
+              style={{ ...S.input, marginBottom: 8, background: "white" }}
+            >
+              <option value="all">All teachers ({teachers.length})</option>
+              <option value="approved">Approved teachers ({teachers.filter((t) => t.status === "approved").length})</option>
+              <option value="pending">Pending teachers ({teachers.filter((t) => t.status === "pending").length})</option>
+              <option value="specific">Specific teacher...</option>
+            </select>
+            {audience === "specific" && (
+              <select
+                value={selectedTeacherId}
+                onChange={(e) => setSelectedTeacherId(e.target.value)}
+                style={{ ...S.input, marginBottom: 12, background: "white" }}
+              >
+                <option value="">Select a teacher...</option>
+                {teachers.map((t) => (
+                  <option key={t._id || t.id} value={t._id || t.id}>
+                    {t.name} {t.email ? `(${t.email})` : ""}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
-          <label style={S.label}>Subject *</label>
-          <input
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            style={{ ...S.input, marginBottom: 12 }}
-            placeholder="Enter notification subject..."
-          />
+          <div style={{ marginBottom: 12 }}>
+            <label style={S.label}>Channel</label>
+            <select value={channel} onChange={(e) => setChannel(e.target.value)} style={{ ...S.input, marginBottom: 8, background: "white" }}>
+              <option value="in_app">📱 In-app notification</option>
+              <option value="email">📧 Email (requires SMTP config)</option>
+              <option value="sms">💬 SMS (requires Twilio config)</option>
+              <option value="whatsapp">🟢 WhatsApp (requires Twilio config)</option>
+            </select>
+          </div>
 
-          <label style={S.label}>Message *</label>
-          <div style={{ position: "relative" }}>
-            <textarea
-              value={body}
-              onChange={(e) => {
-                if (e.target.value.length <= bodyMaxChars) setBody(e.target.value);
-              }}
-              style={{ ...S.input, minHeight: 140, resize: "vertical", marginBottom: 4 }}
-              placeholder="Write your notification message here..."
+          <div style={{ marginBottom: 12, fontSize: 12, color: "#64748b" }}>
+            Estimated recipients: <b style={{ color: "#0f172a" }}>{audienceCount}</b>
+          </div>
+
+          <div style={{ marginBottom: 12 }}>
+            <label style={S.label}>Subject *</label>
+            <input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              style={{ ...S.input, marginBottom: 8, background: "white" }}
+              placeholder="Enter notification subject..."
             />
-            <div
-              style={{
-                fontSize: 10,
-                color: bodyCharCount > bodyMaxChars * 0.9 ? "#ef4444" : "#9ca3af",
-                textAlign: "right",
-                marginBottom: 6,
-              }}
-            >
-              {bodyCharCount}/{bodyMaxChars}
+          </div>
+
+          <div style={{ marginBottom: 4 }}>
+            <label style={S.label}>Message *</label>
+            <div style={{ position: "relative" }}>
+              <textarea
+                value={body}
+                onChange={(e) => {
+                  if (e.target.value.length <= bodyMaxChars) setBody(e.target.value);
+                }}
+                style={{ ...S.input, minHeight: 120, resize: "vertical", marginBottom: 4, background: "white" }}
+                placeholder="Write your notification message here..."
+              />
+              <div
+                style={{
+                  fontSize: 10,
+                  color: bodyCharCount > bodyMaxChars * 0.9 ? "#ef4444" : "#94a3b8",
+                  textAlign: "right",
+                  marginBottom: 6,
+                }}
+              >
+                {bodyCharCount}/{bodyMaxChars}
+              </div>
             </div>
           </div>
 
@@ -318,47 +403,43 @@ export default function NotificationsTab({ teachers = [], setToast }) {
               </button>
             )}
           </div>
-        </SectionCard>
+        </div>
 
-        {/* Delivery Log */}
-        <SectionCard
-          title="Delivery log"
-          action={
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <div style={{ background: "white", borderRadius: 16, border: "1px solid #e5e7eb", padding: 20, display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#111827" }}>Delivery Log</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {hasUnread && (
-                <button onClick={handleMarkAllRead} style={{ ...S.tblBtn, fontSize: 10, color: "#2563eb", borderColor: "#93c5fd" }}>
+                <button onClick={handleMarkAllRead} style={{ ...S.tblBtn, fontSize: 11, color: "#2563eb", borderColor: "#93c5fd" }}>
                   ✓ Mark all read
                 </button>
               )}
-              <span style={{ fontSize: 12, color: "#9ca3af", fontWeight: 600 }}>
-                {filteredNotifications.length} shown
-              </span>
+              <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 500 }}>{filteredNotifications.length} shown</span>
             </div>
-          }
-        >
-          {/* Filters */}
+          </div>
+
           <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
             <input
               value={logSearch}
               onChange={(e) => setLogSearch(e.target.value)}
-              placeholder="Search title, body, teacher..."
-              style={{ ...S.input, marginBottom: 0, flex: 1, minWidth: 140, fontSize: 12, padding: "6px 10px" }}
+              placeholder="Search..."
+              style={{ ...S.input, marginBottom: 0, flex: 1, minWidth: 120, fontSize: 12, padding: "6px 10px", background: "white" }}
             />
             <select
               value={logChannelFilter}
               onChange={(e) => setLogChannelFilter(e.target.value)}
-              style={{ ...S.input, marginBottom: 0, width: 100, fontSize: 12, padding: "6px 8px" }}
+              style={{ ...S.input, marginBottom: 0, width: 110, fontSize: 12, padding: "6px 8px", background: "white" }}
             >
               {channelOptions.map((o) => (
                 <option key={o} value={o}>
-                  {o === "all" ? "All channels" : o.replace("_", " ")}
+                  {o === "all" ? "All channels" : CHANNEL_CONFIG[o]?.label || o}
                 </option>
               ))}
             </select>
             <select
               value={logStatusFilter}
               onChange={(e) => setLogStatusFilter(e.target.value)}
-              style={{ ...S.input, marginBottom: 0, width: 90, fontSize: 12, padding: "6px 8px" }}
+              style={{ ...S.input, marginBottom: 0, width: 100, fontSize: 12, padding: "6px 8px", background: "white" }}
             >
               {statusOptions.map((o) => (
                 <option key={o} value={o}>
@@ -374,142 +455,85 @@ export default function NotificationsTab({ teachers = [], setToast }) {
             <div style={{ textAlign: "center", padding: 30, color: "#9ca3af" }}>
               <div style={{ fontSize: 28, marginBottom: 6 }}>📭</div>
               <div style={{ fontSize: 13, fontWeight: 600 }}>No notifications found</div>
-              <div style={{ fontSize: 11, marginTop: 2 }}>
-                {logSearch || logChannelFilter !== "all" || logStatusFilter !== "all"
-                  ? "Try adjusting your filters."
-                  : "Send your first notification above."}
-              </div>
             </div>
           ) : (
-            Object.entries(grouped).map(([groupKey, items]) => {
-              if (items.length === 0) return null;
-              return (
-                <div key={groupKey}>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      color: "#9ca3af",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                      padding: "8px 0 4px",
-                      borderBottom: "1px solid #f3f4f6",
-                      marginBottom: 4,
-                    }}
-                  >
-                    {GROUP_LABELS[groupKey]} · {items.length}
-                  </div>
-                  {items.map((item) => {
-                    const isExpanded = expandedId === item._id;
+            <div style={{ flex: 1, overflowY: "auto", maxHeight: 300 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ background: "#f8fafc" }}>
+                    <th style={{ padding: "8px 10px", fontSize: 11, fontWeight: 600, color: "#64748b", textAlign: "left" }}>Date</th>
+                    <th style={{ padding: "8px 10px", fontSize: 11, fontWeight: 600, color: "#64748b", textAlign: "left" }}>Subject</th>
+                    <th style={{ padding: "8px 10px", fontSize: 11, fontWeight: 600, color: "#64748b", textAlign: "left" }}>Recipient</th>
+                    <th style={{ padding: "8px 10px", fontSize: 11, fontWeight: 600, color: "#64748b", textAlign: "center" }}>Status</th>
+                    <th style={{ padding: "8px 10px", fontSize: 11, fontWeight: 600, color: "#64748b", textAlign: "center" }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredNotifications.map((item) => {
                     return (
-                      <div
-                        key={item._id}
-                        style={{
-                          padding: "10px 12px",
-                          borderBottom: "1px solid #f3f4f6",
-                          cursor: "pointer",
-                          background: item.read ? "transparent" : "#fffbeb",
-                          borderRadius: isExpanded ? 10 : 0,
-                          marginBottom: 2,
-                          transition: "background 0.15s",
-                        }}
-                        onClick={() => setExpandedId(isExpanded ? null : item._id)}
-                      >
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-                              {!item.read && (
-                                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#f59e0b", flexShrink: 0 }} />
-                              )}
-                              <div
-                                style={{
-                                  fontSize: 13,
-                                  fontWeight: item.read ? 600 : 800,
-                                  color: "#1c1917",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                }}
-                              >
-                                {item.title}
-                              </div>
-                            </div>
-                            {!isExpanded && (
-                              <div style={{ fontSize: 12, color: "#64748b", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                {item.body}
-                              </div>
-                            )}
-                            {isExpanded && (
-                              <div style={{ marginTop: 8 }}>
-                                <div
-                                  style={{
-                                    fontSize: 12,
-                                    color: "#374151",
-                                    lineHeight: 1.6,
-                                    whiteSpace: "pre-wrap",
-                                    marginBottom: 10,
-                                    background: "#f9fafb",
-                                    padding: 10,
-                                    borderRadius: 8,
-                                  }}
-                                >
-                                  {item.body}
-                                </div>
-                                <div style={{ fontSize: 11, color: "#6b7280", lineHeight: 1.8 }}>
-                                  <div>
-                                    To: <b>{item.recipient?.name || "Unknown"}</b> ({item.recipient?.email || "No email"})
-                                  </div>
-                                  <div>
-                                    Channel: <b style={{ textTransform: "capitalize" }}>{item.channel?.replace("_", " ") || "in-app"}</b>
-                                  </div>
-                                  <div>
-                                    Sent: <b>{item.createdAt ? new Date(item.createdAt).toLocaleString("en-IN") : "Unknown"}</b>
-                                  </div>
-                                  {item.read && (
-                                    <div>
-                                      Read: <b>{item.readAt ? new Date(item.readAt).toLocaleString("en-IN") : "Yes"}</b>
-                                    </div>
-                                  )}
-                                </div>
-                                <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-                                  {item.status === "failed" && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleRetry(item);
-                                      }}
-                                      style={{ ...S.tblBtn, color: "#2563eb", borderColor: "#93c5fd", fontSize: 10 }}
-                                    >
-                                      🔄 Retry
-                                    </button>
-                                  )}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleDelete(item._id);
-                                    }}
-                                    disabled={deletingId === item._id}
-                                    style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5", fontSize: 10, marginLeft: "auto" }}
-                                  >
-                                    {deletingId === item._id ? "..." : "🗑️ Delete"}
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end", flexShrink: 0 }}>
-                            <StatusBadge status={item.status} />
-                            {!isExpanded && <StatusBadge status={item.read ? "active" : "pending"} />}
-                          </div>
-                        </div>
-                      </div>
+                      <tr key={item._id} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                        <td style={{ padding: "10px", fontSize: 12, color: "#64748b" }}>
+                          {item.createdAt ? new Date(item.createdAt).toLocaleDateString("en-IN") : "—"}
+                        </td>
+                        <td style={{ padding: "10px", fontSize: 13, color: "#111827", fontWeight: 500 }}>
+                          {item.subject || item.title}
+                        </td>
+                        <td style={{ padding: "10px", fontSize: 12, color: "#64748b" }}>
+                          {item.recipient?.name || "All teachers"}
+                        </td>
+                        <td style={{ padding: "10px", textAlign: "center" }}>
+                          <span
+                            style={{
+                              padding: "3px 10px",
+                              borderRadius: 20,
+                              fontSize: 11,
+                              fontWeight: 600,
+                              background: item.status === "failed" ? "#fee2e2" : item.status === "delivered" ? "#d1fae5" : "#fef3c7",
+                              color: item.status === "failed" ? "#991b1b" : item.status === "delivered" ? "#065f46" : "#92400e",
+                            }}
+                          >
+                            {item.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: "10px", textAlign: "center" }}>
+                          {item.status === "failed" && (
+                            <button
+                              onClick={() => handleRetry(item)}
+                              disabled={retryingId === item._id}
+                              style={{
+                                ...S.tblBtn,
+                                color: "#2563eb",
+                                borderColor: "#93c5fd",
+                                fontSize: 11,
+                                padding: "4px 10px",
+                              }}
+                            >
+                              {retryingId === item._id ? "Retrying..." : "🔄 Retry"}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDelete(item._id)}
+                            disabled={deletingId === item._id}
+                            style={{
+                              ...S.tblBtn,
+                              color: "#dc2626",
+                              borderColor: "#fca5a5",
+                              fontSize: 11,
+                              padding: "4px 10px",
+                              marginLeft: 6,
+                            }}
+                          >
+                            {deletingId === item._id ? "..." : "🗑️"}
+                          </button>
+                        </td>
+                      </tr>
                     );
                   })}
-                </div>
-              );
-            })
+                </tbody>
+              </table>
+            </div>
           )}
-        </SectionCard>
+        </div>
       </div>
     </div>
   );

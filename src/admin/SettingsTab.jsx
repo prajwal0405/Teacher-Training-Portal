@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Modal, S, SectionCard, StatCard, StatusBadge } from "../components/Shared";
-import { getAdminDashboard, getAdminTeachers, getTrainers, getCourses, getAdminUsers, getPortalSettings, updatePortalSettings } from "../services/api";
+import { getAdminDashboard, getAdminTeachers, getTrainers, getCourses, getAdminUsers, getPortalSettings, updatePortalSettings, testSmtpEmail } from "../services/api";
+import { setLanguage, getCurrentLanguage } from "../services/i18n";
 
 const safeBool = (val, defaultVal = false) => {
   if (typeof val === "boolean") return val;
@@ -18,17 +19,15 @@ export default function SettingsTab({ setToast }) {
   const [activeSection, setActiveSection] = useState("portal");
   const [settings, setSettings] = useState({
     portalName: "SpacECE Teacher Training Portal",
-    defaultLanguage: "English",
+    adminLanguage: getCurrentLanguage(),
     timezone: "Asia/Kolkata (IST)",
     maintenanceMode: false,
   });
   const [emailConfig, setEmailConfig] = useState({
-    smtpHost: "",
-    smtpPort: "587",
-    smtpUser: "",
-    smtpPass: "",
-    fromEmail: "",
-    fromName: "",
+    smtpHost: "", smtpPort: 587, smtpUser: "", smtpPass: "", fromEmail: "", fromName: "",
+  });
+  const [twilioConfig, setTwilioConfig] = useState({
+    twilioSid: "", twilioToken: "", twilioFrom: "",
   });
   const [passwordPolicy, setPasswordPolicy] = useState({
     minLength: 8,
@@ -42,6 +41,9 @@ export default function SettingsTab({ setToast }) {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadErrors, setLoadErrors] = useState([]);
+  const [testEmailTo, setTestEmailTo] = useState("");
+  const [testEmailSending, setTestEmailSending] = useState(false);
+  const [testEmailResult, setTestEmailResult] = useState(null);
   const [roleUsers, setRoleUsers] = useState([]);
   const [showUserModal, setShowUserModal] = useState(false);
   const [selectedRole, setSelectedRole] = useState("");
@@ -60,7 +62,7 @@ export default function SettingsTab({ setToast }) {
         if (Object.keys(serverSettings).length > 0) {
           setSettings((prev) => ({
             portalName: serverSettings.portalName || prev.portalName,
-            defaultLanguage: serverSettings.defaultLanguage || prev.defaultLanguage,
+            adminLanguage: serverSettings.adminLanguage || prev.adminLanguage,
             timezone: serverSettings.timezone || prev.timezone,
             maintenanceMode: safeBool(serverSettings.maintenanceMode, prev.maintenanceMode),
           }));
@@ -72,6 +74,11 @@ export default function SettingsTab({ setToast }) {
             fromEmail: serverSettings.fromEmail || prev.fromEmail,
             fromName: serverSettings.fromName || prev.fromName,
           }));
+          setTwilioConfig((prev) => ({
+            twilioSid: serverSettings.twilioSid || prev.twilioSid,
+            twilioToken: serverSettings.twilioToken || prev.twilioToken,
+            twilioFrom: serverSettings.twilioFrom || prev.twilioFrom,
+          }));
           setPasswordPolicy((prev) => ({
             minLength: safeNum(serverSettings.minLength, prev.minLength),
             requireUppercase: safeBool(serverSettings.requireUppercase, prev.requireUppercase),
@@ -80,7 +87,7 @@ export default function SettingsTab({ setToast }) {
             expiryDays: safeNum(serverSettings.expiryDays, prev.expiryDays),
           }));
         }
-      } catch (err) {
+      } catch {
         errors.push("settings");
       }
 
@@ -89,7 +96,7 @@ export default function SettingsTab({ setToast }) {
       try {
         const data = await getAdminDashboard();
         if (!cancelled) dashboardData = data || {};
-      } catch (err) {
+      } catch {
         errors.push("dashboard");
       }
 
@@ -98,7 +105,7 @@ export default function SettingsTab({ setToast }) {
       try {
         const data = await getAdminTeachers();
         if (!cancelled) teachers = data?.teachers || [];
-      } catch (err) {
+      } catch {
         errors.push("teachers");
       }
 
@@ -107,7 +114,7 @@ export default function SettingsTab({ setToast }) {
       try {
         const data = await getTrainers();
         if (!cancelled) trainers = data?.trainers || [];
-      } catch (err) {
+      } catch {
         errors.push("trainers");
       }
 
@@ -116,7 +123,7 @@ export default function SettingsTab({ setToast }) {
       try {
         const data = await getCourses();
         if (!cancelled) courses = data?.courses || [];
-      } catch (err) {
+      } catch {
         errors.push("courses");
       }
 
@@ -125,7 +132,7 @@ export default function SettingsTab({ setToast }) {
       try {
         const data = await getAdminUsers();
         if (!cancelled) allUsers = data?.users || [];
-      } catch (err) {
+      } catch {
         errors.push("users");
       }
 
@@ -178,23 +185,25 @@ export default function SettingsTab({ setToast }) {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      // Coerce booleans properly before sending
       const payload = {
         portalName: settings.portalName,
-        defaultLanguage: settings.defaultLanguage,
+        adminLanguage: settings.adminLanguage,
         timezone: settings.timezone,
         maintenanceMode: settings.maintenanceMode,
+        minLength: passwordPolicy.minLength,
+        requireUppercase: passwordPolicy.requireUppercase,
+        requireNumbers: passwordPolicy.requireNumbers,
+        requireSpecial: passwordPolicy.requireSpecial,
+        expiryDays: passwordPolicy.expiryDays,
         smtpHost: emailConfig.smtpHost,
         smtpPort: emailConfig.smtpPort,
         smtpUser: emailConfig.smtpUser,
         smtpPass: emailConfig.smtpPass,
         fromEmail: emailConfig.fromEmail,
         fromName: emailConfig.fromName,
-        minLength: passwordPolicy.minLength,
-        requireUppercase: passwordPolicy.requireUppercase,
-        requireNumbers: passwordPolicy.requireNumbers,
-        requireSpecial: passwordPolicy.requireSpecial,
-        expiryDays: passwordPolicy.expiryDays,
+        twilioSid: twilioConfig.twilioSid,
+        twilioToken: twilioConfig.twilioToken,
+        twilioFrom: twilioConfig.twilioFrom,
       };
 
       const data = await updatePortalSettings(payload);
@@ -207,9 +216,33 @@ export default function SettingsTab({ setToast }) {
     } finally {
       setSaving(false);
     }
-  }, [settings, emailConfig, passwordPolicy, setToast]);
+  }, [settings, passwordPolicy, emailConfig, twilioConfig, setToast]);
 
   const markDirty = useCallback(() => setDirty(true), []);
+
+  const handleTestEmail = useCallback(async () => {
+    if (!testEmailTo.trim()) {
+      setTestEmailResult({ success: false, message: "Please enter a recipient email address." });
+      return;
+    }
+    setTestEmailSending(true);
+    setTestEmailResult(null);
+    try {
+      const data = await testSmtpEmail(testEmailTo.trim());
+      setTestEmailResult({ success: data.success, message: data.message });
+      if (data.success) {
+        setToast?.({ msg: `✅ Test email sent to ${testEmailTo}!`, type: "success" });
+      } else {
+        setToast?.({ msg: data.message || "Test email failed.", type: "error" });
+      }
+    } catch (error) {
+      const msg = error.message || "Failed to send test email.";
+      setTestEmailResult({ success: false, message: msg });
+      setToast?.({ msg, type: "error" });
+    } finally {
+      setTestEmailSending(false);
+    }
+  }, [testEmailTo, setToast]);
 
   const roleCards = [
     {
@@ -245,6 +278,7 @@ export default function SettingsTab({ setToast }) {
   const sections = [
     { key: "portal", label: "⚙️ Portal" },
     { key: "email", label: "📧 Email" },
+    { key: "messaging", label: "📱 SMS & WhatsApp" },
     { key: "security", label: "🔒 Security" },
     { key: "roles", label: "🛡️ Roles" },
   ];
@@ -254,7 +288,6 @@ export default function SettingsTab({ setToast }) {
     setShowUserModal(true);
   };
 
-  // Find users matching the selected role label
   const modalUsers = (() => {
     const roleMap = {
       "Super Admin": "admin",
@@ -265,7 +298,6 @@ export default function SettingsTab({ setToast }) {
     const roleKey = roleMap[selectedRole] || "";
     const matched = roleUsers.find((r) => r.role === roleKey);
     if (!matched) return [];
-
     if (selectedRole === "Pending Teachers") {
       return matched.users.filter((u) => u.status === "pending");
     }
@@ -336,10 +368,18 @@ export default function SettingsTab({ setToast }) {
                   <input style={S.input} value={settings.portalName} onChange={(e) => { setSettings((p) => ({ ...p, portalName: e.target.value })); markDirty(); }} />
                 </div>
                 <div style={{ marginBottom: 12 }}>
-                  <label style={S.label}>Default Language</label>
-                  <select style={S.input} value={settings.defaultLanguage} onChange={(e) => { setSettings((p) => ({ ...p, defaultLanguage: e.target.value })); markDirty(); }}>
-                    {["English", "Hindi", "Marathi", "Tamil", "Telugu"].map((l) => (<option key={l}>{l}</option>))}
+                  <label style={S.label}>Admin Panel Language</label>
+                  <select style={S.input} value={settings.adminLanguage} onChange={(e) => {
+                    const newLang = e.target.value;
+                    setSettings((p) => ({ ...p, adminLanguage: newLang }));
+                    setLanguage(newLang);
+                    markDirty();
+                  }}>
+                    <option value="English">English</option>
+                    <option value="Hindi">हिन्दी (Hindi)</option>
+                    <option value="Marathi">मराठी (Marathi)</option>
                   </select>
+                  <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>This language applies to your admin panel only. Teachers control their own language in My Profile.</div>
                 </div>
                 <div style={{ marginBottom: 12 }}>
                   <label style={S.label}>Timezone</label>
@@ -383,41 +423,115 @@ export default function SettingsTab({ setToast }) {
           {activeSection === "email" && (
             <SectionCard title="📧 Email (SMTP) Configuration">
               <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16, lineHeight: 1.5 }}>
-                Configure SMTP settings for sending email notifications to teachers. Save after making changes.
+                Configure SMTP settings to send real emails to registered teacher email addresses. Used for notifications, password resets, and system alerts.
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div>
                   <label style={S.label}>SMTP Host</label>
-                  <input style={S.input} value={emailConfig.smtpHost} onChange={(e) => { setEmailConfig((p) => ({ ...p, smtpHost: e.target.value })); markDirty(); }} placeholder="smtp.gmail.com" />
+                  <input type="text" style={S.input} placeholder="smtp.gmail.com" value={emailConfig.smtpHost} onChange={(e) => { setEmailConfig((p) => ({ ...p, smtpHost: e.target.value })); markDirty(); }} />
                 </div>
                 <div>
                   <label style={S.label}>SMTP Port</label>
-                  <select style={S.input} value={emailConfig.smtpPort} onChange={(e) => { setEmailConfig((p) => ({ ...p, smtpPort: e.target.value })); markDirty(); }}>
-                    <option value="587">587 (TLS)</option>
-                    <option value="465">465 (SSL)</option>
-                    <option value="25">25 (Plain)</option>
-                  </select>
+                  <input type="number" style={S.input} placeholder="587" value={emailConfig.smtpPort} onChange={(e) => { setEmailConfig((p) => ({ ...p, smtpPort: Number(e.target.value) })); markDirty(); }} />
                 </div>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div>
                   <label style={S.label}>SMTP Username</label>
-                  <input style={S.input} value={emailConfig.smtpUser} onChange={(e) => { setEmailConfig((p) => ({ ...p, smtpUser: e.target.value })); markDirty(); }} placeholder="admin@spaceece.com" />
+                  <input type="text" style={S.input} placeholder="your-email@gmail.com" value={emailConfig.smtpUser} onChange={(e) => { setEmailConfig((p) => ({ ...p, smtpUser: e.target.value })); markDirty(); }} />
                 </div>
                 <div>
-                  <label style={S.label}>SMTP Password</label>
-                  <input type="password" style={S.input} value={emailConfig.smtpPass} onChange={(e) => { setEmailConfig((p) => ({ ...p, smtpPass: e.target.value })); markDirty(); }} placeholder="••••••••" />
+                  <label style={S.label}>SMTP Password / App Password</label>
+                  <input type="password" style={S.input} placeholder="••••••••" value={emailConfig.smtpPass} onChange={(e) => { setEmailConfig((p) => ({ ...p, smtpPass: e.target.value })); markDirty(); }} />
                 </div>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div>
                   <label style={S.label}>From Email</label>
-                  <input style={S.input} value={emailConfig.fromEmail} onChange={(e) => { setEmailConfig((p) => ({ ...p, fromEmail: e.target.value })); markDirty(); }} placeholder="noreply@spaceece.com" />
+                  <input type="email" style={S.input} placeholder="noreply@portal.com" value={emailConfig.fromEmail} onChange={(e) => { setEmailConfig((p) => ({ ...p, fromEmail: e.target.value })); markDirty(); }} />
                 </div>
                 <div>
                   <label style={S.label}>From Name</label>
-                  <input style={S.input} value={emailConfig.fromName} onChange={(e) => { setEmailConfig((p) => ({ ...p, fromName: e.target.value })); markDirty(); }} placeholder="SpacECE Admin" />
+                  <input type="text" style={S.input} placeholder="SpacECE Portal" value={emailConfig.fromName} onChange={(e) => { setEmailConfig((p) => ({ ...p, fromName: e.target.value })); markDirty(); }} />
                 </div>
+              </div>
+
+              <div style={{ background: "#fef3c7", padding: "12px 16px", borderRadius: 10, border: "1px solid #fbbf24", fontSize: 12, color: "#92400e", marginBottom: 20 }}>
+                💡 <strong>Gmail users:</strong> Use host <code>smtp.gmail.com</code>, port <code>587</code>, and generate an <strong>App Password</strong> (not your regular password) from Google Account → Security → 2-Step Verification → App passwords.
+              </div>
+
+              {/* ─── Test Email ─── */}
+              <div style={{ borderTop: "1px solid #f3f4f6", paddingTop: 18 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#1c1917", marginBottom: 4 }}>🧪 Test Email Delivery</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12, lineHeight: 1.5 }}>
+                  Save your SMTP settings first, then send a test email to verify delivery is working. You can use your own email address to confirm receipt.
+                </div>
+                <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <div style={{ flex: 1 }}>
+                    <input
+                      id="test-email-recipient"
+                      type="email"
+                      style={{ ...S.input, marginBottom: 0 }}
+                      placeholder="Enter recipient email to test (e.g. your@email.com)"
+                      value={testEmailTo}
+                      onChange={(e) => { setTestEmailTo(e.target.value); setTestEmailResult(null); }}
+                    />
+                  </div>
+                  <button
+                    id="btn-send-test-email"
+                    onClick={handleTestEmail}
+                    disabled={testEmailSending}
+                    style={{
+                      ...S.primaryBtn,
+                      whiteSpace: "nowrap",
+                      opacity: testEmailSending ? 0.7 : 1,
+                      minWidth: 130,
+                    }}
+                  >
+                    {testEmailSending ? "Sending..." : "📤 Send Test"}
+                  </button>
+                </div>
+
+                {testEmailResult && (
+                  <div style={{
+                    marginTop: 12,
+                    padding: "12px 16px",
+                    borderRadius: 10,
+                    background: testEmailResult.success ? "#d1fae5" : "#fee2e2",
+                    border: `1px solid ${testEmailResult.success ? "#6ee7b7" : "#fca5a5"}`,
+                    fontSize: 13,
+                    color: testEmailResult.success ? "#065f46" : "#991b1b",
+                    fontWeight: 600,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}>
+                    <span>{testEmailResult.success ? "✅" : "❌"}</span>
+                    <span>{testEmailResult.message}</span>
+                  </div>
+                )}
+              </div>
+            </SectionCard>
+          )}
+
+          {/* SMS / WhatsApp Configuration */}
+          {activeSection === "messaging" && (
+            <SectionCard title="💬 SMS & WhatsApp (Twilio) Configuration">
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16, lineHeight: 1.5 }}>
+                Configure Twilio credentials to send real SMS and WhatsApp messages to registered teacher phone numbers.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div>
+                  <label style={S.label}>Twilio Account SID</label>
+                  <input type="text" style={S.input} placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxx" value={twilioConfig.twilioSid} onChange={(e) => { setTwilioConfig((p) => ({ ...p, twilioSid: e.target.value })); markDirty(); }} />
+                </div>
+                <div>
+                  <label style={S.label}>Twilio Auth Token</label>
+                  <input type="password" style={S.input} placeholder="••••••••••••••••••••••••••••" value={twilioConfig.twilioToken} onChange={(e) => { setTwilioConfig((p) => ({ ...p, twilioToken: e.target.value })); markDirty(); }} />
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={S.label}>Twilio From Number</label>
+                  <input type="text" style={S.input} placeholder="+1234567890 (for WhatsApp: whatsapp:+1234567890)" value={twilioConfig.twilioFrom} onChange={(e) => { setTwilioConfig((p) => ({ ...p, twilioFrom: e.target.value })); markDirty(); }} />
+                </div>
+              </div>
+              <div style={{ background: "#fef3c7", padding: "12px 16px", borderRadius: 10, border: "1px solid #fbbf24", fontSize: 12, color: "#92400e" }}>
+                Get credentials from <a href="https://console.twilio.com" target="_blank" rel="noopener noreferrer" style={{ color: "#2563eb" }}>Twilio Console</a>. For WhatsApp, enable the WhatsApp sandbox and use <code>whatsapp:+14155238886</code> as the from number.
               </div>
             </SectionCard>
           )}
@@ -463,7 +577,7 @@ export default function SettingsTab({ setToast }) {
           {activeSection === "roles" && (
             <SectionCard title="🛡️ Role-Based Access Control">
               <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 14, lineHeight: 1.5 }}>
-                Live user counts from the database. Click "View Users" to see the actual users assigned to each role.
+                Live user counts from the database. Click &quot;View Users&quot; to see the actual users assigned to each role.
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {roleCards.map((r, i) => (

@@ -1,6 +1,7 @@
  import { useState } from "react";
 import { Modal, S, SearchBar, SectionCard, StatCard, StatusBadge, Toast } from "../components/Shared";
-import { MOCK_QUESTION_BANK } from "../data/mockData";
+// Question bank is now empty — questions can be added via the form below
+const MOCK_QUESTION_BANK = [];
  export default function AssessmentManagementTab({ assessmentsData, setAssessmentsData, setToast }) {
   const [search, setSearch] = useState("");
   const [addModal, setAddModal] = useState(false);

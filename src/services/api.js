@@ -125,6 +125,11 @@ export function getClasses(centerId = "") {
   return request(path);
 }
 
+export function getClassLogs(classId = "") {
+  const path = classId ? `/api/admin/classes/logs?classId=${classId}` : "/api/admin/classes/logs";
+  return request(path);
+}
+
 export function createClass(classData) {
   return request("/api/admin/classes", {
     method: "POST",
@@ -151,8 +156,13 @@ export function getChildren(params = {}) {
   return request(`/api/admin/children?${searchParams.toString()}`);
 }
 
-export function getTeacherChildren() {
-  return request("/api/teacher/children");
+export function getTeacherChildren(classId = "") {
+  const url = classId ? `/api/teacher/children?classId=${classId}` : "/api/teacher/children";
+  return request(url);
+}
+
+export function getTeacherClasses() {
+  return request("/api/teacher/classes");
 }
 
 export function createTeacherChild(childData) {
@@ -188,6 +198,26 @@ export function getAdminUsers(params = {}) {
   return request(`/api/admin/users?${searchParams.toString()}`);
 }
 
+export function updateUserRole(id, role) {
+  return request(`/api/admin/users/${id}/role`, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export function updateUserStatus(id, status) {
+  return request(`/api/admin/users/${id}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function deleteUser(id) {
+  return request(`/api/admin/users/${id}`, {
+    method: "DELETE",
+  });
+}
+
 // Teacher Management APIs
 export function getAdminTeachers() {
   return request("/api/admin/teachers");
@@ -207,9 +237,35 @@ export function updateTeacherStatus(id, status) {
   });
 }
 
+export function assignTeacherToCenter(teacherId, centerId) {
+  return request(`/api/admin/teachers/${teacherId}/assign-center`, {
+    method: "PATCH",
+    body: JSON.stringify({ centerId }),
+  });
+}
+
+export function sendDirectMessageToTeacher(teacherId, payload) {
+  return request(`/api/admin/teachers/${teacherId}/message`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function deleteTeacher(id) {
   return request(`/api/admin/teachers/${id}`, {
     method: "DELETE"
+  });
+}
+
+export function blockTeacher(id) {
+  return request(`/api/admin/teachers/${id}/block`, {
+    method: "PATCH"
+  });
+}
+
+export function unblockTeacher(id) {
+  return request(`/api/admin/teachers/${id}/unblock`, {
+    method: "PATCH"
   });
 }
 
@@ -221,6 +277,13 @@ export function updateTeacherMe(profileData) {
   return request("/api/teacher/me", {
     method: "PATCH",
     body: JSON.stringify(profileData)
+  });
+}
+
+export function updateTeacherLanguage(lang) {
+  return request("/api/teacher/me/language", {
+    method: "PATCH",
+    body: JSON.stringify({ language: lang })
   });
 }
 
@@ -255,6 +318,44 @@ export function deleteSchedule(id) {
   return request(`/api/schedules/${id}`, { method: "DELETE" });
 }
 
+export function getTeacherAssessmentResults() {
+  return request("/api/teacher/assessment-results");
+}
+
+export function getTrainerMe() {
+  return request("/api/trainer/me");
+}
+
+export function getTrainerBatches() {
+  return request("/api/trainer/batches");
+}
+
+export function getTrainerTeachers() {
+  return request("/api/trainer/teachers");
+}
+
+export function createTrainerAssignment(assignmentData) {
+  return request("/api/trainer/assignments", {
+    method: "POST",
+    body: JSON.stringify(assignmentData)
+  });
+}
+
+export function reviewTrainerAssignment(assignmentId, reviewData) {
+  return request(`/api/trainer/assignments/${assignmentId}/review`, {
+    method: "PATCH",
+    body: JSON.stringify(reviewData)
+  });
+}
+
+export function getTrainerAttendanceSummary() {
+  return request("/api/trainer/attendance/summary");
+}
+
+export function getTrainerPerformance() {
+  return request("/api/trainer/performance");
+}
+
 export function askTeacherChatbot(message) {
   return request("/api/teacher/chatbot", {
     method: "POST",
@@ -275,7 +376,7 @@ export function createCourse(courseData) {
 }
 
 export function generateCourseFromAI(courseData) {
-  return request("/api/courses/generate", {
+  return request("/api/courses/generate-from-ai", {
     method: "POST",
     body: JSON.stringify(courseData)
   });
@@ -317,6 +418,34 @@ export function updateCourseAssignmentProgress(assignmentId, payload) {
     method: "PATCH",
     body: JSON.stringify(payload)
   });
+}
+
+export function getCourseNotes(courseId) {
+  return request(`/api/courses/${courseId}/notes`);
+}
+
+export function createCourseNote(courseId, noteData) {
+  return request(`/api/courses/${courseId}/notes`, {
+    method: "POST",
+    body: JSON.stringify(noteData)
+  });
+}
+
+export function updateCourseNote(noteId, noteData) {
+  return request(`/api/courses/notes/${noteId}`, {
+    method: "PATCH",
+    body: JSON.stringify(noteData)
+  });
+}
+
+export function deleteCourseNote(noteId) {
+  return request(`/api/courses/notes/${noteId}`, {
+    method: "DELETE"
+  });
+}
+
+export function getTeacherCourseNotes(courseId) {
+  return request(`/api/teacher/courses/${courseId}/notes`);
 }
 
 
@@ -387,8 +516,9 @@ export function reviewLessonReport(reportId, payload) {
 }
 
 // Activity APIs
-export function getActivities() {
-  return request("/api/activities");
+export function getActivities(params = {}) {
+  const searchParams = new URLSearchParams(params);
+  return request(`/api/activities?${searchParams.toString()}`);
 }
 
 export function submitActivity(activityData) {
@@ -513,6 +643,14 @@ export function deleteNotification(id) {
     method: "DELETE"
   });
 }
+
+export function testSmtpEmail(to) {
+  return request("/api/admin/settings/test-email", {
+    method: "POST",
+    body: JSON.stringify({ to }),
+  });
+}
+
 
 // Reports/Analytics API
 export function getAdminDashboard() {
