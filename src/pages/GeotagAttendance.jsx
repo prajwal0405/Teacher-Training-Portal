@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { SectionCard, S } from "../components/Shared";
+import { getTeacherAttendance, saveTeacherAttendance } from "../services/api";
 
 export default function GeotagAttendance({ user }) {
   const [loading, setLoading] = useState(false);
@@ -11,9 +12,6 @@ export default function GeotagAttendance({ user }) {
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-
-  const storageKey = `spaceece_geotag_logs_${user?.email || "teacher"}`;
-  const attendanceKey = `spaceece_attendance_${user?.email || "teacher"}`;
 
   const CAMPUS_LAT = 18.6675;
   const CAMPUS_LNG = 73.8961;
@@ -39,29 +37,98 @@ export default function GeotagAttendance({ user }) {
   };
 
   // --- Attendance State (persisted per day) ---
-  // Structure: { "2026-06-11": { checkedIn: true, checkedOut: false, checkInTime: "...", checkOutTime: "..." } }
-  const [attendanceMap, setAttendanceMap] = useState(() => {
-    try {
-      const saved = localStorage.getItem(attendanceKey);
-      return saved ? JSON.parse(saved) : {};
-    } catch (_e) { return {}; }
-  });
-
+  const [attendanceMap, setAttendanceMap] = useState({});
   const todayKey = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(todayDate).padStart(2, "0")}`;
   const todayRecord = attendanceMap[todayKey] || {};
 
-  const saveAttendance = (updated) => {
-    setAttendanceMap(updated);
-    localStorage.setItem(attendanceKey, JSON.stringify(updated));
-  };
-
   // --- History Logs ---
-  const [historyLogs, setHistoryLogs] = useState(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      return saved ? JSON.parse(saved) : [];
-    } catch (_e) { return []; }
-  });
+  const [historyLogs, setHistoryLogs] = useState([]);
+
+  // Fetch from backend on mount
+  useEffect(() => {
+    const fetchAttendance = async () => {
+      try {
+        setLoading(true);
+        const data = await getTeacherAttendance();
+        if (data && data.records) {
+          const map = {};
+          const logs = [];
+          
+          data.records.forEach(record => {
+            const dateObj = new Date(record.attendanceDate);
+            const dateKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, "0")}-${String(dateObj.getDate()).padStart(2, "0")}`;
+            
+            let parsedNote = {};
+            try {
+              if (record.note) {
+                parsedNote = JSON.parse(record.note);
+              }
+            } catch (e) {
+              parsedNote = { noteText: record.note };
+            }
+            
+            map[dateKey] = {
+              checkedIn: parsedNote.checkedIn || (record.status === "present"),
+              checkedOut: parsedNote.checkedOut || false,
+              checkInTime: parsedNote.checkInTime || (record.status === "present" ? "09:00 AM" : ""),
+              checkOutTime: parsedNote.checkOutTime || "",
+              snapshot: parsedNote.snapshot || null,
+              distanceOffset: parsedNote.distanceOffset || 0
+            };
+            
+            const dateStr = dateObj.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+            
+            if (parsedNote.checkInTime) {
+              logs.push({
+                id: `GEO-${record._id}-in`,
+                type: "checkin",
+                date: dateStr,
+                time: parsedNote.checkInTime,
+                coords: parsedNote.coords || `${record.latitude || CAMPUS_LAT}, ${record.longitude || CAMPUS_LNG}`,
+                status: "Verified Attendance Logged",
+                snapshot: parsedNote.snapshot || null,
+                distanceOffset: parsedNote.distanceOffset || 0
+              });
+            }
+            if (parsedNote.checkOutTime) {
+              logs.push({
+                id: `GEO-${record._id}-out`,
+                type: "checkout",
+                date: dateStr,
+                time: parsedNote.checkOutTime,
+                coords: parsedNote.coords || `${record.latitude || CAMPUS_LAT}, ${record.longitude || CAMPUS_LNG}`,
+                status: "Verified Attendance Logged",
+                snapshot: parsedNote.snapshotOut || parsedNote.snapshot || null,
+                distanceOffset: parsedNote.distanceOffsetOut || parsedNote.distanceOffset || 0
+              });
+            }
+            
+            if (!parsedNote.checkInTime && record.status === "present") {
+              logs.push({
+                id: `GEO-${record._id}`,
+                type: "checkin",
+                date: dateStr,
+                time: "09:00 AM",
+                coords: `${record.latitude || CAMPUS_LAT}, ${record.longitude || CAMPUS_LNG}`,
+                status: "Verified Attendance Logged",
+                snapshot: null,
+                distanceOffset: 0
+              });
+            }
+          });
+          
+          setAttendanceMap(map);
+          setHistoryLogs(logs.sort((a, b) => b.id.localeCompare(a.id)));
+        }
+      } catch (err) {
+        console.error("Error fetching teacher attendance:", err);
+        setErrorAlert("Failed to load attendance records from database.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAttendance();
+  }, [user]);
 
   // --- Camera ---
   const stopCamera = useCallback(() => {
@@ -113,6 +180,10 @@ export default function GeotagAttendance({ user }) {
 
   // --- Core punch handler ---
   const handlePunch = (type) => {
+    if (!cameraActive) {
+      setErrorAlert("Please activate the camera before marking geotag attendance.");
+      return;
+    }
     // Guard: can't check out without check in
     if (type === "checkout" && !todayRecord.checkedIn) {
       setErrorAlert("You must check in before you can check out.");
@@ -134,34 +205,35 @@ export default function GeotagAttendance({ user }) {
     setErrorAlert("");
 
     if (!navigator.geolocation) {
-      processAttendance(type, CAMPUS_LAT + (Math.random() - 0.5) * 0.004, CAMPUS_LNG + (Math.random() - 0.5) * 0.004);
+      setLoading(false);
+      setActionType(null);
+      setErrorAlert("Geolocation is not available on this device/browser.");
       return;
     }
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        let lat = pos.coords.latitude;
-        let lng = pos.coords.longitude;
-        const dist = calcDistance(lat, lng, CAMPUS_LAT, CAMPUS_LNG);
-        if (dist > 1500) {
-          lat = CAMPUS_LAT + (Math.random() - 0.5) * 0.005;
-          lng = CAMPUS_LNG + (Math.random() - 0.5) * 0.005;
-        }
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
         processAttendance(type, lat, lng);
       },
-      () => {
-        const lat = CAMPUS_LAT + (Math.random() - 0.5) * 0.004;
-        const lng = CAMPUS_LNG + (Math.random() - 0.5) * 0.004;
-        processAttendance(type, lat, lng);
+      (error) => {
+        setLoading(false);
+        setActionType(null);
+        setErrorAlert(error.message || "Location permission denied. Please allow GPS/location access and try again.");
       },
       { enableHighAccuracy: true, timeout: 9000, maximumAge: 0 }
     );
   };
 
-  const processAttendance = (type, lat, lng) => {
-    setTimeout(() => {
+  const processAttendance = async (type, lat, lng) => {
+    try {
       const dist = calcDistance(lat, lng, CAMPUS_LAT, CAMPUS_LNG);
       const snapshot = captureSnapshot();
+      if (!snapshot) {
+        setErrorAlert("Camera snapshot could not be captured. Please activate the camera and try again.");
+        return;
+      }
       const now = new Date();
       const timeStr = now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
       const dateStr = now.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
@@ -169,19 +241,51 @@ export default function GeotagAttendance({ user }) {
 
       setCoords(coordStr);
 
-      // Update attendance map
-      const updatedMap = { ...attendanceMap };
-      if (!updatedMap[todayKey]) updatedMap[todayKey] = {};
+      // Prepare payload to save
+      const recordToday = attendanceMap[todayKey] || {};
+      let updatedRecord = {};
       if (type === "checkin") {
-        updatedMap[todayKey].checkedIn = true;
-        updatedMap[todayKey].checkInTime = timeStr;
+        updatedRecord = {
+          checkedIn: true,
+          checkedOut: false,
+          checkInTime: timeStr,
+          checkOutTime: "",
+          coords: coordStr,
+          snapshot: snapshot,
+          distanceOffset: Math.round(dist)
+        };
       } else {
-        updatedMap[todayKey].checkedOut = true;
-        updatedMap[todayKey].checkOutTime = timeStr;
+        updatedRecord = {
+          checkedIn: recordToday.checkedIn || true,
+          checkedOut: true,
+          checkInTime: recordToday.checkInTime || "09:00 AM",
+          checkOutTime: timeStr,
+          coords: coordStr,
+          snapshot: recordToday.snapshot || null,
+          snapshotOut: snapshot,
+          distanceOffset: recordToday.distanceOffset || 0,
+          distanceOffsetOut: Math.round(dist)
+        };
       }
-      saveAttendance(updatedMap);
 
-      // Log entry
+      await saveTeacherAttendance({
+        status: "present",
+        source: "geo",
+        latitude: lat,
+        longitude: lng,
+        note: JSON.stringify(updatedRecord)
+      });
+
+      // Update local states
+      const updatedMap = { ...attendanceMap };
+      updatedMap[todayKey] = {
+        checkedIn: updatedRecord.checkedIn,
+        checkedOut: updatedRecord.checkedOut,
+        checkInTime: updatedRecord.checkInTime,
+        checkOutTime: updatedRecord.checkOutTime
+      };
+      setAttendanceMap(updatedMap);
+
       const logEntry = {
         id: `GEO-${Date.now()}`,
         type,
@@ -192,18 +296,20 @@ export default function GeotagAttendance({ user }) {
         snapshot,
         distanceOffset: Math.round(dist)
       };
-      const updated = [logEntry, ...historyLogs];
-      setHistoryLogs(updated);
-      localStorage.setItem(storageKey, JSON.stringify(updated));
+      setHistoryLogs(prev => [logEntry, ...prev]);
 
       setStatusReport({
         success: true,
         type,
         message: `${type === "checkin" ? "Check-in" : "Check-out"} recorded at ${timeStr}. Distance from campus: ${Math.round(dist)}m.`
       });
+    } catch (err) {
+      console.error("Error saving teacher attendance:", err);
+      setErrorAlert("Failed to save attendance check-in details to backend database.");
+    } finally {
       setLoading(false);
       setActionType(null);
-    }, 1200);
+    }
   };
 
   // --- Calendar helpers ---
@@ -271,9 +377,13 @@ export default function GeotagAttendance({ user }) {
                 <div style={{ fontSize: "11px", fontWeight: "700", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>
                   Assigned Campus Location
                 </div>
-                <div style={{ fontSize: "13px", fontWeight: "800", color: "#1c1917" }}>
-                  🏫 <span style={{ color: "#d97706" }}>{user?.configuredCenter || "Dhayri Pune, Maharashtra"}</span>
-                </div>
+<div style={{ fontSize: "13px", fontWeight: "800", color: "#1c1917" }}>
+                   🏫 <span style={{ color: "#d97706" }}>
+                     {user?.teacherProfile?.center?.name 
+                       ? `${user.teacherProfile.center.name}${user.teacherProfile.center.city ? `, ${user.teacherProfile.center.city}` : ""}` 
+                       : "Center not assigned"}
+                   </span>
+                 </div>
                 <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "4px", fontFamily: "monospace" }}>
                   Lat {CAMPUS_LAT} // Lng {CAMPUS_LNG} · 1.5km radius
                 </div>
@@ -421,7 +531,6 @@ export default function GeotagAttendance({ user }) {
                   onClick={() => {
                     if (window.confirm("Clear all session logs?")) {
                       setHistoryLogs([]);
-                      localStorage.removeItem(storageKey);
                     }
                   }}
                   style={{ background: "none", border: "none", color: "#ef4444", fontSize: "11px", fontWeight: "700", cursor: "pointer", textDecoration: "underline", padding: 0 }}

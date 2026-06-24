@@ -1,2 +1,5 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Segoe UI', 'Inter', -apple-system, sans-serif; }
+body { 
+  font-family: 'Segoe UI', 'Inter', -apple-system, sans-serif; 
+  zoom: 1.15;
+}
