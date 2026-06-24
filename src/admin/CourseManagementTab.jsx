@@ -577,22 +577,19 @@ function AICourseGenerator({ onApply, categories = [] }) {
   const [minExp,     setMinExp]     = useState(course?.minExp     || "Fresher");
   const [batchRestr, setBatchRestr] = useState(course?.batchRestr || "None");
 
-  /* SEO */
-  const [metaTitle,  setMetaTitle]  = useState(course?.metaTitle  || "");
-  const [metaDesc,   setMetaDesc]   = useState(course?.metaDesc   || "");
-  const [keywords,   setKeywords]   = useState(course?.keywords   || "");
+  const categories = [...new Set(courses.map(c => c.category).filter(Boolean))];
 
-  /* Certificate */
-  const [passScore,  setPassScore]  = useState(course?.passScore  || 60);
-  const [certTpl,    setCertTpl]    = useState(course?.certTpl    || "Gold Standard");
-  const [issuerName, setIssuerName] = useState(course?.issuerName || "SpacECE India Foundation");
-  const [issuerDes,  setIssuerDes]  = useState(course?.issuerDes  || "Director, Teacher Training");
+  const filtered = courses.filter(c => {
+    const q = search.toLowerCase();
+    const matchSearch = c.title?.toLowerCase().includes(q) || c.description?.toLowerCase().includes(q);
+    const cId = c.center?._id || c.center;
+    const matchCenter = !filterCenter || cId === filterCenter;
+    const matchCat = !filterCategory || c.category === filterCategory;
+    return matchSearch && matchCenter && matchCat;
+  });
 
-  /* Notifications */
-  const [notifEnroll,   setNotifEnroll]   = useState(course?.notifEnroll   ?? true);
-  const [notifComplete, setNotifComplete] = useState(course?.notifComplete ?? true);
-  const [notifReminder, setNotifReminder] = useState(course?.notifReminder ?? true);
-  const [reminderDays,  setReminderDays]  = useState(course?.reminderDays  || 3);
+  const active = courses.filter(c => c.status === 'active').length;
+  const totalModules = courses.reduce((sum, c) => sum + (c.modules?.length || 0), 0);
 
   /* Curriculum helpers */
   const addModule = () => {
@@ -620,13 +617,15 @@ function AICourseGenerator({ onApply, categories = [] }) {
     ));
   };
 
-  /* Coupon helpers */
-  const addCoupon = () => {
-    if (!newCoupon.code || !newCoupon.discount) { setToast({ msg:"Fill coupon code and discount.", type:"error" }); return; }
-    setCoupons(prev => [...prev, { ...newCoupon, active:true }]);
-    setNewCoupon({ code:"", discount:"", expiry:"" });
+  const getLevelBadge = (level) => {
+    const colors = { 'Beginner': '#10b981', 'Intermediate': '#3b82f6', 'Advanced': '#ef4444' };
+    const color = colors[level] || '#6b7280';
+    return (
+      <span style={{ background: `${color}20`, color, padding: "3px 10px", borderRadius: 12, fontSize: 10, fontWeight: 700 }}>
+        {level}
+      </span>
+    );
   };
-  const removeCoupon = (code) => setCoupons(prev => prev.filter(c => c.code !== code));
 
   /* AI Generator → apply generated fields into the form */
   const handleAIApply = (generated) => {
@@ -706,8 +705,8 @@ function AICourseGenerator({ onApply, categories = [] }) {
       <div onClick={onToggle} style={{ width:42, height:24, borderRadius:12, background:val?"#10b981":"#e5e7eb", position:"relative", cursor:"pointer", transition:"background 0.3s", flexShrink:0 }}>
         <div style={{ position:"absolute", top:2, left:val?18:2, width:20, height:20, borderRadius:"50%", background:"white", transition:"left 0.3s", boxShadow:"0 1px 3px rgba(0,0,0,0.2)" }}/>
       </div>
-    </div>
-  );
+    );
+  }
 
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:999, backdropFilter:"blur(4px)" }}>
@@ -920,170 +919,49 @@ function AICourseGenerator({ onApply, categories = [] }) {
                 </div>
               )}
             </div>
-          )}
+            <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.7, marginBottom: 16 }}>
+              {detailCourse.description}
+            </p>
+          </div>
 
-          {/* ── PRICING ── */}
-          {activeSection === "pricing" && (
-            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-                <div>
-                  <label style={S.label}>Base Fee (₹) *</label>
-                  <input style={S.input} type="number" value={baseFee} onChange={e=>setBaseFee(e.target.value)} placeholder="4500"/>
-                </div>
-                <div>
-                  <label style={S.label}>Discounted Fee (₹)</label>
-                  <input style={S.input} type="number" value={discFee} onChange={e=>setDiscFee(e.target.value)} placeholder="3800"/>
-                </div>
-              </div>
-
-              {discFee && baseFee && (
-                <div style={{ background:"#d1fae5", borderRadius:10, padding:"10px 14px", fontSize:12, color:"#065f46", border:"1px solid #6ee7b7" }}>
-                  💰 Savings: ₹{Number(baseFee) - Number(discFee)} ({Math.round(((Number(baseFee)-Number(discFee))/Number(baseFee))*100)}% off)
-                </div>
-              )}
-
-              <div style={{ background:"#f9fafb", borderRadius:12, padding:"14px 16px", border:"1px solid #f1f5f9" }}>
-                <Toggle val={emiEnabled} onToggle={() => setEmiEnabled(!emiEnabled)} label="📅 Enable EMI / Instalment Options"/>
-                {emiEnabled && (
-                  <div style={{ marginTop:12 }}>
-                    <label style={S.label}>EMI Months</label>
-                    <div style={{ display:"flex", gap:8 }}>
-                      {[2,3,6,12].map(m => (
-                        <button key={m} onClick={() => setEmiMonths(m)}
-                          style={{ flex:1, padding:"8px", borderRadius:8, border:`1.5px solid ${emiMonths===m?"#f59e0b":"#e5e7eb"}`, background:emiMonths===m?"#fef3c7":"white", color:emiMonths===m?"#92400e":"#6b7280", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
-                          {m}M
-                        </button>
-                      ))}
-                    </div>
-                    {baseFee && (
-                      <div style={{ marginTop:8, fontSize:12, color:"#6b7280" }}>
-                        Monthly instalment: ₹{Math.ceil((Number(discFee)||Number(baseFee)) / emiMonths).toLocaleString("en-IN")} × {emiMonths} months
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Coupon Codes */}
-              <div>
-                <label style={{ ...S.label, marginBottom:10 }}>🎟️ Coupon Codes</label>
-                <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:12 }}>
-                  {coupons.map((c, i) => (
-                    <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:"#f9fafb", borderRadius:10, border:"1px solid #f3f4f6" }}>
-                      <span style={{ fontSize:12, fontWeight:800, color:"#1c1917", fontFamily:"monospace" }}>{c.code}</span>
-                      <span style={{ padding:"2px 8px", borderRadius:6, fontSize:10, fontWeight:700, background:"#d1fae5", color:"#065f46" }}>{c.discount}</span>
-                      {c.expiry && <span style={{ fontSize:11, color:"#9ca3af" }}>Expires {c.expiry}</span>}
-                      <button onClick={() => removeCoupon(c.code)} style={{ marginLeft:"auto", background:"none", border:"none", cursor:"pointer", color:"#dc2626", fontSize:14 }}>✕</button>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr auto", gap:8, alignItems:"end" }}>
-                  <div>
-                    <label style={S.label}>Code</label>
-                    <input style={{ ...S.input, marginBottom:0 }} value={newCoupon.code} onChange={e=>setNewCoupon({...newCoupon,code:e.target.value.toUpperCase()})} placeholder="SUMMER30"/>
-                  </div>
-                  <div>
-                    <label style={S.label}>Discount</label>
-                    <input style={{ ...S.input, marginBottom:0 }} value={newCoupon.discount} onChange={e=>setNewCoupon({...newCoupon,discount:e.target.value})} placeholder="30% or ₹500"/>
-                  </div>
-                  <div>
-                    <label style={S.label}>Expiry</label>
-                    <input style={{ ...S.input, marginBottom:0 }} type="date" value={newCoupon.expiry} onChange={e=>setNewCoupon({...newCoupon,expiry:e.target.value})}/>
-                  </div>
-                  <button onClick={addCoupon} style={{ ...S.btnGreen, height:38 }}>+ Add</button>
-                </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+            <div style={{ background: "#f9fafb", borderRadius: 10, padding: "10px 12px", border: "1px solid #f3f4f6" }}>
+              <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", marginBottom: 2 }}>Center</div>
+              <div style={{ fontSize: 12, color: "#374151", fontWeight: 600 }}>{detailCourse.center?.name || "N/A"}</div>
+            </div>
+            <div style={{ background: "#f9fafb", borderRadius: 10, padding: "10px 12px", border: "1px solid #f3f4f6" }}>
+              <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", marginBottom: 2 }}>Assigned Teachers</div>
+              <div style={{ fontSize: 12, color: "#374151", fontWeight: 600 }}>
+                {(detailCourse.assignedTeachers || []).map(t => t.name).join(', ') || "None"}
               </div>
             </div>
-          )}
+          </div>
 
-          {/* ── ELIGIBILITY ── */}
-          {activeSection === "eligibility" && (
-            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-              <div>
-                <label style={S.label}>Minimum Qualification</label>
-                <select style={S.input} value={minQual} onChange={e=>setMinQual(e.target.value)}>
-                  {["12th","Graduate","Post-Graduate","B.Ed","D.El.Ed","Any"].map(o=><option key={o}>{o}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={S.label}>Minimum Experience</label>
-                <select style={S.input} value={minExp} onChange={e=>setMinExp(e.target.value)}>
-                  {["Fresher","1-2 yrs","3-5 yrs","5+ yrs","Any"].map(o=><option key={o}>{o}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={S.label}>Batch Restrictions</label>
-                <select style={S.input} value={batchRestr} onChange={e=>setBatchRestr(e.target.value)}>
-                  {["None","Batch A Only","Batch B Only","Batch C Only","All Batches"].map(o=><option key={o}>{o}</option>)}
-                </select>
-              </div>
-              <div style={{ background:"#fef3c7", borderRadius:10, padding:"12px 14px", fontSize:12, color:"#92400e", border:"1px solid #fbbf24" }}>
-                ℹ️ Teachers not meeting eligibility criteria will see a locked state on the course listing page.
-              </div>
+          {/* Modules List */}
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 10 }}>
+              Course Modules ({detailCourse.modules?.length || 0})
             </div>
-          )}
-
-          {/* ── SEO ── */}
-          {activeSection === "seo" && (
-            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-              <div style={{ background:"#f0f9ff", borderRadius:10, padding:"12px 14px", fontSize:12, color:"#0369a1", border:"1px solid #bae6fd", marginBottom:4 }}>
-                🔍 SEO settings improve discoverability on Google and within the SpacECE search. Keep meta title under 60 characters.
-              </div>
-              <div>
-                <label style={S.label}>Meta Title</label>
-                <input style={S.input} value={metaTitle} onChange={e=>setMetaTitle(e.target.value)} placeholder="Pre-Primary Teacher Training | SpacECE"/>
-                <div style={{ fontSize:10, color: metaTitle.length > 60 ? "#dc2626" : "#9ca3af", marginTop:2 }}>{metaTitle.length}/60 characters</div>
-              </div>
-              <div>
-                <label style={S.label}>Meta Description</label>
-                <textarea style={{ ...S.input, height:80, resize:"none" }} value={metaDesc} onChange={e=>setMetaDesc(e.target.value)} placeholder="A comprehensive teacher training program for early childhood educators covering ECCE principles..."/>
-                <div style={{ fontSize:10, color: metaDesc.length > 160 ? "#dc2626" : "#9ca3af", marginTop:2 }}>{metaDesc.length}/160 characters</div>
-              </div>
-              <div>
-                <label style={S.label}>Keywords (comma separated)</label>
-                <input style={S.input} value={keywords} onChange={e=>setKeywords(e.target.value)} placeholder="ECCE training, pre-primary teacher, early childhood education"/>
-              </div>
-              {(metaTitle || metaDesc) && (
-                <div style={{ background:"white", borderRadius:10, padding:"14px 16px", border:"1px solid #e5e7eb" }}>
-                  <div style={{ fontSize:10, color:"#9ca3af", marginBottom:6 }}>🔍 Google Preview</div>
-                  <div style={{ fontSize:14, color:"#1a0dab", fontWeight:600 }}>{metaTitle || title}</div>
-                  <div style={{ fontSize:11, color:"#006621" }}>https://spaceece.in/courses/{title.toLowerCase().replace(/\s+/g,"-")}</div>
-                  <div style={{ fontSize:12, color:"#545454", marginTop:2 }}>{metaDesc || description}</div>
+            {(detailCourse.modules || []).map((mod, i) => (
+              <div key={i} style={{
+                display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
+                background: "#f9fafb", borderRadius: 10, border: "1px solid #f3f4f6", marginBottom: 8
+              }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: 10,
+                  background: "linear-gradient(135deg, #ede9fe, #8b5cf6)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 14, fontWeight: 800, color: "white", flexShrink: 0
+                }}>
+                  {i + 1}
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* ── CERTIFICATE SETTINGS ── */}
-          {activeSection === "certificate" && (
-            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-              <div>
-                <label style={S.label}>Pass Score (%)</label>
-                <div style={{ display:"flex", gap:8 }}>
-                  {[50,60,70,80].map(s => (
-                    <button key={s} onClick={() => setPassScore(s)}
-                      style={{ flex:1, padding:"10px", borderRadius:8, border:`1.5px solid ${passScore===s?"#f59e0b":"#e5e7eb"}`, background:passScore===s?"#fef3c7":"white", color:passScore===s?"#92400e":"#6b7280", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
-                      {s}%
-                    </button>
-                  ))}
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1917" }}>{mod.title}</div>
+                  <div style={{ fontSize: 11, color: "#9ca3af" }}>{mod.description}</div>
                 </div>
-              </div>
-              <div>
-                <label style={S.label}>Certificate Template</label>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
-                  {[
-                    { name:"Gold Standard", color:"#f59e0b", desc:"Premium design" },
-                    { name:"Modern Blue",   color:"#3b82f6", desc:"Professional look" },
-                    { name:"Classic",       color:"#10b981", desc:"Minimal & clean" },
-                  ].map(t => (
-                    <div key={t.name} onClick={() => setCertTpl(t.name)}
-                      style={{ padding:"14px", borderRadius:12, border:`2px solid ${certTpl===t.name?t.color:"#e5e7eb"}`, cursor:"pointer", textAlign:"center", background:certTpl===t.name?`${t.color}10`:"white" }}>
-                      <div style={{ fontSize:24, marginBottom:6 }}>🏅</div>
-                      <div style={{ fontSize:12, fontWeight:700, color:"#1c1917" }}>{t.name}</div>
-                      <div style={{ fontSize:10, color:"#9ca3af", marginTop:2 }}>{t.desc}</div>
-                    </div>
-                  ))}
-                </div>
+                <span style={{ fontSize: 10, color: "#8b5cf6", fontWeight: 700, background: "#ede9fe", padding: "3px 8px", borderRadius: 8 }}>
+                  {mod.duration}
+                </span>
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
                 <div>
@@ -1441,54 +1319,69 @@ export default function CourseManagementTab({ courses, setCourses, categories, s
       )}
 
       {/* Header */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-        <div>
-          <h1 style={S.pageTitle}>Course Management</h1>
-          <p style={S.pageSub}>{published} published · {drafts} drafts · {comingSoon} coming soon · {archived} archived</p>
-        </div>
-        <div style={{ display:"flex", gap:10 }}>
-          <button onClick={() => setCatModal(true)} style={S.exportBtn}>🗂️ Categories</button>
-          <button onClick={openAdd} style={S.primaryBtn}>+ Add Course</button>
-        </div>
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={S.pageTitle}>Course Management</h1>
+        <p style={S.pageSub}>{courses.length} courses · {totalModules} total modules across all courses</p>
       </div>
 
       {/* KPI Cards */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))", gap:14, marginBottom:20 }}>
-        <StatCard icon="📚" label="Total Courses"  val={courses.length}  color="#f59e0b" bg="#fef3c7"/>
-        <StatCard icon="✅" label="Published"       val={published}        color="#10b981" bg="#d1fae5"/>
-        <StatCard icon="📝" label="Drafts"          val={drafts}           color="#6b7280" bg="#f3f4f6"/>
-        <StatCard icon="🚀" label="Coming Soon"     val={comingSoon}       color="#3b82f6" bg="#dbeafe"/>
-        <StatCard icon="💰" label="Total Revenue"   val={`₹${(totalRev/100000).toFixed(1)}L`} color="#8b5cf6" bg="#ede9fe"/>
+      <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
+        <StatCard icon="📚" label="Total Courses" val={courses.length} color="#8b5cf6" bg="#ede9fe" />
+        <StatCard icon="✅" label="Active Courses" val={active} color="#10b981" bg="#d1fae5" />
+        <StatCard icon="📖" label="Total Modules" val={totalModules} color="#3b82f6" bg="#dbeafe" />
+        <StatCard icon="🏫" label="Categories" val={categories.length} color="#f59e0b" bg="#fef3c7" />
       </div>
 
       {/* Filters */}
-      <div style={{ background:"white", borderRadius:14, padding:"14px 18px", border:"1px solid #f1f5f9", boxShadow:"0 2px 8px rgba(0,0,0,0.04)", marginBottom:16 }}>
-        <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
-          <div style={{ flex:1, minWidth:200 }}>
-            <SearchBar value={search} onChange={setSearch} placeholder="Search by course name or category..."/>
-          </div>
-          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-            {["all","published","draft","coming_soon","archived"].map(f => (
-              <button key={f} onClick={() => setStatusFilter(f)}
-                style={{ padding:"7px 12px", borderRadius:8, border:`1.5px solid ${statusFilter===f?"#f59e0b":"#e5e7eb"}`, background:statusFilter===f?"#fef3c7":"white", color:statusFilter===f?"#92400e":"#6b7280", fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
-                {f==="all"?"All":f==="published"?"✅ Published":f==="draft"?"📝 Draft":f==="coming_soon"?"🚀 Coming Soon":"🗄️ Archived"}
-              </button>
-            ))}
-          </div>
-          <select value={catFilter} onChange={e=>setCatFilter(e.target.value)} style={{ ...S.input, width:160, marginBottom:0 }}>
-            <option value="all">All Categories</option>
-            {categories.map(c => <option key={c.id} value={c.name}>{c.icon} {c.name}</option>)}
-          </select>
-          {(statusFilter!=="all"||catFilter!=="all"||search) && (
-            <button onClick={() => { setSearch(""); setStatusFilter("all"); setCatFilter("all"); }} style={{ ...S.tblBtn, color:"#ef4444", borderColor:"#fca5a5" }}>✕ Clear</button>
-          )}
+      <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <SearchBar value={search} onChange={setSearch} placeholder="Search courses..." />
         </div>
+        <select style={{ ...S.input, width: "auto", minWidth: 200 }} value={filterCenter}
+          onChange={e => setFilterCenter(e.target.value)}>
+          <option value="">All Centers</option>
+          {centers.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
+        </select>
+        <select style={{ ...S.input, width: "auto", minWidth: 160 }} value={filterCategory}
+          onChange={e => setFilterCategory(e.target.value)}>
+          <option value="">All Categories</option>
+          {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+        </select>
       </div>
 
-      {/* Result count */}
-      <div style={{ fontSize:12, color:"#9ca3af", marginBottom:10 }}>
-        Showing {filtered.length} of {courses.length} courses
-      </div>
+      {/* Courses Grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(360px,1fr))", gap: 16 }}>
+        {filtered.map(c => {
+          const centerObj = centers.find(ce => ce._id === (c.center?._id || c.center));
+          const teacherNames = (c.assignedTeachers || []).map(t => t.name).join(', ');
+          const moduleCount = c.modules?.length || 0;
+          const catColor = getCategoryColor(c.category);
+
+          return (
+            <div key={c._id} style={{
+              background: "white", borderRadius: 18, padding: 22,
+              border: "1px solid #f1f5f9", boxShadow: "0 2px 10px rgba(0,0,0,0.05)",
+              borderTop: `4px solid ${catColor}`
+            }}>
+              {/* Top */}
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
+                <div style={{
+                  width: 50, height: 50, borderRadius: 14,
+                  background: `linear-gradient(135deg, ${catColor}20, ${catColor})`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 24, flexShrink: 0
+                }}>📚</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", marginBottom: 4 }}>{c.title}</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {getLevelBadge(c.level)}
+                    <span style={{
+                      background: `${catColor}20`, color: catColor,
+                      padding: "3px 10px", borderRadius: 12, fontSize: 10, fontWeight: 700
+                    }}>{c.category}</span>
+                  </div>
+                </div>
+              </div>
 
       {/* Table — A3.1 */}
       <div style={{ background:"white", borderRadius:16, border:"1px solid #f1f5f9", overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,0.04)" }}>
@@ -1565,38 +1458,29 @@ export default function CourseManagementTab({ courses, setCourses, categories, s
                     )}
                     <button onClick={() => deleteCourse(getCourseId(c))} style={{ ...S.tblBtn, color:"#dc2626", borderColor:"#fca5a5" }}>\uD83D\uDDD1\uFE0F</button>
                   </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </div>
+              )}
 
-        {filtered.length === 0 && (
-          <div style={{ textAlign:"center", padding:"50px 20px", color:"#9ca3af" }}>
-            <div style={{ fontSize:40, marginBottom:10 }}>📚</div>
-            <div style={{ fontSize:14, fontWeight:700 }}>No courses found</div>
-            <div style={{ fontSize:12, marginTop:4 }}>Try adjusting filters or add a new course</div>
-          </div>
-        )}
-      </div>
-
-      {/* Category preview strip */}
-      <div style={{ marginTop:20 }}>
-        <div style={{ fontSize:13, fontWeight:700, color:"#374151", marginBottom:12 }}>🗂️ Active Categories</div>
-        <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-          {categories.sort((a,b)=>a.order-b.order).map(cat => (
-            <div key={cat.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 14px", borderRadius:20, border:`1.5px solid ${cat.color}40`, background:`${cat.color}10` }}>
-              <span style={{ fontSize:16 }}>{cat.icon}</span>
-              <span style={{ fontSize:12, fontWeight:700, color:cat.color }}>{cat.name}</span>
-              <span style={{ fontSize:10, color:"#9ca3af" }}>{cat.count} courses</span>
+              {/* Actions */}
+              <div style={{ display: "flex", gap: 8, paddingTop: 12, borderTop: "1px solid #f3f4f6" }}>
+                <button onClick={() => setDetailCourse(c)} style={{ ...S.tblBtn, flex: 1, color: "#4f46e5", borderColor: "#c4b5fd" }}>
+                  View Details
+                </button>
+                <button onClick={() => handleDelete(c._id)} style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>
+                  Delete
+                </button>
+              </div>
             </div>
-          ))}
-          <button onClick={() => setCatModal(true)}
-            style={{ padding:"8px 14px", borderRadius:20, border:"1.5px dashed #e5e7eb", background:"white", color:"#9ca3af", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
-            + Manage
-          </button>
-        </div>
+          );
+        })}
       </div>
+
+      {filtered.length === 0 && (
+        <div style={{ textAlign: "center", padding: 60, color: "#9ca3af" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📚</div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>No courses found</div>
+        </div>
+      )}
     </div>
   );
 }

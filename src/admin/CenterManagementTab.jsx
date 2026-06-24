@@ -31,9 +31,9 @@ const mapCenterToApi = (c) => ({
 });
 
 const EMPTY_FORM = {
-  name: "", location: "", city: "", pincode: "",
-  phone: "", email: "", contactPerson: "",
-  status: "active", teachers: [], children: 0, classes: 0,
+  name: "", address: "", city: "", pincode: "",
+  contactPhone: "", email: "", contactPerson: "",
+  status: "active", capacity: 0,
 };
 
 /* ── Add / Edit Modal ── */
@@ -776,6 +776,7 @@ export default function CenterManagementTab({ setToast }) {
           onSave={handleSave}
           onClose={() => { setFormModal(false); setEditCenter(null); }}
           setToast={showToast}
+          teachers={teachers}
         />
       )}
       {addClassModal && (
@@ -909,8 +910,8 @@ export default function CenterManagementTab({ setToast }) {
                 🔕
               </button>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* ── View All Classes Section ── */}

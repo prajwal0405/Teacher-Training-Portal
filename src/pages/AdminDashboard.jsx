@@ -29,10 +29,15 @@ import { getAdminTeachers, getCourseAssignments, getCourses, updateTeacherStatus
 
 
 
+const API = '/api';
+async function fetchAPI(url) {
+  const res = await fetch(`${API}${url}`);
+  if (!res.ok) throw new Error('API Error');
+  return res.json();
+}
 
 /* ===========================================
    MAIN ADMIN DASHBOARD
-=========================================== */
 export default function AdminDashboard({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState("overview");
   const [teachers,  setTeachers]  = useState([]);
@@ -114,12 +119,28 @@ export default function AdminDashboard({ user, onLogout }) {
 };
 
 
+  const persistTeachers = (updater) => {
+    setTeachers(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      const toStore = next.filter(t => t.password);
+      localStorage.setItem("spaceece_teachers", JSON.stringify(toStore));
+      return next;
+    });
+  };
+const refreshDB = {
+    teachers: async () => { try { setTeachers(await fetchAPI('/teachers')); } catch(e){} },
+    children: async () => { try { setChildren(await fetchAPI('/children')); } catch(e){} },
+    centers: async () => { try { setCenters(await fetchAPI('/centers')); } catch(e){} },
+    courses:  async () => { try { setCourses(await fetchAPI('/courses')); } catch(e){} },
+    activities: async () => { try { setActivities(await fetchAPI('/activities')); } catch(e){} },
+    attendance: async () => { try { setAttendance(await fetchAPI('/attendance')); } catch(e){} },
+  };
   const renderContent = () => {
     switch(activeTab) {
       case "overview":     return <OverviewTab teachers={teachers} courses={courses} batches={[]} sessions={[]}/>;
       case "centers": return <CenterManagementTab allTeachers={teachers} setToast={setToast}/>;
       case "teachers": return <TeacherManagementTab teachers={teachers} setTeachers={persistTeachers} setToast={setToast}/>;
-      case "curriculum": return <CurriculumTrainingTab setToast={setToast}/>;
+      case "curriculum": return <CourseManagementTab setToast={setToast}/>;
       case "activities": return <ActivityMonitoringTab setToast={setToast}/>;
       case "lessonplans": return <LessonPlanManagementTab setToast={setToast} />;
       case "children": return <ChildrenManagementTab setToast={setToast}/>;
