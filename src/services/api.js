@@ -504,6 +504,10 @@ export function submitLessonCompletion(assignmentId, payload) {
   });
 }
 
+export function getTeacherLessonReports() {
+  return request("/api/teacher/lesson-plans/reports");
+}
+
 export function getAdminLessonReports() {
   return request("/api/admin/lesson-plans/reports");
 }
