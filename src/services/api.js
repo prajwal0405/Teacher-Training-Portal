@@ -59,6 +59,21 @@ export function resetPassword(token, password) {
   });
 }
 
+// OTP-based Password Reset APIs
+export function requestPasswordResetOtp(email) {
+  return request("/api/auth/forgot-password-otp", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function verifyPasswordOtp(email, otp) {
+  return request("/api/auth/verify-otp", {
+    method: "POST",
+    body: JSON.stringify({ email, otp }),
+  });
+}
+
 export function getStoredSession() {
   const token = localStorage.getItem("spaceece_auth_token");
   const rawUser = localStorage.getItem("spaceece_user");
@@ -320,6 +335,39 @@ export function deleteSchedule(id) {
 
 export function getTeacherAssessmentResults() {
   return request("/api/teacher/assessment-results");
+}
+
+// Certificate APIs
+export function getTeacherCertificates() {
+  return request("/api/certificates/teacher");
+}
+
+export function getAdminCertificates() {
+  return request("/api/certificates/admin");
+}
+
+export function generateCertificate(payload) {
+  return request("/api/certificates/generate", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function autoGenerateCertificate(assignmentId, force = false) {
+  return request(`/api/certificates/auto-generate/${assignmentId}`, {
+    method: "POST",
+    body: JSON.stringify({ force })
+  });
+}
+
+export function revokeCertificate(id) {
+  return request(`/api/certificates/${id}/revoke`, {
+    method: "PATCH"
+  });
+}
+
+export function verifyCertificate(certNumber) {
+  return request(`/api/certificates/verify/${certNumber}`);
 }
 
 export function getTrainerMe() {
@@ -585,6 +633,64 @@ export function deleteTrainer(id) {
   });
 }
 
+// Trainer Messages APIs
+export function getTrainerMessages(trainerId) {
+  return request(`/api/trainers/${trainerId}/messages`);
+}
+
+export function sendTrainerMessage(trainerId, data) {
+  return request(`/api/trainers/${trainerId}/messages`, {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
+}
+
+export function markTrainerMessageRead(messageId) {
+  return request(`/api/trainers/messages/${messageId}/read`, {
+    method: "PATCH"
+  });
+}
+
+// Trainer Payouts APIs
+export function getTrainerPayouts(trainerId) {
+  return request(`/api/trainers/${trainerId}/payouts`);
+}
+
+export function createTrainerPayout(trainerId, data) {
+  return request(`/api/trainers/${trainerId}/payouts`, {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
+}
+
+export function markPayoutPaid(payoutId) {
+  return request(`/api/trainers/payouts/${payoutId}/pay`, {
+    method: "PATCH"
+  });
+}
+
+// Notifications mark-all-read API
+export function markAllNotificationsRead() {
+  return request("/api/notifications/mark-all-read", {
+    method: "POST"
+  });
+}
+
+// Test SMS/WhatsApp APIs
+export function testSmsNotification(to) {
+  return request("/api/admin/settings/test-sms", {
+    method: "POST",
+    body: JSON.stringify({ to })
+  });
+}
+
+export function testWhatsAppNotification(to) {
+  return request("/api/admin/settings/test-whatsapp", {
+    method: "POST",
+    body: JSON.stringify({ to })
+  });
+}
+
 // Feedback APIs
 export function getFeedbacks() {
   return request("/api/feedbacks");
@@ -652,6 +758,25 @@ export function testSmtpEmail(to) {
 }
 
 
+// Automation APIs
+export function getAutomationStatus() {
+  return request("/api/automation/status");
+}
+
+export function sendAttendanceReminders(channel = "in_app") {
+  return request("/api/automation/attendance-reminders", {
+    method: "POST",
+    body: JSON.stringify({ channel }),
+  });
+}
+
+export function autoAssignCourse(courseId) {
+  return request("/api/automation/auto-assign-courses", {
+    method: "POST",
+    body: JSON.stringify({ courseId }),
+  });
+}
+
 // Reports/Analytics API
 export function getAdminDashboard() {
   return request("/api/admin/dashboard");
@@ -676,5 +801,36 @@ export function updateReportJob(id, reportData) {
   return request(`/api/admin/report-jobs/${id}`, {
     method: "PATCH",
     body: JSON.stringify(reportData)
+  });
+}
+
+// ── Admin SMTP/Twilio Config (persisted to Atlas) ──
+export function saveSmtpConfig(smtpData) {
+  return request("/api/admin/settings/smtp", {
+    method: "POST",
+    body: JSON.stringify(smtpData),
+  });
+}
+
+export function saveTwilioConfig(twilioData) {
+  return request("/api/admin/settings/twilio", {
+    method: "POST",
+    body: JSON.stringify(twilioData),
+  });
+}
+
+// ── Admin language preference ──
+export function updateAdminLanguage(lang) {
+  return request("/api/admin/me/language", {
+    method: "PATCH",
+    body: JSON.stringify({ language: lang }),
+  });
+}
+
+// ── Teacher notification preference ──
+export function updateTeacherNotificationPreference(channel) {
+  return request("/api/teacher/me/notification-preference", {
+    method: "PATCH",
+    body: JSON.stringify({ preferredNotificationChannel: channel }),
   });
 }

@@ -47,7 +47,8 @@ const rubricPct = (assignment) => {
 
 const statusColor = {
   pending: "#f59e0b",
-  "under review": "#3b82f6",
+  submitted: "#3b82f6",
+  under_review: "#3b82f6",
   reviewed: "#10b981",
   revision: "#ef4444",
   approved: "#7c3aed",
@@ -55,7 +56,8 @@ const statusColor = {
 
 const statusBg = {
   pending: "#fef9c3",
-  "under review": "#dbeafe",
+  submitted: "#dbeafe",
+  under_review: "#dbeafe",
   reviewed: "#d1fae5",
   revision: "#fee2e2",
   approved: "#ede9fe",
@@ -130,7 +132,8 @@ export default function AssignmentReviewTab({ assignments, setAssignments, setTo
   }, [assignments, courseFilter, reviewerFilter, search, sortBy, statusFilter]);
 
   const pending = assignments.filter((item) => item.status === "pending").length;
-  const underReview = assignments.filter((item) => item.status === "under review").length;
+  const submitted = assignments.filter((item) => item.status === "submitted").length;
+  const underReview = assignments.filter((item) => item.status === "under_review").length;
   const reviewed = assignments.filter((item) => item.status === "reviewed").length;
   const approved = assignments.filter((item) => item.status === "approved").length;
   const revision = assignments.filter((item) => item.status === "revision").length;
@@ -196,7 +199,7 @@ export default function AssignmentReviewTab({ assignments, setAssignments, setTo
   };
 
   const handleStartReview = async (id) => {
-    await patchAssignment(id, { status: "under review", reviewedBy: user?.id || user?._id || undefined, reviewedAt: new Date().toISOString() }, "Marked as under review.");
+    await patchAssignment(id, { status: "under_review", reviewedBy: user?.id || user?._id || undefined, reviewedAt: new Date().toISOString() }, "Marked as under review.");
   };
 
   const handleSaveReview = async (assignment) => {
@@ -252,7 +255,7 @@ export default function AssignmentReviewTab({ assignments, setAssignments, setTo
       id,
       {
         trainer: assignReviewer,
-        status: "under review",
+        status: "under_review",
         reviewedBy: user?.id || user?._id || undefined,
         reviewedAt: new Date().toISOString(),
       },
@@ -315,7 +318,7 @@ export default function AssignmentReviewTab({ assignments, setAssignments, setTo
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 16 }}>
       <div>
         <h1 style={S.pageTitle}>Assignment Review</h1>
-        <p style={S.pageSub}>{pending} pending, {underReview} under review, {revision} need revision</p>
+        <p style={S.pageSub}>{pending} pending, {submitted} submitted, {underReview} under review, {revision} need revision</p>
       </div>
     </div>
   );
@@ -389,7 +392,7 @@ export default function AssignmentReviewTab({ assignments, setAssignments, setTo
                 <span style={{ fontSize: 12, color: "#6b7280" }}>Teacher: {currentTeacher}</span>
                 <span style={{ fontSize: 12, color: "#6b7280" }}>Course: {currentCourse}</span>
                 <span style={{ fontSize: 12, color: "#6b7280" }}>Reviewer: {getReviewerName(assignment)}</span>
-                <span style={{ fontSize: 12, color: "#6b7280" }}>Submitted: {assignment.submitted || "Not submitted"}</span>
+                <span style={{ fontSize: 12, color: "#6b7280" }}>Submitted: {assignment.submittedAt ? nowLabel(assignment.submittedAt) : "Not submitted"}</span>
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -612,7 +615,7 @@ export default function AssignmentReviewTab({ assignments, setAssignments, setTo
                     {toText(assignment.title, "Course Assignment")}
                   </div>
                   <div style={{ fontSize: 12, color: "#9ca3af", textAlign: "center", marginBottom: 20 }}>
-                    Submitted by {currentTeacher} | {assignment.submitted || "Not submitted"} | {currentCourse}
+                    Submitted by {currentTeacher} | {assignment.submittedAt ? nowLabel(assignment.submittedAt) : "Not submitted"} | {currentCourse}
                   </div>
                   {[
                     "This assignment explores the core principles of early childhood education with a focus on age-appropriate learning methodologies.",
@@ -709,7 +712,8 @@ export default function AssignmentReviewTab({ assignments, setAssignments, setTo
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(130px,1fr))", gap: 12, marginBottom: 20 }}>
         {[
           { label: "Pending", val: pending, color: "#f59e0b" },
-          { label: "Under Review", val: underReview, color: "#3b82f6" },
+          { label: "Submitted", val: submitted, color: "#3b82f6" },
+          { label: "Under Review", val: underReview, color: "#8b5cf6" },
           { label: "Reviewed", val: reviewed, color: "#10b981" },
           { label: "Revision", val: revision, color: "#ef4444" },
           { label: "Approved", val: approved, color: "#7c3aed" },
@@ -732,13 +736,13 @@ export default function AssignmentReviewTab({ assignments, setAssignments, setTo
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search teacher, title, course..."
               style={{ ...S.input, paddingLeft: 34, marginBottom: 0 }} />
           </div>
-          {["all", "pending", "under review", "reviewed", "revision", "approved"].map((item) => (
+          {["all", "pending", "submitted", "under_review", "reviewed", "revision", "approved"].map((item) => (
             <button
               key={item}
               onClick={() => setStatusFilter(item)}
               style={{ padding: "7px 12px", borderRadius: 8, border: `1.5px solid ${statusFilter === item ? "#f59e0b" : "#e5e7eb"}`, background: statusFilter === item ? "#fef3c7" : "white", color: statusFilter === item ? "#92400e" : "#6b7280", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", textTransform: "capitalize", whiteSpace: "nowrap" }}
             >
-              {item === "all" ? "All" : item}
+              {item === "all" ? "All" : item === "under_review" ? "Under Review" : item}
             </button>
           ))}
         </div>
@@ -787,7 +791,7 @@ export default function AssignmentReviewTab({ assignments, setAssignments, setTo
                     <span>Teacher: {getTeacherName(item)}</span>
                     <span>Course: {getCourseName(item)}</span>
                     <span>Reviewer: {getReviewerName(item)}</span>
-                    <span>Submitted: {item.submitted || "Not submitted"}</span>
+                    <span>Submitted: {item.submittedAt ? nowLabel(item.submittedAt) : "Not submitted"}</span>
                   </div>
                 </div>
 

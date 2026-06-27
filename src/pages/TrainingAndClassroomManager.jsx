@@ -13,12 +13,12 @@ import {
 const formatDate = (value) => value ? new Date(value).toLocaleDateString("en-IN") : "Not scheduled";
 const getId = (value) => value?._id || value?.id || value || "";
 
-export default function TrainingAndClassroomManager() {
+export default function TrainingAndClassroomManager({ user }) {
   const [activeSubTab, setActiveSubTab] = useState("lessons");
   const [courses, setCourses] = useState([]);
   const [lessons, setLessons] = useState([]);
   const [activities, setActivities] = useState([]);
-  const [teacher, setTeacher] = useState(null);
+  const [teacher, setTeacher] = useState(user || null);
   const [selectedLessonId, setSelectedLessonId] = useState("");
   const [activityDescription, setActivityDescription] = useState("");
   const [activityDate, setActivityDate] = useState(new Date().toISOString().slice(0, 10));
@@ -27,29 +27,52 @@ export default function TrainingAndClassroomManager() {
   const [completionLessonId, setCompletionLessonId] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
   const [toastMsg, setToastMsg] = useState("");
+  const [toastType, setToastType] = useState("success");
   const [loading, setLoading] = useState(true);
   const fileInputRef = useRef(null);
 
-  const showToast = (message) => {
+  const showToast = (message, isError = false) => {
     setToastMsg(message);
-    setTimeout(() => setToastMsg(""), 3000);
+    setToastType(isError ? "error" : "success");
+    setTimeout(() => setToastMsg(""), 4000);
   };
 
   const refreshData = async () => {
     setLoading(true);
     try {
-      const [progressRes, lessonRes, activityRes, teacherRes] = await Promise.all([
+      const [progressRes, lessonRes, activityRes, teacherRes] = await Promise.allSettled([
         getTeacherProgress(),
         getTeacherLessonPlans(),
         getActivities(),
-        getTeacherMe()
+        user ? Promise.resolve({ teacher: user }) : getTeacherMe()
       ]);
-      setCourses(progressRes.courses || []);
-      setLessons(lessonRes.lessonPlans || []);
-      setActivities(activityRes.activities || []);
-      setTeacher(teacherRes.teacher || null);
+      if (progressRes.status === "fulfilled") {
+        setCourses(progressRes.value?.courses || []);
+      } else {
+        console.error("Failed to load courses:", progressRes.reason);
+      }
+      if (lessonRes.status === "fulfilled") {
+        setLessons(lessonRes.value?.lessonPlans || []);
+      } else {
+        console.error("Failed to load lessons:", lessonRes.reason);
+      }
+      if (activityRes.status === "fulfilled") {
+        setActivities(activityRes.value?.activities || []);
+      } else {
+        console.error("Failed to load activities:", activityRes.reason);
+      }
+      if (teacherRes.status === "fulfilled") {
+        setTeacher(teacherRes.value?.teacher || user || null);
+      } else {
+        console.error("Failed to load teacher:", teacherRes.reason);
+      }
+
+      const failures = [progressRes, lessonRes, activityRes, teacherRes].filter(r => r.status === "rejected");
+      if (failures.length > 0) {
+        showToast(`Some data failed to load. ${failures.length} of 4 requests failed.`, true);
+      }
     } catch (error) {
-      showToast(error.message || "Failed to load training records.");
+      showToast(error.message || "Failed to load training records.", true);
     } finally {
       setLoading(false);
     }
@@ -85,7 +108,7 @@ export default function TrainingAndClassroomManager() {
       showToast("Activity submitted for admin review.");
       refreshData();
     } catch (error) {
-      showToast(error.message || "Activity submission failed.");
+      showToast(error.message || "Activity submission failed.", true);
     }
   };
 
@@ -113,7 +136,7 @@ export default function TrainingAndClassroomManager() {
       showToast("Lesson completion sent to admin.");
       refreshData();
     } catch (error) {
-      showToast(error.message || "Lesson completion failed.");
+      showToast(error.message || "Lesson completion failed.", true);
     }
   };
 
@@ -127,7 +150,7 @@ export default function TrainingAndClassroomManager() {
       </div>
 
       {toastMsg && (
-        <div style={{ padding: 12, marginBottom: 16, background: "#d1fae5", color: "#065f46", borderRadius: 10, fontSize: 13, fontWeight: 700 }}>
+        <div style={{ padding: 12, marginBottom: 16, background: toastType === "error" ? "#fee2e2" : "#d1fae5", color: toastType === "error" ? "#991b1b" : "#065f46", borderRadius: 10, fontSize: 13, fontWeight: 700 }}>
           {toastMsg}
         </div>
       )}

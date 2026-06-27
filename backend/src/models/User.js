@@ -14,6 +14,10 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
     photoUrl: String,
+    language: { type: String, enum: ["English", "Hindi", "Marathi", "Telugu", "Kannada", "Tamil"], default: "English" },
+    preferredNotificationChannel: { type: String, enum: ["in_app", "email", "sms", "whatsapp", "all"], default: "in_app" },
+    passwordChangedAt: Date,
+    passwordExpiresAt: Date,
     teacherProfile: {
       center: { type: mongoose.Schema.Types.ObjectId, ref: "Center" },
       class: { type: mongoose.Schema.Types.ObjectId, ref: "Class" },

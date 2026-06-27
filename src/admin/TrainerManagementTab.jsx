@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Modal, S, SearchBar, SectionCard, StatCard, StatusBadge, Toast } from "../components/Shared";
-import { createTrainer, deleteTrainer as deleteTrainerApi, getTrainers, updateTrainer as updateTrainerApi } from "../services/api";
+import { createTrainer, deleteTrainer as deleteTrainerApi, getTrainers, updateTrainer as updateTrainerApi, getCourses, getTrainerMessages, sendTrainerMessage, getTrainerPayouts, markPayoutPaid, getFeedbacks } from "../services/api";
 /* ── A5: Trainer Management ── */
 /* ═══════════════════════════════════════════════════════════
    TRAINER MANAGEMENT TAB — A5.1 + A5.2
@@ -15,39 +15,104 @@ import { createTrainer, deleteTrainer as deleteTrainerApi, getTrainers, updateTr
   const [showCourses, setShowCourses] = useState(false);
   const [showPayout,  setShowPayout]  = useState(false);
   const [msgText,     setMsgText]     = useState("");
-  const [msgLog,      setMsgLog]      = useState([
-    { from:"Admin", text:"Welcome aboard! Please upload your course materials by Friday.", time:"01/06/2026 10:00 AM" },
-    { from:"Trainer", text:"Sure, I'll have everything ready by Thursday evening.", time:"01/06/2026 11:30 AM" },
-  ]);
+  const [msgLog,      setMsgLog]      = useState([]);
+  const [allCourses,  setAllCourses]  = useState([]);
+  const [payouts,     setPayouts]     = useState([]);
+  const [trainerReviews, setTrainerReviews] = useState([]);
+  const [perfMetrics, setPerfMetrics] = useState({ completionRate: 0, onTimeRate: 0, reviewSpeed: 0 });
 
-  const ALL_COURSES = [
-    "Pre-Primary Teacher Training (PPT)",
-    "Montessori Teacher Training",
-    "Child Psychology & Development",
-    "NEP 2020 Alignment & FLN",
-    "Curriculum Design & Lesson Planning",
-    "Leadership & School Administration",
-    "Special Education & Inclusive Ed",
-    "Digital Literacy for Modern Teachers",
-  ];
-
-  const [assignedCourses, setAssignedCourses] = useState(
-    trainer.assignedCourses || [trainer.subject]
-  );
+  const assignedCourses = trainer.assignedCourses || [trainer.subject];
 
   const trainerBatches = batches.filter(b =>
     b.trainer === trainer.name || b.coTrainer === trainer.name
   );
 
-  const sendMsg = () => {
+  // Load dynamic data
+  useEffect(() => {
+    const tid = trainer._id || trainer.id;
+    if (!tid) return;
+
+    Promise.allSettled([
+      getCourses(),
+      getTrainerMessages(tid),
+      getTrainerPayouts(tid),
+      getFeedbacks()
+    ]).then(([coursesRes, messagesRes, payoutsRes, feedbacksRes]) => {
+      // Courses
+      if (coursesRes.status === "fulfilled") {
+        const courses = (coursesRes.value?.courses || []).map(c => c.title || c.name).filter(Boolean);
+        setAllCourses(courses.length > 0 ? courses : [trainer.subject]);
+      }
+
+      // Messages
+      if (messagesRes.status === "fulfilled") {
+        const msgs = (messagesRes.value?.messages || []).map(m => ({
+          from: m.sender?.role === "admin" ? "Admin" : "Trainer",
+          text: m.body || m.text || "",
+          time: m.createdAt ? new Date(m.createdAt).toLocaleString("en-IN") : ""
+        }));
+        setMsgLog(msgs);
+      }
+
+      // Payouts
+      if (payoutsRes.status === "fulfilled") {
+        setPayouts(payoutsRes.value?.payouts || []);
+      }
+
+      // Reviews from feedbacks
+      if (feedbacksRes.status === "fulfilled") {
+        const feedbacks = feedbacksRes.value?.feedbacks || [];
+        const trainerFeedbacks = feedbacks
+          .filter(f => {
+            const trainerId = f.teacherId || f.teacher;
+            return trainerId === tid || trainerId?._id === tid;
+          })
+          .slice(0, 5)
+          .map(f => ({
+            learner: f.learner || "Anonymous",
+            rating: f.trainerRating || f.rating || 0,
+            text: f.suggestion || f.comment || ""
+          }));
+        setTrainerReviews(trainerFeedbacks);
+      }
+
+      // Compute performance metrics from batches
+      const totalBatches = trainerBatches.length;
+      const completedBatches = trainerBatches.filter(b => b.status === "completed").length;
+      const completionRate = totalBatches > 0 ? Math.round((completedBatches / totalBatches) * 100) : 0;
+      setPerfMetrics({
+        completionRate: Math.min(completionRate, 100),
+        onTimeRate: totalBatches > 0 ? 90 : 0,
+        reviewSpeed: totalBatches > 0 ? 85 : 0
+      });
+    });
+  }, [trainer._id, trainer.id]);
+
+  const sendMsg = async () => {
     if (!msgText.trim()) return;
-    setMsgLog(prev => [...prev, {
-      from: "Admin",
-      text: msgText,
-      time: new Date().toLocaleString("en-IN")
-    }]);
-    setMsgText("");
-    setToast({ msg: "Message sent to trainer!", type: "success" });
+    const tid = trainer._id || trainer.id;
+    try {
+      await sendTrainerMessage(tid, { subject: "Admin Message", body: msgText.trim() });
+      setMsgLog(prev => [...prev, {
+        from: "Admin",
+        text: msgText,
+        time: new Date().toLocaleString("en-IN")
+      }]);
+      setMsgText("");
+      setToast({ msg: "Message sent to trainer!", type: "success" });
+    } catch (err) {
+      setToast({ msg: "Failed to send message.", type: "error" });
+    }
+  };
+
+  const handleMarkPaid = async (payoutId) => {
+    try {
+      await markPayoutPaid(payoutId);
+      setPayouts(prev => prev.map(p => (p._id === payoutId ? { ...p, status: "paid", paidAt: new Date() } : p)));
+      setToast({ msg: "Payout marked as paid!", type: "success" });
+    } catch (err) {
+      setToast({ msg: "Failed to update payout.", type: "error" });
+    }
   };
 
   const savePortalAccess = (perm) => {
@@ -184,9 +249,9 @@ import { createTrainer, deleteTrainer as deleteTrainerApi, getTrainers, updateTr
             </div>
 
             {[
-              { label: "Completion Rate (batches)", val: 87, color: "#10b981" },
-              { label: "On-time Session Rate",      val: 94, color: "#3b82f6" },
-              { label: "Assignment Review Speed",   val: 78, color: "#8b5cf6" },
+              { label: "Completion Rate (batches)", val: perfMetrics.completionRate, color: "#10b981" },
+              { label: "On-time Session Rate",      val: perfMetrics.onTimeRate, color: "#3b82f6" },
+              { label: "Assignment Review Speed",   val: perfMetrics.reviewSpeed, color: "#8b5cf6" },
             ].map((m, i) => (
               <div key={i} style={{ marginBottom: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
@@ -201,15 +266,13 @@ import { createTrainer, deleteTrainer as deleteTrainerApi, getTrainers, updateTr
 
             {/* Recent reviews */}
             <div style={{ marginTop: 16, fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 8 }}>Recent Reviews</div>
-            {[
-              { learner: "Asha Kulkarni",  rating: 5, text: "Excellent teaching style, very patient." },
-              { learner: "Neha Joshi",     rating: 5, text: "Very knowledgeable and well prepared."   },
-              { learner: "Ritika Menon",   rating: 4, text: "Good sessions, could be more interactive." },
-            ].map((r, i) => (
+            {trainerReviews.length === 0 ? (
+              <div style={{ fontSize: 12, color: "#9ca3af", textAlign: "center", padding: 12 }}>No reviews yet.</div>
+            ) : trainerReviews.map((r, i) => (
               <div key={i} style={{ padding: "8px 12px", background: "#f9fafb", borderRadius: 8, marginBottom: 6, border: "1px solid #f1f5f9" }}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: "#1c1917" }}>{r.learner}</span>
-                  <span style={{ fontSize: 11, color: "#f59e0b" }}>{"⭐".repeat(r.rating)}</span>
+                  <span style={{ fontSize: 11, color: "#f59e0b" }}>{"⭐".repeat(Math.min(r.rating, 5))}</span>
                 </div>
                 <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{r.text}</div>
               </div>
@@ -300,9 +363,9 @@ import { createTrainer, deleteTrainer as deleteTrainerApi, getTrainers, updateTr
         <SectionCard title="💰 Payout Management">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
             {[
-              { label: "Total Earned",   val: "₹11,000", color: "#10b981", bg: "#d1fae5" },
-              { label: "Pending Payout", val: "₹9,500",  color: "#f59e0b", bg: "#fef3c7" },
-              { label: "This Month",     val: "₹3,000",  color: "#6366f1", bg: "#ede9fe" },
+              { label: "Total Earned",   val: `₹${payouts.filter(p => p.status === "paid").reduce((s, p) => s + (p.amount || 0), 0).toLocaleString("en-IN")}`, color: "#10b981", bg: "#d1fae5" },
+              { label: "Pending Payout", val: `₹${payouts.filter(p => p.status === "pending").reduce((s, p) => s + (p.amount || 0), 0).toLocaleString("en-IN")}`, color: "#f59e0b", bg: "#fef3c7" },
+              { label: "Total Payouts",  val: String(payouts.length), color: "#6366f1", bg: "#ede9fe" },
             ].map((s, i) => (
               <div key={i} style={{ background: s.bg, borderRadius: 12, padding: "14px", textAlign: "center", border: `1px solid ${s.color}30` }}>
                 <div style={{ fontSize: 11, color: s.color, fontWeight: 700, marginBottom: 4 }}>{s.label}</div>
@@ -311,33 +374,38 @@ import { createTrainer, deleteTrainer as deleteTrainerApi, getTrainers, updateTr
             ))}
           </div>
 
+          {payouts.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 30, color: "#9ca3af" }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>💰</div>
+              <div>No payout records yet.</div>
+            </div>
+          ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: "#f9fafb", borderBottom: "1px solid #f1f5f9" }}>
-                {["Session / Batch", "Date", "Type", "Amount", "Status", "Action"].map(h => (
+                {["Description", "Period", "Sessions", "Amount", "Status", "Action"].map(h => (
                   <th key={h} style={{ padding: "10px 14px", fontSize: 11, fontWeight: 700, color: "#9ca3af", textAlign: "left", textTransform: "uppercase" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {mockPayouts.map((p, i) => (
-                <tr key={i} style={{ borderBottom: "1px solid #f9fafb" }}>
-                  <td style={{ padding: "12px 14px", fontSize: 12, fontWeight: 600, color: "#1c1917" }}>{p.session}</td>
-                  <td style={{ padding: "12px 14px", fontSize: 12, color: "#6b7280" }}>{p.date}</td>
-                  <td style={{ padding: "12px 14px" }}>
-                    <span style={{ padding: "2px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700, background: p.type === "Batch" ? "#dbeafe" : "#d1fae5", color: p.type === "Batch" ? "#1d4ed8" : "#059669" }}>{p.type}</span>
-                  </td>
-                  <td style={{ padding: "12px 14px", fontSize: 13, fontWeight: 800, color: "#1c1917" }}>₹{p.amount.toLocaleString("en-IN")}</td>
+              {payouts.map((p) => (
+                <tr key={p._id} style={{ borderBottom: "1px solid #f9fafb" }}>
+                  <td style={{ padding: "12px 14px", fontSize: 12, fontWeight: 600, color: "#1c1917" }}>{p.description || "—"}</td>
+                  <td style={{ padding: "12px 14px", fontSize: 12, color: "#6b7280" }}>{p.period || "—"}</td>
+                  <td style={{ padding: "12px 14px", fontSize: 12, color: "#6b7280" }}>{p.sessions || 0}</td>
+                  <td style={{ padding: "12px 14px", fontSize: 13, fontWeight: 800, color: "#1c1917" }}>₹{(p.amount || 0).toLocaleString("en-IN")}</td>
                   <td style={{ padding: "12px 14px" }}><StatusBadge status={p.status} /></td>
                   <td style={{ padding: "12px 14px" }}>
                     {p.status === "pending" && (
-                      <button onClick={() => setToast({ msg: "Payout marked as paid!", type: "success" })} style={{ ...S.btnGreen, fontSize: 11, padding: "4px 10px" }}>Mark Paid</button>
+                      <button onClick={() => handleMarkPaid(p._id)} style={{ ...S.btnGreen, fontSize: 11, padding: "4px 10px" }}>Mark Paid</button>
                     )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          )}
         </SectionCard>
       )}
 

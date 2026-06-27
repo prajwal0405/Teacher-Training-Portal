@@ -242,6 +242,13 @@ export default function AICourseGenerator({ onApply, categories = [] }) {
             {result.subtitle && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{result.subtitle}</div>}
           </div>
 
+          {/* Fallback notice */}
+          {result.isLocalFallback && (
+            <div style={{ margin: "12px 18px 0", padding: "10px 14px", borderRadius: 10, background: "#fffbeb", border: "1px solid #fde68a", fontSize: 12, color: "#92400e", lineHeight: 1.5 }}>
+              ⚠️ <strong>No AI API key configured.</strong> Showing template content. Add <code style={{ background: "#fef3c7", padding: "1px 4px", borderRadius: 4, fontSize: 11 }}>GEMINI_API_KEY</code> to <code style={{ background: "#fef3c7", padding: "1px 4px", borderRadius: 4, fontSize: 11 }}>backend/.env</code> for real AI generation.
+            </div>
+          )}
+
           <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 14 }}>
 
             {/* Description */}

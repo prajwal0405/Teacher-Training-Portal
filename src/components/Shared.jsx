@@ -49,6 +49,8 @@ export function StatusBadge({ status }) {
   const map = {
     approved:    { label:"Active",       color:"#059669", bg:"#d1fae5" },
     pending:     { label:"Pending",      color:"#d97706", bg:"#fef3c7" },
+    submitted:   { label:"Submitted",    color:"#3b82f6", bg:"#dbeafe" },
+    under_review:{ label:"Under Review", color:"#8b5cf6", bg:"#ede9fe" },
     rejected:    { label:"Rejected",     color:"#dc2626", bg:"#fee2e2" },
     blocked:     { label:"Blocked",      color:"#991b1b", bg:"#fecaca" },
     published:   { label:"Published",    color:"#059669", bg:"#d1fae5" },
@@ -141,7 +143,7 @@ export function SearchBar({ value, onChange, placeholder }) {
 
 /* ── BarChart ── */
 export function BarChart({ data, color="#f59e0b", height=100, formatVal }) {
-  const max = Math.max(...data.map(d=>d.val));
+  const max = Math.max(...data.map(d=>d.val), 0);
   return (
     <div style={{ display:"flex", alignItems:"flex-end", gap:6, height:height+30 }}>
       {data.map((d,i)=>(
@@ -150,7 +152,7 @@ export function BarChart({ data, color="#f59e0b", height=100, formatVal }) {
             {formatVal ? formatVal(d.val) : d.val}
           </span>
           <div style={{ width:"100%", background:color, borderRadius:"4px 4px 0 0",
-            height:`${(d.val/max)*height}px`, opacity:0.85, minHeight:4 }}/>
+            height:`${max > 0 ? (d.val/max)*height : 0}px`, opacity:0.85, minHeight:4 }}/>
           <span style={{ fontSize:9, color:"#9ca3af", fontWeight:600, textAlign:"center", whiteSpace:"nowrap" }}>
             {d.month||d.label}
           </span>
