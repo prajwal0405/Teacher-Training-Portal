@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Modal, S, StatCard } from "../components/Shared";
-import { getAdminNotifications, sendAdminNotification, deleteNotification, markAllNotificationsRead } from "../services/api";
+import { getAdminNotifications, sendAdminNotification, deleteNotification } from "../services/api";
 
 const NOTIFICATION_TEMPLATES = [
   { name: "Welcome", subject: "Welcome to SpacECE Teacher Training Portal", channel: "in_app" },
@@ -182,16 +182,11 @@ export default function NotificationsTab({ teachers = [], setToast }) {
     }
   };
 
-  const handleMarkAllRead = async () => {
-    try {
-      await markAllNotificationsRead();
-      setNotifications((prev) =>
-        prev.map((n) => (n.read ? n : { ...n, read: true, readAt: new Date().toISOString() }))
-      );
-      setToast?.({ msg: "All notifications marked as read.", type: "success" });
-    } catch (err) {
-      setToast?.({ msg: "Failed to mark all as read.", type: "error" });
-    }
+  const handleMarkAllRead = () => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.read ? n : { ...n, read: true, readAt: new Date().toISOString() }))
+    );
+    setToast?.({ msg: "All notifications marked as read.", type: "success" });
   };
 
   const filteredNotifications = useMemo(() => {

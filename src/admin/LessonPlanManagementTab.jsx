@@ -3,8 +3,7 @@ import { Modal, S, SearchBar, StatCard, StatusBadge, Toast } from "../components
 import { 
   getLessonPlans, createLessonPlan, updateLessonPlan, deleteLessonPlan,
   getCenters, getClasses, getCourses, getAdminTeachers,
-  getAdminLessonAssignments, assignLessonPlan, updateLessonPlanAssignment,
-  getAdminLessonReports, reviewLessonReport
+  getAdminLessonAssignments, assignLessonPlan, updateLessonPlanAssignment 
 } from "../services/api";
 
 const mapTeacherFromApi = (t) => ({
@@ -55,65 +54,6 @@ function resolveName(list, id, key = "name") {
   if (!id) return "—";
   const found = list.find(x => (x._id || x.id) === id);
   return found ? found[key] : "—";
-}
-
-/* ── Report Review Actions ── */
-function ReportReviewActions({ reportId, onReview, setToast }) {
-  const [feedback, setFeedback] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const handleApprove = async () => {
-    setLoading(true);
-    await onReview(reportId, "approved", feedback || "Approved by admin");
-    setLoading(false);
-    setFeedback("");
-  };
-
-  const handleReject = async () => {
-    if (!feedback.trim()) {
-      setToast({ msg: "Please provide feedback before rejecting.", type: "error" });
-      return;
-    }
-    setLoading(true);
-    await onReview(reportId, "rejected", feedback);
-    setLoading(false);
-    setFeedback("");
-  };
-
-  const handleRequestRevision = async () => {
-    if (!feedback.trim()) {
-      setToast({ msg: "Please provide feedback for revision.", type: "error" });
-      return;
-    }
-    setLoading(true);
-    await onReview(reportId, "revision_requested", feedback);
-    setLoading(false);
-    setFeedback("");
-  };
-
-  return (
-    <div style={{ marginTop: 12, padding: "12px 14px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f3f4f6" }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 8 }}>Admin Review</div>
-      <textarea
-        value={feedback}
-        onChange={(e) => setFeedback(e.target.value)}
-        placeholder="Write feedback for the teacher..."
-        rows={3}
-        style={{ ...S.input, resize: "none", marginBottom: 10, fontSize: 12 }}
-      />
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button onClick={handleApprove} disabled={loading} style={{ ...S.btnGreen, flex: 1 }}>
-          {loading ? "..." : "✓ Approve"}
-        </button>
-        <button onClick={handleRequestRevision} disabled={loading} style={{ ...S.btnOrange, flex: 1 }}>
-          {loading ? "..." : "↻ Revision"}
-        </button>
-        <button onClick={handleReject} disabled={loading} style={{ ...S.btnRed, flex: 1 }}>
-          {loading ? "..." : "✕ Reject"}
-        </button>
-      </div>
-    </div>
-  );
 }
 
 /* ── Plan Form Modal ── */
@@ -293,9 +233,7 @@ export default function LessonPlanManagementTab({ setToast }) {
   const [courses, setCourses] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [assignments, setAssignments] = useState([]);
-  const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("plans");
 
   const [search, setSearch] = useState("");
   const [filterCenter, setFilterCenter] = useState("all");
@@ -316,22 +254,19 @@ export default function LessonPlanManagementTab({ setToast }) {
       getClasses(),
       getCourses(),
       getAdminTeachers(),
-      getAdminLessonAssignments(),
-      getAdminLessonReports()
-    ]).then(([plansRes, centersRes, classesRes, coursesRes, teachersRes, assnsRes, reportsRes]) => {
+      getAdminLessonAssignments()
+    ]).then(([plansRes, centersRes, classesRes, coursesRes, teachersRes, assnsRes]) => {
       const dbCenters = centersRes.centers || [];
       const dbClasses = classesRes.classes || [];
       const dbCourses = coursesRes.courses || [];
       const dbTeachers = (teachersRes.teachers || []).map(mapTeacherFromApi);
       const dbAssns = assnsRes.assignments || [];
-      const dbReports = reportsRes.reports || [];
 
       setCenters(dbCenters);
       setClasses(dbClasses);
       setCourses(dbCourses);
       setTeachers(dbTeachers);
       setAssignments(dbAssns);
-      setReports(dbReports);
 
       const dbPlans = (plansRes.lessonPlans || []).map(p => mapPlanFromApi(p, dbAssns));
       setPlans(dbPlans);
@@ -440,16 +375,6 @@ export default function LessonPlanManagementTab({ setToast }) {
   const openEdit = (plan) => { setEditPlan(plan); setFormModal(true); };
   const openAdd  = ()     => { setEditPlan(null); setFormModal(true); };
 
-  const handleReviewReport = async (reportId, status, feedback) => {
-    try {
-      await reviewLessonReport(reportId, { status, adminFeedback: feedback });
-      showToast({ msg: `Report ${status} successfully!`, type: "success" });
-      loadData();
-    } catch (err) {
-      showToast({ msg: err.message || "Failed to review report.", type: "error" });
-    }
-  };
-
   if (loading) {
     return (
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "40vh", fontSize: 14, fontWeight: 600, color: "#d97706" }}>
@@ -461,8 +386,6 @@ export default function LessonPlanManagementTab({ setToast }) {
   const activePlansCount = plans.length;
   const completedTeacherEntries = assignments.filter(a => a.status === "completed" || a.status === "reviewed").length;
   const pendingTeacherEntries   = assignments.filter(a => a.status === "pending").length;
-  const pendingReports = reports.filter(r => r.status === "pending").length;
-  const reviewedReports = reports.filter(r => r.status === "approved" || r.status === "reviewed").length;
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
@@ -500,44 +423,13 @@ export default function LessonPlanManagementTab({ setToast }) {
         <button onClick={openAdd} style={S.primaryBtn}>+ Create Base Plan</button>
       </div>
 
-      {/* Sub-tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "2px solid #f3f4f6" }}>
-        {[
-          { key: "plans", label: "Base Plans" },
-          { key: "reports", label: `Completion Reports (${pendingReports} pending)` },
-        ].map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            style={{
-              padding: "10px 18px",
-              border: "none",
-              borderBottom: `2px solid ${activeTab === tab.key ? "#f59e0b" : "transparent"}`,
-              background: "none",
-              color: activeTab === tab.key ? "#92400e" : "#9ca3af",
-              fontSize: 13,
-              fontWeight: 700,
-              cursor: "pointer",
-              fontFamily: "inherit",
-              marginBottom: -2,
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
       {/* KPI Display */}
       <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
         <StatCard icon="📋" label="Base Plans" val={activePlansCount} color="#f59e0b" bg="#fef3c7" />
         <StatCard icon="⏳" label="Teacher Pending" val={pendingTeacherEntries} color="#3b82f6" bg="#dbeafe" />
         <StatCard icon="✅" label="Delivered Done" val={completedTeacherEntries} color="#10b981" bg="#d1fae5" />
-        {activeTab === "reports" && <StatCard icon="📝" label="Pending Reports" val={pendingReports} color="#8b5cf6" bg="#ede9fe" />}
-        {activeTab === "reports" && <StatCard icon="✅" label="Reviewed Reports" val={reviewedReports} color="#10b981" bg="#d1fae5" />}
       </div>
 
-      {activeTab === "plans" && (
-        <>
       {/* Filter Toolbar */}
       <div style={{ background: "white", borderRadius: 14, padding: "14px 18px", border: "1px solid #f1f5f9", marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ flex: 1, minWidth: 200 }}>
@@ -613,67 +505,6 @@ export default function LessonPlanManagementTab({ setToast }) {
           <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>No lesson plans found</div>
           <div style={{ fontSize: 12, marginTop: 4 }}>Create a new base plan or check filters.</div>
-        </div>
-      )}
-        </>
-      )}
-
-      {activeTab === "reports" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {reports.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "60px 20px", color: "#9ca3af" }}>
-              <div style={{ fontSize: 48, marginBottom: 12 }}>📝</div>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>No completion reports yet</div>
-              <div style={{ fontSize: 12, marginTop: 4 }}>Reports will appear here when teachers submit lesson completions.</div>
-            </div>
-          ) : reports.map(r => {
-            const teacherName = r.teacher?.name || "Unknown Teacher";
-            const planTitle = r.assignment?.lessonPlan?.title || "Unknown Plan";
-            const centerName = r.assignment?.center?.name || "—";
-            const className = r.assignment?.class?.name || "—";
-            const isPending = r.status === "pending";
-            return (
-              <div key={r._id || r.id} style={{ background: "white", borderRadius: 14, padding: "18px 22px", border: "1px solid #f1f5f9", borderLeft: `4px solid ${isPending ? "#f59e0b" : "#10b981"}`, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: "#0f172a", marginBottom: 4 }}>{planTitle}</div>
-                    <div style={{ fontSize: 12, color: "#6b7280", display: "flex", gap: 12, flexWrap: "wrap" }}>
-                      <span>Teacher: {teacherName}</span>
-                      <span>Center: {centerName}</span>
-                      <span>Class: {className}</span>
-                      <span>Submitted: {r.createdAt ? new Date(r.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" }) : "—"}</span>
-                    </div>
-                  </div>
-                  <StatusBadge status={r.status} />
-                </div>
-
-                {r.teachingNotes && (
-                  <div style={{ marginBottom: 10, padding: "10px 12px", background: "#f9fafb", borderRadius: 8, border: "1px solid #f3f4f6" }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", marginBottom: 4 }}>Teaching Notes</div>
-                    <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.5 }}>{r.teachingNotes}</div>
-                  </div>
-                )}
-
-                {r.activityDescription && (
-                  <div style={{ marginBottom: 10, padding: "10px 12px", background: "#f9fafb", borderRadius: 8, border: "1px solid #f3f4f6" }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", marginBottom: 4 }}>Activity Description</div>
-                    <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.5 }}>{r.activityDescription}</div>
-                  </div>
-                )}
-
-                {r.adminFeedback && (
-                  <div style={{ marginBottom: 10, padding: "10px 12px", background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0" }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: "#065f46", textTransform: "uppercase", marginBottom: 4 }}>Admin Feedback</div>
-                    <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.5 }}>{r.adminFeedback}</div>
-                  </div>
-                )}
-
-                {isPending && (
-                  <ReportReviewActions reportId={r._id || r.id} onReview={handleReviewReport} setToast={showToast} />
-                )}
-              </div>
-            );
-          })}
         </div>
       )}
     </div>

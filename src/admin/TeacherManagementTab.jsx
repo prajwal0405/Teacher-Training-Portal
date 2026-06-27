@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { AttendanceBar, Modal, S, SearchBar, SectionCard, StatCard, StatusBadge, Toast } from "../components/Shared";
-import { getAdminTeachers, updateTeacherStatus, updateTeacherProfile, registerTeacher, getCenters, getClasses, sendDirectMessageToTeacher, blockTeacher, unblockTeacher, deleteTeacher } from "../services/api";
+import { getAdminTeachers, updateTeacherStatus, updateTeacherProfile, registerTeacher, getCenters, sendDirectMessageToTeacher, blockTeacher, unblockTeacher, deleteTeacher } from "../services/api";
 import { t } from "../services/i18n";
 
 // Reuse same base URL pattern as ActivityMonitoringTab
@@ -177,43 +177,30 @@ function DirectMessageModal({ teacher, onClose, setToast }) {
 }
 
 /* ── Change Center Modal ── */
-function ChangeCenterModal({ teacher, centers = [], classes = [], onSave, onClose }) {
+function ChangeCenterModal({ teacher, centers = [], onSave, onClose }) {
   const [selectedCenter, setSelectedCenter] = useState(teacher.centerId || "");
-  const [selectedClass, setSelectedClass] = useState(teacher.classId || "");
-  const filteredClasses = selectedCenter
-    ? classes.filter(c => String(c.center || c.centerId || c.center?._id) === String(selectedCenter))
-    : [];
   return (
     <Modal title={`🏫 Change Center — ${teacher.name}`} onClose={onClose}>
       <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 8, padding: "10px 12px", marginBottom: 14, fontSize: 12, color: "#0c4a6e" }}>
-        ℹ️ This will update the center and class shown on the teacher's dashboard immediately.
+        ℹ️ This will update the center shown on the teacher's dashboard immediately.
       </div>
       <label style={S.label}>Select Training Center</label>
-      <select style={{ ...S.input, marginBottom: 12 }} value={selectedCenter}
-        onChange={e => { setSelectedCenter(e.target.value); setSelectedClass(""); }}>
+      <select style={{ ...S.input, marginBottom: 20 }} value={selectedCenter}
+        onChange={e => setSelectedCenter(e.target.value)}>
         <option value="">No Center Assigned</option>
         {centers.map(c => (
           <option key={c._id || c.id} value={c._id || c.id}>{c.name}</option>
         ))}
       </select>
-      <label style={S.label}>Select Class</label>
-      <select style={{ ...S.input, marginBottom: 20 }} value={selectedClass}
-        onChange={e => setSelectedClass(e.target.value)}
-        disabled={!selectedCenter}>
-        <option value="">No Class Assigned</option>
-        {filteredClasses.map(c => (
-          <option key={c._id || c.id} value={c._id || c.id}>{c.name}</option>
-        ))}
-      </select>
-      <button onClick={() => onSave(selectedCenter, selectedClass)} style={{ ...S.primaryBtn, width: "100%" }}>
-        Save Center & Class Assignment →
+      <button onClick={() => onSave(selectedCenter)} style={{ ...S.primaryBtn, width: "100%" }}>
+        Save Center Assignment →
       </button>
     </Modal>
   );
 }
 
 /* ── Teacher Full Profile View ── */
-function TeacherProfileView({ teacher, centers = [], classes = [], onBack, onUpdate, setToast }) {
+function TeacherProfileView({ teacher, centers = [], onBack, onUpdate, setToast }) {
   const [activeSection, setActiveSection] = useState("overview");
   const [showReject,   setShowReject]   = useState(false);
   const [showBlock,    setShowBlock]    = useState(false);
@@ -254,8 +241,8 @@ function TeacherProfileView({ teacher, centers = [], classes = [], onBack, onUpd
       .catch(err => setToast({ msg: err.message, type: "error" }));
   };
 
-  const doChangeCenter = (centerId, classId) =>
-    updateTeacherProfile(teacher.id, { teacherProfile: { center: centerId, class: classId } })
+  const doChangeCenter = (centerId) =>
+    updateTeacherProfile(teacher.id, { teacherProfile: { center: centerId } })
       .then(() => { onUpdate(); setToast({ msg: "Center assignment updated!", type: "success" }); setShowCourses(false); })
       .catch(err => setToast({ msg: err.message, type: "error" }));
 
@@ -269,7 +256,7 @@ function TeacherProfileView({ teacher, centers = [], classes = [], onBack, onUpd
       {showReject   && <RejectModal  teacher={teacher} onClose={() => setShowReject(false)}  onConfirm={doReject} />}
       {showBlock    && <BlockModal   teacher={teacher} onClose={() => setShowBlock(false)}   onConfirm={doBlock} />}
       {showMsg      && <DirectMessageModal teacher={teacher} onClose={() => setShowMsg(false)} setToast={setToast} />}
-      {showCourses  && <ChangeCenterModal  teacher={teacher} centers={centers} classes={classes} onClose={() => setShowCourses(false)} onSave={doChangeCenter} />}
+      {showCourses  && <ChangeCenterModal  teacher={teacher} centers={centers} onClose={() => setShowCourses(false)} onSave={doChangeCenter} />}
 
       {/* NEW: full-size photo lightbox */}
       {photoLightbox && teacher.photoUrl && (
@@ -467,7 +454,6 @@ function TeacherProfileView({ teacher, centers = [], classes = [], onBack, onUpd
 export default function TeacherManagementTab({ setToast }) {
   const [teachers, setTeachers]   = useState([]);
   const [centers, setCenters]     = useState([]);
-  const [classes, setClasses]     = useState([]);
   const [search, setSearch]       = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [centerFilter, setCenterFilter] = useState("all");
@@ -477,7 +463,7 @@ export default function TeacherManagementTab({ setToast }) {
   const [toast, setLocalToast]    = useState({ msg: "", type: "" });
   const [newT, setNewT] = useState({
     name: "", email: "", phone: "", subject: "", address: "",
-    qualification: "Graduate", experience: "Fresher", assignedCenter: "", assignedClass: "", password: ""
+    qualification: "Graduate", experience: "Fresher", assignedCenter: "", password: ""
   });
 
   const showToast = setToast || setLocalToast;
@@ -485,14 +471,9 @@ export default function TeacherManagementTab({ setToast }) {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [teachersRes, centersRes, classesRes] = await Promise.all([
-        getAdminTeachers(),
-        getCenters(),
-        getClasses()
-      ]);
+      const [teachersRes, centersRes] = await Promise.all([getAdminTeachers(), getCenters()]);
       setTeachers((teachersRes.teachers || []).map(mapTeacherFromApi));
       setCenters(centersRes.centers || []);
-      setClasses(classesRes.classes || []);
     } catch (err) {
       showToast({ msg: "Failed to fetch teachers: " + err.message, type: "error" });
     } finally {
@@ -520,22 +501,15 @@ export default function TeacherManagementTab({ setToast }) {
         name: newT.name, email: newT.email, phone: newT.phone, password: newT.password,
         qualification: newT.qualification, subject: newT.subject,
         experience: newT.experience, address: newT.address,
-        center: newT.assignedCenter || undefined,
-        class: newT.assignedClass || undefined,
       });
       const newId = res.teacher?.id || res.teacher?._id;
       await updateTeacherStatus(newId, "approved");
-      if ((newT.assignedCenter || newT.assignedClass) && newId) {
-        await updateTeacherProfile(newId, {
-          teacherProfile: {
-            center: newT.assignedCenter || undefined,
-            class: newT.assignedClass || undefined,
-          }
-        });
+      if (newT.assignedCenter && newId) {
+        await updateTeacherProfile(newId, { teacherProfile: { center: newT.assignedCenter } });
       }
-      showToast({ msg: "Teacher registered, approved & assigned!", type: "success" });
+      showToast({ msg: "Teacher registered, approved & center assigned!", type: "success" });
       setAddModal(false);
-      setNewT({ name: "", email: "", phone: "", subject: "", address: "", qualification: "Graduate", experience: "Fresher", assignedCenter: "", assignedClass: "", password: "" });
+      setNewT({ name: "", email: "", phone: "", subject: "", address: "", qualification: "Graduate", experience: "Fresher", assignedCenter: "", password: "" });
       await loadData();
     } catch (err) {
       showToast({ msg: "Error: " + err.message, type: "error" });
@@ -554,7 +528,6 @@ export default function TeacherManagementTab({ setToast }) {
       <TeacherProfileView
         teacher={teachers.find(t => t.id === selected.id) || selected}
         centers={centers}
-        classes={classes}
         onBack={() => { setSelected(null); loadData(); }}
         onUpdate={loadData}
         setToast={showToast}
@@ -726,17 +699,6 @@ export default function TeacherManagementTab({ setToast }) {
               <select style={S.input} value={newT.assignedCenter} onChange={e => setNewT({ ...newT, assignedCenter: e.target.value })}>
                 <option value="">Select Center (optional)</option>
                 {centers.map(c => <option key={c._id||c.id} value={c._id||c.id}>{c.name}</option>)}
-              </select>
-            </div>
-            <div style={{ marginTop: 12 }}>
-              <label style={S.label}>Assigned Class</label>
-              <select style={S.input} value={newT.assignedClass} onChange={e => setNewT({ ...newT, assignedClass: e.target.value })} disabled={!newT.assignedCenter}>
-                <option value="">Select Class (optional)</option>
-                {newT.assignedCenter
-                  ? classes.map(c => (
-                      <option key={c._id || c.id} value={c._id || c.id}>{c.name}</option>
-                    ))
-                  : null}
               </select>
             </div>
             <div style={{ marginTop: 12 }}>

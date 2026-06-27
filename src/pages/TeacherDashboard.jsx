@@ -1,41 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { Logo, Toast, Badge, StatusBadge, StatCard, SectionCard, S, globalCSS } from "../components/Shared";
-import { t, setLanguage, getLanguageList, getCurrentLanguage, LANG_CHANGE_EVENT } from "../services/i18n";
-import { updateTeacherNotificationPreference } from "../services/api";
 import AttendanceManager from "./AttendanceManager";
 import TrainingAndClassroomManager from "./TrainingAndClassroomManager";
 import GeotagAttendance from "./GeotagAttendance";
 import ProctoredAssessment from "./Proctoredassessment";
-import {
-  getTeacherProgress,
-  getNotifications,
-  markNotificationRead,
-  askTeacherChatbot,
-  updateCourseAssignmentProgress,
-  updateTeacherMe,
-  getTeacherMe,
-  getTeacherAssessmentResults,
-  uploadFile,
-  changeTeacherPassword,
-  submitFeedback,
-  getFeedbacks,
-  updateTeacherLanguage,
-  getTeacherCourseNotes,
-  getTeacherCertificates,
-  getTeacherGrades
-} from "../services/api";
-
-/* Resolve a profile photo path to a full URL */
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
-
-/* Returns teacher's real photo URL or DiceBear fallback */
-const getTeacherPhotoUrl = (teacher) => {
-  const photo = teacher?.teacherProfile?.profilePhoto || teacher?.teacherProfile?.photo || teacher?.photoUrl || teacher?.profilePhoto;
-  if (!photo) return null;
-  if (typeof photo === "string") return photo.startsWith("http") ? photo : `${API_BASE_URL}${photo}`;
-  const url = photo.publicUrl || photo.url || photo.path;
-  return url || null;
-};
 
 /* ═══════════════════════════════════════════
    MOCK DATA
@@ -193,117 +161,8 @@ function OverviewTab({ user, setActiveTab }) {
 /* ═══════════════════════════════════════════
    COURSE CONTENT DATA
 ═══════════════════════════════════════════ */
-const getCourseContent = (assignment, notes = []) => {
-  const dbCourse = assignment?.course;
-  if (!dbCourse) return null;
-
-  const rawModules = dbCourse.modules && dbCourse.modules.length ? dbCourse.modules : [];
-
-  const courseNotes = notes.filter(n => !n.moduleIndex && n.moduleIndex !== 0);
-  const baseNotesText = courseNotes.map(n => n.content).join('\n\n').trim();
-  const dbNotes = dbCourse.description || "";
-
-  const mapContentItem = (content, moduleIndex, contentIndex) => {
-    const id = content._id || `content-${moduleIndex}-${contentIndex}`;
-    // Support both externalUrl (from DB contents) and videoUrl (from admin form lessons)
-    const url = content.externalUrl || content.videoUrl || content.url || content.file?.publicUrl || "";
-    const youtubeMatch = url.match(/(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?\/\s]{11})/);
-    const contentNotes = notes.filter(n => n.moduleIndex === moduleIndex && n.contentIndex === contentIndex);
-    return {
-      id,
-      title: content.title || `Content ${contentIndex + 1}`,
-      type: content.type || (url ? "video" : "document"),
-      url,
-      ytId: youtubeMatch?.[1] || "",
-      duration: content.suggestedDuration || content.duration || (content.type === "video" ? "Video" : content.type || "Content"),
-      notes: contentNotes.map(n => n.content).join('\n\n').trim() || content.notes || content.description || ""
-    };
-  };
-
-  let modules;
-  if (rawModules.length > 0) {
-    // Check if ANY module has content items; if none do, treat as contentLink-backed course
-    const anyHasContent = rawModules.some(m => (m.contents?.length || m.lessons?.length || 0) > 0);
-    if (!anyHasContent && (dbCourse.contentLink || dbCourse.youtubeId)) {
-      // Fall through to contentLink handling below
-    } else if (!anyHasContent) {
-      // Modules exist but all are empty — show as "no content" placeholder
-      modules = [{
-        id: `module-0`,
-        title: dbCourse.title || "Course Content",
-        description: dbCourse.description || "",
-        contents: [],
-        items: [],
-        notes: baseNotesText || dbCourse.description || "Course modules have been created but no content items have been added yet."
-      }];
-    } else {
-      modules = rawModules.map((module, moduleIndex) => {
-        // Support both module.contents (DB schema) and module.lessons (admin form schema)
-        const rawItems = module.contents?.length ? module.contents
-          : module.lessons?.length ? module.lessons
-          : [];
-        const contents = rawItems.map((content, ci) => mapContentItem(content, moduleIndex, ci));
-
-        const moduleNotesList = notes.filter(n => n.moduleIndex === moduleIndex && !n.contentIndex);
-        const notesText = moduleNotesList.map(n => n.content).join('\n\n').trim();
-        const effectiveNotes = notesText || module.description || dbNotes || "No notes added by admin yet.";
-
-        return {
-          id: module._id || `module-${moduleIndex}`,
-          title: module.title || `Module ${moduleIndex + 1}`,
-          description: module.description || "",
-          contents,
-          items: contents,
-          notes: effectiveNotes
-        };
-      });
-    }
-  }
-
-  if (modules) {
-    // modules already set above
-  } else if (dbCourse.contentLink || dbCourse.youtubeId) {
-    const ytId = dbCourse.youtubeId || (() => {
-      const m = (dbCourse.contentLink || "").match(/(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?\/\s]{11})/);
-      return m ? m[1] : null;
-    })();
-
-    const singleItem = ytId ? [{
-      id: `content-0`,
-      title: dbCourse.title || "Course Video",
-      type: "video",
-      url: dbCourse.contentLink || `https://www.youtube.com/watch?v=${ytId}`,
-      ytId: ytId || "",
-      duration: "Video"
-    }] : [{
-      id: `content-0`,
-      title: dbCourse.title || "Course Material",
-      type: "document",
-      url: dbCourse.contentLink || "",
-      ytId: "",
-      duration: "Document"
-    }];
-
-    modules = [{
-      id: `module-0`,
-      title: dbCourse.title || "Course Content",
-      description: dbCourse.description || "",
-      contents: singleItem,
-      items: singleItem,
-      notes: baseNotesText || dbCourse.description || "No content has been added to this course yet. Please contact your administrator."
-    }];
-  } else {
-    modules = [{
-      id: `module-0`,
-      title: dbCourse.title || "Course Content",
-      description: dbCourse.description || "",
-      contents: [],
-      items: [],
-      notes: baseNotesText || dbCourse.description || "No content has been added to this course yet. Please contact your administrator."
-    }];
-  }
-
-  return {
+const COURSE_CONTENT = {
+  1: { // Pre-Primary Teacher Training
     color: "#f59e0b",
     icon: "👩‍🏫",
     modules: [
@@ -483,18 +342,10 @@ function CoursesTab({ user }) {
         }))
       };
     }
-    const allVids = enrichedContent.modules.flatMap(m => m.items);
-    // Guard against division by zero
-    const progressPercent = allVids.length > 0
-      ? Math.round((completedContent.length / allVids.length) * 100)
-      : completedContent.length > 0 ? 100 : 0;
+  });
 
-    onMarkDone && onMarkDone(assign._id, {
-      completedContent,
-      progressPercent,
-      status: progressPercent === 100 ? "completed" : "in_progress"
-    });
-  };
+  // ── Merge: DB content priority, fallback to hardcoded COURSE_CONTENT ──
+  const allCourseContent = { ...COURSE_CONTENT, ...dynamicContent };
 
   // ── Course list: DB courses first, mock fallback if empty ──
   const coursesList = backendCourses.length > 0 ? backendCourses : MOCK_COURSES;
@@ -875,34 +726,21 @@ function AssignmentsTab() {
   );
 }
 
-function CertificatesTab({ assignments = [], certificates: certs = [] }) {
-  const displayCerts = certs.length > 0 ? certs : 
-    assignments.filter((item) => item.status === "completed" || item.progressPercent === 100 || item.status === "approved");
-
+function CertificatesTab() {
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
-      <h1 style={S.pageTitle}>Certificates</h1>
-      <p style={S.pageSub}>{displayCerts.length} certificate eligible course{displayCerts.length === 1 ? "" : "s"}</p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))", gap: 16 }}>
-        {displayCerts.length === 0 ? (
-          <div style={{ gridColumn: "1 / -1", padding: 40, textAlign: "center", background: "white", borderRadius: 16, border: "1px dashed #cbd5e1", color: "#94a3b8" }}>
-            Certificates will appear after an assigned course is completed and reviewed.
-          </div>
-        ) : displayCerts.map((item) => {
-          const isRealCert = !!item.certificateNumber;
-          const issuedDate = isRealCert ? item.issuedAt : (item.completedAt || item.updatedAt || item.createdAt);
-          const courseTitle = item.course?.title || item.title || "Completed Course";
-          const certId = isRealCert ? item.certificateNumber : `SPC-${String(item._id || "pending").slice(-8).toUpperCase()}`;
-          return (
-            <div key={item._id} style={{ background: isRealCert ? "linear-gradient(135deg,#fffbeb,#fef3c7)" : "linear-gradient(135deg,#f0fdf4,#dcfce7)", borderRadius: 16, padding: "24px", border: isRealCert ? "2px solid #fbbf24" : "2px solid #86efac", boxShadow: isRealCert ? "0 4px 20px rgba(245,158,11,0.15)" : "0 4px 20px rgba(34,197,94,0.15)" }}>
-              <div style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", marginBottom: 8, lineHeight: 1.4 }}>{courseTitle}</div>
-              <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-                {isRealCert && item.grade && <Badge children={`Grade: ${item.grade}`} color="#059669" bg="#d1fae5"/>}
-                {item.score !== null && item.score !== undefined && <Badge children={`Score: ${item.score}/100`} color="#059669" bg="#d1fae5"/>}
-                <Badge children={issuedDate ? new Date(issuedDate).toLocaleDateString("en-IN") : "Date pending"} color="#d97706" bg="#fef3c7"/>
-                {isRealCert && <Badge children={item.status === "issued" ? "Issued" : item.status} color="#7c3aed" bg="#ede9fe"/>}
-              </div>
-              <div style={{ fontSize: 11, color: "#6b7280" }}>Credential ID: {certId}</div>
+      <h1 style={S.pageTitle}>My Certificates</h1>
+      <p style={S.pageSub}>{MOCK_CERTIFICATES.length} certificates earned</p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(340px,1fr))", gap: 16 }}>
+        {MOCK_CERTIFICATES.map((c,i)=>(
+          <div key={i} style={{ background: "linear-gradient(135deg,#fffbeb,#fef3c7)", borderRadius: 20, padding: "28px 24px", border: "2px solid #fbbf24", position: "relative", overflow: "hidden", boxShadow: "0 4px 20px rgba(245,158,11,0.15)" }}>
+            <div style={{ position: "absolute", top: -20, right: -20, width: 80, height: 80, borderRadius: "50%", background: "#fbbf24", opacity: 0.15 }}/>
+            <div style={{ position: "absolute", bottom: -30, left: -20, width: 100, height: 100, borderRadius: "50%", background: "#f59e0b", opacity: 0.1 }}/>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🏆</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", marginBottom: 8, lineHeight: 1.4 }}>{c.title}</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+              <Badge children={`Grade: ${c.grade}`} color="#059669" bg="#d1fae5"/>
+              <Badge children={c.issued} color="#d97706" bg="#fef3c7"/>
             </div>
             <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 16 }}>🔑 Credential ID: <span style={{ fontWeight: 700, color: "#374151" }}>{c.credentialId}</span></div>
             <div style={{ display: "flex", gap: 10 }}>
@@ -930,28 +768,6 @@ function CertificatesTab({ assignments = [], certificates: certs = [] }) {
 ───────────────────────────────────────── */
 function ProfileTab({ user, onWorkingCenterChange }) {
   const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState(""); // "success" | "error"
-  
-  // Profile picture state
-  const [profilePhoto, setProfilePhoto] = useState(user.photoUrl || null);
-  const [imageLoadError, setImageLoadError] = useState(false);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const fileInputRef = useRef(null);
-  
-  // Password change state
-  const [passwordForm, setPasswordForm] = useState({
-    currentPassword: "",
-    newPassword: "",
-    confirmPassword: ""
-  });
-  const [changingPassword, setChangingPassword] = useState(false);
-  const [showPassword, setShowPassword] = useState({ current: false, new: false, confirm: false });
-  
-  const teacherProfile = user.teacherProfile || {};
-  const center = teacherProfile.center;
-  const centerName = center && typeof center === "object" ? [center.name, center.city].filter(Boolean).join(", ") : user.workingCenter;
 
   const [form, setForm] = useState({
     name:          user.name          || "Bhavarth Surgude",
@@ -1037,10 +853,15 @@ function ProfileTab({ user, onWorkingCenterChange }) {
                 <div style={{ fontSize: 13, color: "#374151", fontWeight: 600 }}>{r.icon} {r.val}</div>
               )}
             </div>
-            {imageLoadError && (
-              <div style={{ fontSize: 10, color: "#ef4444", marginTop: 4 }}>
-                Failed to load image
-              </div>
+          ))}
+        </div>
+
+        {/* Working Center — full-width, always visible, editable when editing */}
+        <div style={{ marginTop: 12, background: editing ? "#fffbeb" : "#f9fafb", borderRadius: 10, padding: "12px 14px", border: `1px solid ${editing ? "#fbbf24" : "#f3f4f6"}`, transition: "background 0.2s, border-color 0.2s" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+            <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>Working Center</div>
+            {editing && (
+              <span style={{ fontSize: 10, background: "#fef3c7", color: "#92400e", fontWeight: 700, borderRadius: 20, padding: "1px 8px", border: "1px solid #fbbf24" }}>Editable</span>
             )}
           </div>
           {editing ? (
@@ -1115,63 +936,11 @@ function ProfileTab({ user, onWorkingCenterChange }) {
           )}
         </div>
 
-<div>
-              <label style={S.label}>{t("teacherLanguage")}</label>
-              <div style={{ padding: "4px 0" }}>
-                <select
-                  style={{ ...S.input, padding: "6px 10px", background: "white", maxWidth: 160, fontSize: 12 }}
-                  value={getCurrentLanguage()}
-                  onChange={async (e) => {
-                    const newLang = e.target.value;
-                    setLanguage(newLang);
-                    try {
-                      await updateTeacherLanguage(newLang);
-                      setMessage(t("Language") + " updated! Changes applied instantly.");
-                      setMessageType("success");
-                    } catch (err) {
-                      console.error("Failed to save language preference:", err);
-                      setMessage("Language updated locally");
-                      setMessageType("success");
-                    }
-                  }}
-                >
-                  {getLanguageList().map((l) => (
-                    <option key={l}>{l}</option>
-                  ))}
-                </select>
-                <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>Language applies instantly — no reload needed.</div>
-              </div>
-            </div>
-
-<div>
-              <label style={S.label}>{t("preferredNotification") || "Preferred Notification Channel"}</label>
-              <div style={{ padding: "4px 0" }}>
-                <select
-                  style={{ ...S.input, padding: "6px 10px", background: "white", maxWidth: 160, fontSize: 12 }}
-                  value={user.preferredNotificationChannel || "in_app"}
-                  onChange={async (e) => {
-                    const newChannel = e.target.value;
-                    try {
-                      await updateTeacherNotificationPreference(newChannel);
-                      setMessage("Notification preference saved!");
-                      setMessageType("success");
-                    } catch (err) {
-                      console.error("Failed to save notification preference:", err);
-                      setMessage("Notification preference updated locally");
-                      setMessageType("success");
-                    }
-                  }}
-                >
-                  <option value="in_app">In-App Only</option>
-                  <option value="email">Email</option>
-                  <option value="sms">SMS</option>
-                  <option value="whatsapp">WhatsApp</option>
-                  <option value="all">All Channels</option>
-                </select>
-                <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>Choose how you receive notifications.</div>
-              </div>
-            </div>
-        </div>
+        {editing && (
+          <button onClick={handleSave} style={{ ...S.primaryBtn, width: "100%", marginTop: 16, background: "linear-gradient(135deg,#f59e0b,#d97706)" }}>
+            💾 Save Portfolio Details
+          </button>
+        )}
       </div>
 
       {/* Change Password */}
@@ -1225,160 +994,8 @@ function NotificationsTab() {
 export default function TeacherDashboard({ user, onLogout }) {
   const [activeTab, setActiveTab]         = useState("overview");
   const [toast, setToast]                 = useState({ msg: "", type: "" });
-  const [currentUser, setCurrentUser]     = useState(user);
-  const [workingCenter, setWorkingCenter] = useState(() => {
-    const center = user?.teacherProfile?.center;
-    if (typeof center === "object" && center?.name) {
-      return [center.name, center.city].filter(Boolean).join(", ");
-    }
-    return user?.workingCenter || "";
-  });
-
-  const [courses, setCourses]             = useState([]);
-  const [notifications, setNotifications] = useState([]);
-  const [lessons, setLessons]             = useState([]);
-  const [activities, setActivities]       = useState([]);
-  const [summary, setSummary]             = useState({});
-  const [assessmentResults, setAssessmentResults] = useState([]);
-  const [certificates, setCertificates]   = useState([]);
-  const [courseNotes, setCourseNotes]     = useState({});
-  const [loading, setLoading]            = useState(true);
-  const [tabLoading, setTabLoading]      = useState(false);
-
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState([
-    { sender: "bot", text: `Hello ${user.name?.split(" ")[0] || "there"}! I'm your SpaceCE AI Assistant. How can I assist you with your class, attendance, courses, or lesson plans today?` }
-  ]);
-  const [chatInput, setChatInput] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
-
-  const refreshCoreData = async () => {
-    try {
-      const [progressRes, notificationsRes, teacherRes, certificatesRes] = await Promise.all([
-        getTeacherProgress(),
-        getNotifications(),
-        getTeacherMe(),
-        getTeacherCertificates(),
-      ]);
-      if (progressRes) {
-        setCourses(progressRes.courses || []);
-        setLessons(progressRes.lessons || []);
-        setActivities(progressRes.activities || []);
-        setSummary(progressRes.summary || {});
-      }
-      if (notificationsRes?.notifications) {
-        const mapped = notificationsRes.notifications.map(n => {
-          let timeVal = "Just now";
-          if (n.createdAt) {
-            const diffMs = new Date() - new Date(n.createdAt);
-            const diffMins = Math.floor(diffMs / 60000);
-            if (diffMins < 60) timeVal = `${diffMins}m ago`;
-            else {
-              const diffHrs = Math.floor(diffMins / 60);
-              if (diffHrs < 24) timeVal = `${diffHrs}h ago`;
-              else timeVal = `${Math.floor(diffHrs / 24)}d ago`;
-            }
-          }
-          return { id: n._id, type: n.type || "info", msg: n.body ? `${n.title}: ${n.body}` : n.title || "", time: timeVal, read: n.read };
-        });
-        setNotifications(mapped);
-      }
-      if (teacherRes?.teacher) setCurrentUser(teacherRes.teacher);
-      if (certificatesRes?.certificates) setCertificates(certificatesRes.certificates);
-    } catch (err) {
-      console.error("Error fetching teacher dashboard data:", err);
-    }
-  };
-
-  const refreshAssessmentResults = async () => {
-    try {
-      const res = await getTeacherAssessmentResults();
-      setAssessmentResults(res?.results || []);
-    } catch (err) {
-      console.error("Error fetching assessment results:", err);
-    }
-  };
-
-  useEffect(() => {
-    const center = currentUser?.teacherProfile?.center;
-    if (center && typeof center === "object" && center.name) {
-      const name = [center.name, center.city].filter(Boolean).join(", ");
-      setWorkingCenter(name);
-    } else if (currentUser?.workingCenter) {
-      setWorkingCenter(currentUser.workingCenter);
-    }
-  }, [currentUser]);
-
-  useEffect(() => {
-    setLoading(true);
-    refreshCoreData().finally(() => setLoading(false));
-  }, [user]);
-
-  useEffect(() => {
-    if (activeTab === "assessment") refreshAssessmentResults();
-  }, [activeTab]);
-
-  const handleTabSwitch = (tab) => {
-    if (activeTab !== tab) setTabLoading(true);
-    setActiveTab(tab);
-    setTimeout(() => setTabLoading(false), 300);
-  };
-
-  const handleMarkDone = async (assignId, payload) => {
-    try {
-      await updateCourseAssignmentProgress(assignId, payload);
-      setToast({ msg: "Progress saved! ✓", type: "success" });
-      refreshCoreData();
-    } catch (err) {
-      setToast({ msg: "Failed to save progress.", type: "error" });
-    }
-  };
-
-  const handleSubmitAssignment = async (assignId, payload) => {
-    await updateCourseAssignmentProgress(assignId, payload);
-    setToast({ msg: "Assignment submitted successfully! 📤", type: "success" });
-    refreshCoreData();
-  };
-
-  const handleMarkNotifRead = async (notifId) => {
-    try {
-      await markNotificationRead(notifId);
-      refreshCoreData();
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleMarkAllNotifRead = async () => {
-    try {
-      const unread = notifications.filter(n => !n.read);
-      await Promise.all(unread.map(n => markNotificationRead(n.id)));
-      setToast({ msg: "All notifications marked as read.", type: "success" });
-      refreshCoreData();
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleSendChatMessage = async () => {
-    if (!chatInput.trim()) return;
-    const userMsg = chatInput.trim();
-    setChatMessages(prev => [...prev, { sender: "user", text: userMsg }]);
-    setChatInput("");
-    setChatLoading(true);
-    try {
-      const res = await askTeacherChatbot(userMsg);
-      if (res && res.reply) {
-        setChatMessages(prev => [...prev, { sender: "bot", text: res.reply }]);
-      } else {
-        setChatMessages(prev => [...prev, { sender: "bot", text: "I'm sorry, I'm having trouble connecting right now." }]);
-      }
-    } catch (err) {
-      setChatMessages(prev => [...prev, { sender: "bot", text: "Something went wrong. Please try again later." }]);
-    } finally {
-      setChatLoading(false);
-    }
-  };
+  // workingCenter lives here so OverviewTab reflects changes saved in ProfileTab
+  const [workingCenter, setWorkingCenter] = useState(user.workingCenter || "Dhayri, Pune, Maharashtra");
 
   const unreadCount = MOCK_NOTIFICATIONS.filter(n=>!n.read).length;
 
@@ -1406,15 +1023,14 @@ export default function TeacherDashboard({ user, onLogout }) {
       case "children_att":  return <AttendanceManager user={enrichedUser}/>;
       case "geotag":        return <GeotagAttendance user={enrichedUser}/>;
       case "training":      return <TrainingAndClassroomManager user={enrichedUser}/>;
-      case "courses":       return <CoursesTab assignments={courses} onMarkDone={handleMarkDone}/>;
-      case "assessment":    return <ProctoredAssessment user={enrichedUser} assessmentResults={assessmentResults}/>;
-      case "schedule":      return <ScheduleTab user={enrichedUser} lessons={lessons}/>;
-      case "grades":        return <GradesTab assignments={courses}/>;
-      case "assignments":   return <AssignmentsTab assignments={courses} onSubmitAssignment={handleSubmitAssignment}/>;
-      case "certificates":  return <CertificatesTab assignments={courses} certificates={certificates}/>;
-      case "notifications": return <NotificationsTab notifications={notifications} onMarkRead={handleMarkNotifRead} onMarkAllRead={handleMarkAllNotifRead}/>;
-      case "feedback":      return <TeacherFeedbackTab user={enrichedUser} setToast={setToast}/>;
-      case "profile":       return <ProfileTab user={enrichedUser} onWorkingCenterChange={setWorkingCenter} onUserUpdate={setCurrentUser}/>;
+      case "courses":       return <CoursesTab user={enrichedUser}/>
+      case "assessment":    return <ProctoredAssessment user={enrichedUser}/>;
+      case "schedule":      return <ScheduleTab user={enrichedUser}/>;
+      case "grades":        return <GradesTab/>;
+      case "assignments":   return <AssignmentsTab/>;
+      case "certificates":  return <CertificatesTab/>;
+      case "notifications": return <NotificationsTab/>;
+      case "profile":       return <ProfileTab user={enrichedUser} onWorkingCenterChange={setWorkingCenter}/>;
       default:              return null;
     }
   };
@@ -1444,8 +1060,8 @@ export default function TeacherDashboard({ user, onLogout }) {
         <div style={{ padding: "12px 16px", borderTop: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg,#3b82f6,#1d4ed8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: "white", flexShrink: 0 }}>{user.name?.[0]}</div>
           <div style={{ flex: 1, overflow: "hidden" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#1c1917" }}>{currentUser.name?.split(" ")[0]}</div>
-            <div style={{ fontSize: 10, color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser.subject}</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#1c1917" }}>{user.name?.split(" ")[0]}</div>
+            <div style={{ fontSize: 10, color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.subject}</div>
           </div>
           <button onClick={onLogout} title="Sign Out" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#9ca3af", padding: 4 }}>⏻</button>
         </div>
@@ -1453,26 +1069,6 @@ export default function TeacherDashboard({ user, onLogout }) {
 
       {/* Main Content */}
       <div style={{ flex: 1, width: "0px", minWidth: "0px", padding: "28px 32px", overflowY: "auto", maxHeight: "100vh" }}>
-        {/* Top bar with profile icon */}
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
-          <button
-            onClick={() => setActiveTab("profile")}
-            title={t("My Profile")}
-            style={{
-              display: "flex", alignItems: "center", gap: 8,
-              padding: "6px 12px", borderRadius: 20,
-              border: "1px solid #e2e8f0", background: "white",
-              cursor: "pointer", fontFamily: "inherit",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
-              transition: "all 0.18s",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(59,130,246,0.15)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#e2e8f0"; e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.06)"; }}
-          >
-            <SidebarAvatar teacher={currentUser} size={28} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>{currentUser.name?.split(" ")[0]}</span>
-          </button>
-        </div>
         {renderContent()}
       </div>
     </div>

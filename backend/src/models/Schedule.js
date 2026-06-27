@@ -4,7 +4,7 @@ const scheduleSchema = new mongoose.Schema(
   {
     teacher: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     className: { type: String, default: "" },
-    time: { type: Date, default: null },
+    time: { type: String, default: "" },
     topic: { type: String, default: "" },
     room: { type: String, default: "" },
     status: { type: String, default: "upcoming" },
