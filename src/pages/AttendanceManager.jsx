@@ -190,11 +190,13 @@ export default function AttendanceManager({ user }) {
     otpRef.current = otp;
     setOtpStep("sending");
     try {
-      await sendOtpEmail(otp, studentName, oldStatus, newStatus);
-      setOtpExpiry(Date.now() + OTP_EXPIRY_MS);
-      setOtpStep("input");
-      setTimeout(() => otpInputRefs.current[0]?.focus(), 100);
-      startCooldown();
+      setSaving(true);
+      setMessage(null);
+      const records = children.map(c => ({ childId: c.id, childName: c.displayName, status: c.status.toLowerCase() }));
+      await post(`${API}/attendance/sessions`, { classId: selectedClassId, attendanceDate: selectedDate, teacherId: user._id, records });
+      const pc = records.filter(r => r.status === 'present').length;
+      const ac = records.filter(r => r.status === 'absent').length;
+      setMessage({ type: 'success', text: 'Attendance submitted! ' + pc + ' Present, ' + ac + ' Absent' });
     } catch (err) {
       console.error("EmailJS error:", err);
       setOtpError("Failed to send OTP. Please check your EmailJS configuration.");
@@ -388,7 +390,8 @@ export default function AttendanceManager({ user }) {
     return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
   };
 
-  const otpFilled = otpInput.join("").length === 6;
+  const activeClass = classList.find(c => c._id === selectedClassId);
+  const activeClassName = activeClass ? activeClass.name + (activeClass.ageGroup ? ' (' + activeClass.ageGroup + ')' : '') : '';
 
   if (loading && students.length === 0) {
     return (
@@ -409,16 +412,8 @@ export default function AttendanceManager({ user }) {
         <button onClick={() => setShowAddModal(true)} style={S.primaryBtn}>+ Enroll Child</button>
       </div>
 
-      {/* Toast banners */}
-      {successMsg && (
-        <div style={{ padding: "12px 16px", marginBottom: 16, background: "#d1fae5", color: "#065f46", borderRadius: 10, fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
-          ✓ {successMsg}
-        </div>
-      )}
-      {errorMsg && (
-        <div style={{ padding: "12px 16px", marginBottom: 16, background: "#fee2e2", color: "#991b1b", borderRadius: 10, fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
-          ⚠️ {errorMsg}
-        </div>
+      {error && (
+        <div style={{ marginBottom: 20, padding: '10px 16px', background: '#f8d7da', border: '1px solid #f5c2c7', borderRadius: 6, color: '#842029', fontSize: 13 }}>{error}</div>
       )}
 
       {/* Date picker */}
@@ -458,10 +453,10 @@ export default function AttendanceManager({ user }) {
           )}
         </div>
 
-        {isSavedRecord && (
-          <div style={{ marginTop: 12, padding: "10px 14px", background: "#fef3c7", border: "1px solid #fbbf24", borderRadius: 8, fontSize: 12, color: "#92400e", display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 16 }}>🔐</span>
-            <span>This is a <strong>saved record</strong>. Any change requires <strong>Email OTP verification</strong> sent to <strong>{maskedEmail}</strong>.</span>
+        {/* LINE 1: Icon + Title */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <div style={{ padding: 10, background: '#e7f1ff', borderRadius: 8, display: 'flex' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
           </div>
         )}
       </SectionCard>
@@ -518,9 +513,17 @@ export default function AttendanceManager({ user }) {
                   {isSavedRecord ? "💾 Submit Update" : "💾 Submit Attendance Register"}
                 </button>
               </div>
+              <input id="_dp" type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }} />
             </div>
-          )}
-        </SectionCard>
+          </div>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: '#fff3cd', color: '#856404', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+            New Unsaved Data Register
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', padding: '6px 12px', background: '#fff3cd', color: '#856404', borderRadius: 6, fontSize: 12, fontWeight: 600 }}>
+            Class: <span style={{ fontWeight: 700 }}>{activeClassName || 'Unassigned'}</span>
+          </span>
+        </div>
       </div>
 
       {/* MODAL 1 — Enroll Student */}
@@ -677,6 +680,13 @@ export default function AttendanceManager({ user }) {
           </div>
         </div>
       )}
+
+      {/* FAB */}
+      <button style={{ position: 'fixed', bottom: 24, right: 24, width: 56, height: 56, background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '50%', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      </button>
     </div>
   );
-}
+};
+
+export default AttendanceManager;

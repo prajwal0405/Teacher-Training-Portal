@@ -341,8 +341,39 @@ export default function ActivityMonitoringTab({ setToast }) {
     rejected: { color: "#6b7280", bg: "#f3f4f6" },
   };
 
+  const getTypeColor = (type) => {
+    switch (type) {
+      case 'photo': return '#3b82f6';
+      case 'video': return '#ef4444';
+      case 'document': return '#10b981';
+      default: return '#6b7280';
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm('Delete this activity?')) return;
+    try {
+      const res = await fetch(`${API}/activities/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setActivities(prev => prev.filter(a => a._id !== id));
+        showToast({ msg: "Activity deleted", type: "success" });
+      }
+    } catch (err) {
+      showToast({ msg: "Failed to delete", type: "error" });
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: "center", padding: 60, color: "#9ca3af" }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>⏳</div>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>Loading activities from database...</div>
+      </div>
+    );
+  }
+
   return (
-    <div style={{ animation: "fadeIn 0.3s ease" }}>
+    <div style={{ animation: "fadeIn 0.3s ease", fontFamily: "inherit" }}>
       {!setToast && <Toast msg={toast.msg} type={toast.type} onClose={() => setLocalToast({ msg: "", type: "" })} />}
 
       {selectedActivity && (

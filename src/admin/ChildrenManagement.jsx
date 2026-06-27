@@ -316,10 +316,13 @@ export default function ChildrenManagementTab({ setToast }) {
     setSelectedClassId(null); // reset class filter
   };
 
-  const openAdd = () => {
-    setEditChild(null);
-    setFormModal(true);
-  };
+  const filtered = children.filter(c => {
+    const matchSearch = !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase());
+    const cCenter = c.center?.name || c.center;
+    const matchCenter = !filterCenter || cCenter === filterCenter;
+    const matchClass = !filterClass || c.classGroup === filterClass;
+    return matchSearch && matchCenter && matchClass;
+  });
 
   const openEdit = (child) => {
     setEditChild(child);
@@ -434,10 +437,10 @@ export default function ChildrenManagementTab({ setToast }) {
         <StatCard icon="🔕" label="Inactive Profiles" val={inactive} color="#6b7280" bg="#f3f4f6" />
       </div>
 
-      {/* ── STEP 1: CENTERS NAVIGATION TABS ── */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: "#475569", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-          📍 Select Center
+      <div style={styles.stats}>
+        <div style={styles.statCard}>
+          <div style={styles.statNumber}>{children.length}</div>
+          <div style={styles.statLabel}>Total Children</div>
         </div>
         {centers.length === 0 ? (
           <div style={{ fontSize: 13, color: "#9ca3af", padding: "12px", background: "#f9fafb", borderRadius: 10, border: "1px dashed #e2e8f0" }}>
@@ -552,11 +555,23 @@ export default function ChildrenManagementTab({ setToast }) {
             </div>
           )}
         </div>
-      )}
+        <div style={styles.statCard}>
+          <div style={styles.statNumber}>{filtered.length}</div>
+          <div style={styles.statLabel}>Showing</div>
+        </div>
+      </div>
 
-      {/* Filter Text Query Search Box */}
-      <div style={{ marginBottom: 16 }}>
-        <SearchBar value={search} onChange={setSearch} placeholder="Search within selection by child or parent name..." />
+      <div style={styles.filters}>
+        <input style={styles.searchInput} placeholder="Search by name..."
+          value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+        <select style={styles.select} value={filterCenter} onChange={e => setFilterCenter(e.target.value)}>
+          <option value="">All Centers</option>
+          {centers.map(c => <option key={c._id || c.name} value={c.name}>{c.name}</option>)}
+        </select>
+        <select style={styles.select} value={filterClass} onChange={e => setFilterClass(e.target.value)}>
+          <option value="">All Classes</option>
+          {allClasses.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
       </div>
 
       {/* ── STEP 3: ENROLLED STUDENTS GRID DISPLAY ── */}
@@ -574,14 +589,26 @@ export default function ChildrenManagementTab({ setToast }) {
                   <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", marginBottom: 4 }}>{c.name}</div>
                   <div style={{ fontSize: 11, color: "#6b7280" }}>🎒 {classObj?.name || "Unassigned"} · Age: {c.age}</div>
                 </div>
-                <StatusBadge status={c.status} />
               </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 14, padding: "12px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f3f4f6" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase" }}>Center Assignment</div>
-                <div style={{ fontSize: 12, color: "#374151", fontWeight: 600, marginBottom: 4 }}>🏢 {centerObj?.name || "None"}</div>
-                <div style={{ fontSize: 12, color: "#6b7280" }}>👤 Parent: {c.parentName}</div>
-                <div style={{ fontSize: 12, color: "#6b7280" }}>📱 Phone: {c.phone}</div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>Center *</label>
+                  <select style={styles.input} required value={form.center}
+                    onChange={e => setForm({ ...form, center: e.target.value })}>
+                    <option value="">Select Center</option>
+                    {centers.map(c => <option key={c._id || c.name} value={c.name}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>Class Group *</label>
+                  <select style={styles.input} required value={form.classGroup}
+                    onChange={e => setForm({ ...form, classGroup: e.target.value })}>
+                    <option value="">Select Class</option>
+                    {['Playgroup-A','Playgroup-B','Nursery-A','Nursery-B','KG-A','KG-B','Class 1','Class 2'].map(c =>
+                      <option key={c} value={c}>{c}</option>
+                    )}
+                  </select>
+                </div>
               </div>
 
               {/* Action Layout */}
@@ -612,4 +639,6 @@ export default function ChildrenManagementTab({ setToast }) {
       )}
     </div>
   );
-}
+};
+
+export default ChildrenManagement;

@@ -1843,6 +1843,27 @@ app.post("/api/teacher/lesson-plans/:id/complete", requireAuth, requireRole("tea
   }
 });
 
+// Teacher: view their own lesson completion reports
+app.get("/api/teacher/lesson-plans/reports", requireAuth, requireRole("teacher"), async (req, res, next) => {
+  try {
+    const reports = await LessonCompletionReport.find({ teacher: req.user.id })
+      .populate({
+        path: "assignment",
+        populate: [
+          { path: "lessonPlan", select: "title scheduleDate" },
+          { path: "center", select: "name" },
+          { path: "class", select: "name" }
+        ]
+      })
+      .populate("files")
+      .sort({ createdAt: -1 });
+
+    res.json({ reports });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/admin/lesson-plans/reports", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
     const reports = await LessonCompletionReport.find()
