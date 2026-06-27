@@ -1,192 +1,168 @@
-import { useState, useEffect } from "react";
-import { Modal, S, StatCard, StatusBadge, Toast } from "../components/Shared";
-import { getAdminCertificates, generateCertificate, revokeCertificate, getCourseAssignments, getAdminTeachers, getCourses } from "../services/api";
+import { useState } from "react";
+import { Modal, S, SectionCard, StatCard, StatusBadge, Toast } from "../components/Shared";
+export default function CertificateManagementTab({ certificates, setCertificates, setToast }) {
+  const [bulkModal, setBulkModal] = useState(false);
+  const [verifyId, setVerifyId] = useState("");
+  const [verified, setVerified] = useState(null);
+  const [bulk, setBulk] = useState({ course:"", batch:"", count:1, template:"Gold Standard" });
 
-export default function CertificateManagementTab({ setToast }) {
-  const [certificates, setCertificates] = useState([]);
-  const [teachers, setTeachers] = useState([]);
-  const [courses, setCourses] = useState([]);
-  const [assignments, setAssignments] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [generateModal, setGenerateModal] = useState(false);
-  const [form, setForm] = useState({ teacherId: "", courseId: "", assignmentId: "", score: "", googleFormUrl: "" });
-  const [localToast, setLocalToast] = useState({ msg: "", type: "" });
+  const templates = [
+    { name:"Gold Standard", style:"Premium completion certificate", color:"#f59e0b" },
+    { name:"Modern Blue",   style:"Professional institute design", color:"#3b82f6" },
+    { name:"Classic",       style:"Minimal print-friendly format", color:"#10b981" },
+  ];
 
-  const showToast = setToast || ((m) => setLocalToast(m));
-
-  const loadData = () => {
-    setLoading(true);
-    Promise.all([getAdminCertificates(), getAdminTeachers(), getCourses(), getCourseAssignments()])
-      .then(([certRes, teacherRes, courseRes, assnRes]) => {
-        setCertificates(certRes.certificates || []);
-        setTeachers(teacherRes.teachers || []);
-        setCourses(courseRes.courses || []);
-        setAssignments(assnRes.assignments || []);
-      })
-      .catch((err) => showToast({ msg: "Failed to load: " + err.message, type: "error" }))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => { loadData(); }, []);
-
-  const handleGenerate = async (e) => {
+  const handleBulkGenerate = (e) => {
     e.preventDefault();
-    if (!form.teacherId || !form.courseId) {
-      showToast({ msg: "Teacher and course are required.", type: "error" });
+
+    if (!bulk.course || !bulk.count) {
+      setToast({ msg:"Please fill required fields.", type:"error" });
       return;
     }
-    try {
-      await generateCertificate({
-        teacherId: form.teacherId,
-        courseId: form.courseId,
-        assignmentId: form.assignmentId || undefined,
-        score: form.score ? Number(form.score) : undefined,
-        googleFormUrl: form.googleFormUrl || undefined,
-      });
-      showToast({ msg: "Certificate generated!", type: "success" });
-      setGenerateModal(false);
-      setForm({ teacherId: "", courseId: "", assignmentId: "", score: "", googleFormUrl: "" });
-      loadData();
-    } catch (err) {
-      showToast({ msg: err.message || "Failed to generate certificate", type: "error" });
-    }
+
+    const count = Number(bulk.count);
+
+    const newCertificates = Array.from({ length:count }, (_, i) => ({
+      id: Date.now() + i,
+      certificateId: `SPC-QUEUE-${Date.now()}-${i+1}`,
+      learner: `Learner ${i+1}`,
+      course: bulk.course,
+      template: bulk.template,
+      issuedOn: "—",
+      qrStatus: "queued",
+      status: "queued"
+    }));
+
+    setCertificates(prev => [...newCertificates, ...prev]);
+    setToast({ msg:`${count} certificates queued for generation!`, type:"success" });
+    setBulkModal(false);
+    setBulk({ course:"", batch:"", count:1, template:"Gold Standard" });
   };
 
-  const handleRevoke = async (id) => {
-    if (!window.confirm("Revoke this certificate? It will become invalid.")) return;
-    try {
-      await revokeCertificate(id);
-      showToast({ msg: "Certificate revoked.", type: "success" });
-      loadData();
-    } catch (err) {
-      showToast({ msg: err.message, type: "error" });
+  const handleVerify = () => {
+    const found = certificates.find(c => c.certificateId.toLowerCase() === verifyId.trim().toLowerCase());
+
+    if (found) {
+      setVerified(found);
+      setToast({ msg:"Certificate verified!", type:"success" });
+    } else {
+      setVerified(null);
+      setToast({ msg:"Certificate not found.", type:"error" });
     }
   };
-
-  if (loading) {
-    return (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "40vh", fontSize: 14, fontWeight: 600, color: "#d97706" }}>
-        🔄 Loading Certificates...
-      </div>
-    );
-  }
-
-  const issued = certificates.filter((c) => c.status === "issued").length;
-  const revoked = certificates.filter((c) => c.status === "revoked").length;
 
   return (
-    <div style={{ animation: "fadeIn 0.3s ease" }}>
-      {!setToast && <Toast msg={localToast.msg} type={localToast.type} onClose={() => setLocalToast({ msg: "", type: "" })} />}
+    <div style={{ animation:"fadeIn 0.3s ease" }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <div>
+          <h1 style={S.pageTitle}>Certificate Management</h1>
+          <p style={S.pageSub}>Templates, bulk generation, QR verification, and issuance tracking</p>
+        </div>
+        <button onClick={()=>setBulkModal(true)} style={S.primaryBtn}>+ Bulk Generate</button>
+      </div>
 
-      {generateModal && (
-        <Modal title="🎓 Generate Certificate" onClose={() => setGenerateModal(false)}>
-          <form onSubmit={handleGenerate}>
-            <label style={S.label}>Teacher *</label>
-            <select style={{ ...S.input, marginBottom: 12 }} value={form.teacherId} onChange={(e) => setForm({ ...form, teacherId: e.target.value })} required>
-              <option value="">Select teacher...</option>
-              {teachers.map((t) => (
-                <option key={t._id || t.id} value={t._id || t.id}>{t.name} — {t.email}</option>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))", gap:16, marginBottom:20 }}>
+        <StatCard icon="🏅" label="Certificates" val={certificates.length} color="#f59e0b" bg="#fef3c7" />
+        <StatCard icon="✅" label="Issued" val={certificates.filter(c=>c.status==="issued").length} color="#10b981" bg="#d1fae5" />
+        <StatCard icon="⏳" label="Queued" val={certificates.filter(c=>c.status==="queued").length} color="#f59e0b" bg="#fef3c7" />
+        <StatCard icon="🔐" label="Verified" val={certificates.filter(c=>c.qrStatus==="verified").length} color="#3b82f6" bg="#dbeafe" />
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
+        <SectionCard title="🎨 Certificate Templates">
+          <div style={{ display:"grid", gap:12 }}>
+            {templates.map((t,i)=>(
+              <div key={i} style={{ border:`1px solid ${t.color}40`, borderRadius:14, padding:"16px", background:"white" }}>
+                <div style={{ fontSize:14, fontWeight:800, color:"#1c1917" }}>{t.name}</div>
+                <div style={{ fontSize:12, color:"#6b7280", marginTop:4 }}>{t.style}</div>
+                <div style={{ display:"flex", gap:8, marginTop:12 }}>
+                  <button style={S.tblBtn} onClick={()=>setToast({ msg:`Previewing ${t.name}`, type:"success" })}>Preview</button>
+                  <button style={S.tblBtn} onClick={()=>setToast({ msg:`${t.name} selected as default`, type:"success" })}>Set Default</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="🔍 QR / Certificate Verification">
+          <label style={S.label}>Certificate ID</label>
+          <div style={{ display:"flex", gap:10, marginBottom:16 }}>
+            <input
+              style={{ ...S.input, marginBottom:0 }}
+              value={verifyId}
+              onChange={e=>setVerifyId(e.target.value)}
+              placeholder="e.g. SPC-2026-001"
+            />
+            <button onClick={handleVerify} style={S.primaryBtn}>Verify</button>
+          </div>
+
+          {verified && (
+            <div style={{ background:"#f9fafb", border:"1px solid #f1f5f9", borderRadius:12, padding:"16px" }}>
+              <div style={{ fontSize:14, fontWeight:800, color:"#1c1917", marginBottom:8 }}>Certificate Verified ✅</div>
+              <div style={{ fontSize:12, color:"#6b7280", lineHeight:1.7 }}>
+                Learner: <b>{verified.learner}</b><br/>
+                Course: <b>{verified.course}</b><br/>
+                Certificate ID: <b>{verified.certificateId}</b><br/>
+                Issued On: <b>{verified.issuedOn}</b>
+              </div>
+            </div>
+          )}
+        </SectionCard>
+      </div>
+
+      <SectionCard title="📄 Issuance Register">
+        <div style={{ background:"white", borderRadius:16, overflow:"hidden" }}>
+          <table style={{ width:"100%", borderCollapse:"collapse" }}>
+            <thead>
+              <tr style={{ background:"#f9fafb", borderBottom:"1px solid #f1f5f9" }}>
+                {["Certificate ID","Learner","Course","Template","Issued On","Status"].map(h=>(
+                  <th key={h} style={{ padding:"12px 16px", fontSize:11, fontWeight:700, color:"#9ca3af", textAlign:"left", textTransform:"uppercase" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {certificates.map((c,i)=>(
+                <tr key={c.id} style={{ borderBottom:"1px solid #f9fafb", background:i%2===0?"white":"#fafafa" }}>
+                  <td style={{ padding:"12px 16px", fontSize:12, fontWeight:700, color:"#374151" }}>{c.certificateId}</td>
+                  <td style={{ padding:"12px 16px", fontSize:12, color:"#374151" }}>{c.learner}</td>
+                  <td style={{ padding:"12px 16px", fontSize:12, color:"#374151" }}>{c.course}</td>
+                  <td style={{ padding:"12px 16px", fontSize:12, color:"#374151" }}>{c.template}</td>
+                  <td style={{ padding:"12px 16px", fontSize:12, color:"#6b7280" }}>{c.issuedOn}</td>
+                  <td style={{ padding:"12px 16px" }}><StatusBadge status={c.status} /></td>
+                </tr>
               ))}
-            </select>
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
 
+      {bulkModal && (
+        <Modal title="Bulk Certificate Generation" onClose={()=>setBulkModal(false)}>
+          <form onSubmit={handleBulkGenerate}>
             <label style={S.label}>Course *</label>
-            <select style={{ ...S.input, marginBottom: 12 }} value={form.courseId} onChange={(e) => setForm({ ...form, courseId: e.target.value })} required>
-              <option value="">Select course...</option>
-              {courses.map((c) => (
-                <option key={c._id || c.id} value={c._id || c.id}>{c.title}</option>
-              ))}
-            </select>
+            <input style={{ ...S.input, marginBottom:12 }} value={bulk.course} onChange={e=>setBulk({...bulk,course:e.target.value})} placeholder="Course name" />
 
-            <label style={S.label}>Score (optional)</label>
-            <input style={{ ...S.input, marginBottom: 12 }} type="number" min="0" max="100" value={form.score} onChange={(e) => setForm({ ...form, score: e.target.value })} placeholder="e.g. 85" />
+            <label style={S.label}>Batch</label>
+            <input style={{ ...S.input, marginBottom:12 }} value={bulk.batch} onChange={e=>setBulk({...bulk,batch:e.target.value})} placeholder="Batch name" />
 
-            <label style={S.label}>Google Form URL (for course completion submission)</label>
-            <input style={{ ...S.input, marginBottom: 20 }} value={form.googleFormUrl} onChange={(e) => setForm({ ...form, googleFormUrl: e.target.value })} placeholder="https://docs.google.com/forms/..." />
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>
+              <div>
+                <label style={S.label}>Count</label>
+                <input style={S.input} type="number" min="1" value={bulk.count} onChange={e=>setBulk({...bulk,count:e.target.value})} />
+              </div>
+              <div>
+                <label style={S.label}>Template</label>
+                <select style={S.input} value={bulk.template} onChange={e=>setBulk({...bulk,template:e.target.value})}>
+                  {templates.map(t=><option key={t.name}>{t.name}</option>)}
+                </select>
+              </div>
+            </div>
 
-            <button type="submit" style={{ ...S.primaryBtn, width: "100%" }}>🎓 Generate Certificate</button>
+            <button type="submit" style={{ ...S.primaryBtn, width:"100%" }}>Generate Certificates →</button>
           </form>
         </Modal>
       )}
-
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <div>
-          <h1 style={S.pageTitle}>Certificate Management</h1>
-          <p style={S.pageSub}>{issued} issued · {revoked} revoked</p>
-        </div>
-        <button onClick={() => setGenerateModal(true)} style={S.primaryBtn}>+ Generate Certificate</button>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 14, marginBottom: 20 }}>
-        <StatCard icon="🎓" label="Total Issued" val={issued} color="#10b981" bg="#d1fae5" />
-        <StatCard icon="🚫" label="Revoked" val={revoked} color="#ef4444" bg="#fee2e2" />
-        <StatCard icon="👩‍🏫" label="Teachers Certified" val={new Set(certificates.map((c) => String(c.teacher?._id || c.teacher))).size} color="#8b5cf6" bg="#ede9fe" />
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {certificates.length === 0 ? (
-          <div style={{ textAlign: "center", padding: 60, color: "#9ca3af" }}>
-            <div style={{ fontSize: 40, marginBottom: 10 }}>🎓</div>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>No certificates issued yet</div>
-            <div style={{ fontSize: 12, marginTop: 4 }}>Assign courses and generate certificates when teachers complete them</div>
-          </div>
-        ) : (
-          certificates.map((cert) => {
-            const gradeColor = cert.grade === "A+" || cert.grade === "A" ? "#10b981" : cert.grade === "B+" || cert.grade === "B" ? "#f59e0b" : "#ef4444";
-            return (
-              <div key={cert._id} style={{
-                background: "white",
-                borderRadius: 14,
-                padding: "16px 20px",
-                border: "1px solid #f1f5f9",
-                borderLeft: `4px solid ${cert.status === "issued" ? "#10b981" : "#ef4444"}`,
-                boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-                  <div style={{
-                    width: 42, height: 42, borderRadius: 11,
-                    background: "linear-gradient(135deg,#f59e0b,#d97706)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 17, fontWeight: 800, color: "white", flexShrink: 0,
-                  }}>
-                    🎓
-                  </div>
-
-                  <div style={{ flex: 1, minWidth: 200 }}>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: "#0f172a" }}>
-                      {cert.certificateNumber || "Pending"}
-                    </div>
-                    <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3, display: "flex", gap: 12, flexWrap: "wrap" }}>
-                      <span>👩‍🏫 {cert.teacher?.name || "Unknown"}</span>
-                      <span>📚 {cert.course?.title || "Course"}</span>
-                      <span>📅 {new Date(cert.issuedAt).toLocaleDateString("en-IN")}</span>
-                    </div>
-                  </div>
-
-                  <div style={{ textAlign: "center" }}>
-                    <div style={{ fontSize: 18, fontWeight: 900, color: gradeColor }}>{cert.grade || "—"}</div>
-                    {cert.score != null && <div style={{ fontSize: 11, color: "#9ca3af" }}>{cert.score}%</div>}
-                  </div>
-
-                  <StatusBadge status={cert.status} />
-
-                  <div style={{ display: "flex", gap: 6 }}>
-                    {cert.status === "issued" && (
-                      <button onClick={() => handleRevoke(cert._id)} style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>
-                        🚫 Revoke
-                      </button>
-                    )}
-                  </div>
-                </div>
-                {cert.metadata?.googleFormUrl && (
-                  <div style={{ marginTop: 8, fontSize: 11, color: "#2563eb" }}>
-                    📋 Google Form: <a href={cert.metadata.googleFormUrl} target="_blank" rel="noreferrer">{cert.metadata.googleFormUrl}</a>
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
-      </div>
     </div>
   );
 }
+

@@ -262,7 +262,7 @@ export default function AttendanceTab({ teachers = [] }) {
                         flexShrink: 0,
                       }}
                     >
-                      {(record.teacher?.name || "T")[0]?.toUpperCase()}
+                      {(record.teacher?.name || "?")[0]?.toUpperCase()}
                     </div>
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>

@@ -21,10 +21,6 @@ export default function AttendanceManager({ user }) {
   const [isSavedRecord, setIsSavedRecord] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newStudentName, setNewStudentName] = useState("");
-  const [newStudentAge, setNewStudentAge] = useState("");
-  const [newStudentGender, setNewStudentGender] = useState("");
-  const [newStudentParentName, setNewStudentParentName] = useState("");
-  const [newStudentParentPhone, setNewStudentParentPhone] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(true);
@@ -328,22 +324,10 @@ export default function AttendanceManager({ user }) {
     if (!newStudentName.trim()) return;
 
     const classId = selectedClassId || teacherProfile?.teacherProfile?.class?._id || teacherProfile?.teacherProfile?.class;
-    createTeacherChild({
-      fullName: newStudentName.trim(),
-      age: newStudentAge ? Number(newStudentAge) : undefined,
-      gender: newStudentGender || undefined,
-      guardianName: newStudentParentName || undefined,
-      guardianPhone: newStudentParentPhone || undefined,
-      classId,
-      status: "active"
-    })
+    createTeacherChild({ fullName: newStudentName.trim(), classId, status: "active" })
       .then(() => {
         triggerToast("Child enrolled successfully in database!");
         setNewStudentName("");
-        setNewStudentAge("");
-        setNewStudentGender("");
-        setNewStudentParentName("");
-        setNewStudentParentPhone("");
         setShowAddModal(false);
         loadRosterAndAttendance();
       })
@@ -535,52 +519,15 @@ export default function AttendanceManager({ user }) {
               <button onClick={() => setShowAddModal(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9ca3af" }}>✕</button>
             </div>
             <form onSubmit={handleAddStudent}>
-              <label style={S.label}>Student Full Name *</label>
+              <label style={S.label}>Student Full Name</label>
               <input
                 required
-                style={{ ...S.input, marginBottom: 12 }}
+                style={{ ...S.input, marginBottom: 20 }}
                 placeholder="Enter first and last name…"
                 value={newStudentName}
                 onChange={e => setNewStudentName(e.target.value)}
               />
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-                <div>
-                  <label style={S.label}>Age</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="18"
-                    style={S.input}
-                    placeholder="Age"
-                    value={newStudentAge}
-                    onChange={e => setNewStudentAge(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label style={S.label}>Gender</label>
-                  <select style={S.input} value={newStudentGender} onChange={e => setNewStudentGender(e.target.value)}>
-                    <option value="">Select…</option>
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-              </div>
-              <label style={S.label}>Parent/Guardian Name</label>
-              <input
-                style={{ ...S.input, marginBottom: 12 }}
-                placeholder="Parent or guardian name"
-                value={newStudentParentName}
-                onChange={e => setNewStudentParentName(e.target.value)}
-              />
-              <label style={S.label}>Parent Phone</label>
-              <input
-                style={{ ...S.input, marginBottom: 20 }}
-                placeholder="Parent phone number"
-                value={newStudentParentPhone}
-                onChange={e => setNewStudentParentPhone(e.target.value)}
-              />
-              <button type="submit" style={{ ...S.primaryBtn, width: "100%" }}>Enroll Child →</button>
+              <button type="submit" style={{ ...S.primaryBtn, width: "100%" }}>Enrole Pupil →</button>
             </form>
           </div>
         </div>
