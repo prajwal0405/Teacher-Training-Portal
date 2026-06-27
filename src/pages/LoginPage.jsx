@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Logo, Toast, Particles, S, globalCSS } from "../components/Shared";
-import { loginUser, registerTeacher, requestPasswordReset, resetPassword, verifyPasswordResetToken } from "../services/api";
+import { loginUser, registerTeacher, requestPasswordReset, resetPassword, verifyPasswordResetToken, requestPasswordResetOtp, verifyPasswordOtp } from "../services/api";
 
 /* ── Animated illustration ── */
 function LoginIllustration() {
@@ -127,104 +127,301 @@ function LoginForm({ onLogin, onGoRegister, onGoForgot }) {
   );
 }
 
-/* ── Forgot Password Form ── */
-function ForgotPasswordForm({ onBack }) {
-  const [email, setEmail]       = useState("");
-  const [sent, setSent]         = useState(false);
-  const [toast, setToast]       = useState({ msg: "", type: "" });
-  const [resetLink, setResetLink] = useState("");
-
-  const handleForgot = (e) => {
-    e.preventDefault();
-    if (!email) { setToast({ msg: "Please enter your email address.", type: "error" }); return; }
-
-    requestPasswordReset(email)
-      .then((data) => {
-        const generatedLink = data?.resetToken
-          ? `${window.location.origin}${window.location.pathname}?reset_token=${encodeURIComponent(data.resetToken)}`
-          : "";
-        setResetLink(generatedLink);
-        setSent(true);
-      })
-      .catch((error) => {
-        setToast({ msg: error.message || "Failed to request password reset.", type: "error" });
-      });
+/* ── OTP Input Component ── */
+function OtpInput({ length = 6, value, onChange, disabled }) {
+  const inputs = Array.from({ length }, (_, i) => i);
+  
+  const handleChange = (index, e) => {
+    const val = e.target.value.replace(/\D/g, "");
+    if (val.length > 1) return;
+    const newOtp = value.split("");
+    newOtp[index] = val;
+    onChange(newOtp.join("").slice(0, length));
+    // Auto-focus next input
+    if (val && index < length - 1) {
+      const next = e.target.parentElement.querySelector(`input[data-index="${index + 1}"]`);
+      if (next) next.focus();
+    }
   };
 
-  if (sent) {
+  const handleKeyDown = (index, e) => {
+    if (e.key === "Backspace" && !value[index] && index > 0) {
+      const prev = e.target.parentElement.querySelector(`input[data-index="${index - 1}"]`);
+      if (prev) prev.focus();
+    }
+  };
+
+  const handlePaste = (e) => {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, length);
+    onChange(pasted);
+  };
+
+  return (
+    <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+      {inputs.map(i => (
+        <input
+          key={i}
+          data-index={i}
+          type="text"
+          inputMode="numeric"
+          maxLength={1}
+          value={value[i] || ""}
+          onChange={e => handleChange(i, e)}
+          onKeyDown={e => handleKeyDown(i, e)}
+          onPaste={handlePaste}
+          disabled={disabled}
+          style={{
+            width: 48, height: 56, textAlign: "center", fontSize: 22, fontWeight: 800,
+            border: "2px solid", borderRadius: 12, outline: "none", fontFamily: "monospace",
+            borderColor: value[i] ? "#f59e0b" : "#e5e7eb",
+            background: value[i] ? "#fef3c7" : "white",
+            color: "#92400e",
+            transition: "all 0.2s",
+          }}
+          autoFocus={i === 0}
+        />
+      ))}
+    </div>
+  );
+}
+
+/* ── Forgot Password Form (OTP-based) ── */
+function ForgotPasswordForm({ onBack }) {
+  const [email, setEmail]           = useState("");
+  const [step, setStep]             = useState("email"); // email | otp | reset
+  const [otp, setOtp]               = useState("");
+  const [otpExpiry, setOtpExpiry]   = useState("");
+  const [resetToken, setResetToken] = useState("");
+  const [password, setPassword]     = useState("");
+  const [confirmPassword, setConfirm] = useState("");
+  const [showPass, setShowPass]     = useState(false);
+  const [loading, setLoading]       = useState(false);
+  const [toast, setToast]           = useState({ msg: "", type: "" });
+  const [resendTimer, setResendTimer] = useState(0);
+
+  useEffect(() => {
+    if (resendTimer <= 0) return;
+    const t = setTimeout(() => setResendTimer(resendTimer - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendTimer]);
+
+  const handleRequestOtp = async (e) => {
+    e.preventDefault();
+    if (!email) { setToast({ msg: "Please enter your email address.", type: "error" }); return; }
+    setLoading(true);
+    try {
+      const data = await requestPasswordResetOtp(email);
+      if (data.emailSent === false) {
+        setToast({ msg: "Failed to send OTP email. Please check your email configuration or contact admin.", type: "error" });
+        setLoading(false);
+        return;
+      }
+      setOtpExpiry(data.otpExpiryMinutes || 10);
+      setStep("otp");
+      setResendTimer(60);
+      setToast({ msg: "OTP sent to your email! Check your inbox.", type: "success" });
+    } catch (err) {
+      setToast({ msg: err.message || "Failed to send OTP.", type: "error" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    if (otp.length !== 6) { setToast({ msg: "Please enter the complete 6-digit OTP.", type: "error" }); return; }
+    setLoading(true);
+    try {
+      const data = await verifyPasswordOtp(email, otp);
+      setResetToken(data.resetToken);
+      setStep("reset");
+      setToast({ msg: "OTP verified! Set your new password.", type: "success" });
+    } catch (err) {
+      setToast({ msg: err.message || "Invalid OTP.", type: "error" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    if (!password || !confirmPassword) { setToast({ msg: "Please fill both password fields.", type: "error" }); return; }
+    if (password !== confirmPassword) { setToast({ msg: "Passwords do not match.", type: "error" }); return; }
+    if (password.length < 8) { setToast({ msg: "Password must be at least 8 characters.", type: "error" }); return; }
+    setLoading(true);
+    try {
+      await resetPassword(resetToken, password);
+      setToast({ msg: "Password updated successfully!", type: "success" });
+      setTimeout(onBack, 1800);
+    } catch (err) {
+      setToast({ msg: err.message || "Failed to reset password.", type: "error" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (resendTimer > 0) return;
+    setLoading(true);
+    try {
+      const data = await requestPasswordResetOtp(email);
+      if (data.emailSent === false) {
+        setToast({ msg: "Failed to send OTP email. Please contact admin.", type: "error" });
+        setLoading(false);
+        return;
+      }
+      setResendTimer(60);
+      setOtp("");
+      setToast({ msg: "New OTP sent to your email!", type: "success" });
+    } catch (err) {
+      setToast({ msg: err.message || "Failed to resend OTP.", type: "error" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Step 1: Enter email
+  if (step === "email") {
     return (
       <>
+        <Toast msg={toast.msg} type={toast.type} onClose={() => setToast({ msg: "", type: "" })} />
         <Logo size={140} />
         <div style={{ textAlign: "center", marginBottom: 24 }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>📬</div>
-          <span style={ls.badge}>Check Your Inbox</span>
-          <p style={{ fontSize: 13, color: "#6b7280", marginTop: 8, lineHeight: 1.6 }}>
-            A password reset link has been sent to<br />
-            <strong style={{ color: "#92400e" }}>{email}</strong>
+          <div style={{ fontSize: 40, marginBottom: 10 }}>🔐</div>
+          <span style={ls.badge}>Forgot Password</span>
+          <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 6, fontStyle: "italic" }}>
+            Enter your email to receive a 6-digit OTP
           </p>
-          <p style={{ fontSize: 11, color: "#9ca3af", marginTop: 6 }}>Link expires in 15 minutes.</p>
         </div>
-
-        <div style={{ background: "#fffbeb", border: "1px dashed #fbbf24", borderRadius: 10, padding: "12px 14px", marginBottom: 20 }}>
-          <p style={{ fontSize: 11, color: "#92400e", fontWeight: 700, marginBottom: 6 }}>
-            Password Reset Link
-          </p>
-          <p style={{ fontSize: 11, color: "#6b7280", marginBottom: 8, lineHeight: 1.5 }}>
-            Email delivery is not configured yet, so the API generated a secure reset link for immediate use:
-          </p>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <form onSubmit={handleRequestOtp}>
+          <label style={S.label}>Registered Email Address</label>
+          <div style={{ position: "relative", marginBottom: 20 }}>
+            <span style={S.fieldIcon}>📧</span>
             <input
-              readOnly
-              value={resetLink}
-              style={{ ...S.input, fontSize: 10, flex: 1, padding: "6px 10px", color: "#374151", background: "#fff" }}
+              style={{ ...S.input, paddingLeft: 32 }}
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="your@email.com"
+              autoFocus
+              disabled={loading}
             />
-            <button
-              onClick={() => { navigator.clipboard.writeText(resetLink); setToast({ msg: "Link copied!", type: "success" }); }}
-              style={{ ...S.primaryBtn, padding: "6px 12px", fontSize: 11, whiteSpace: "nowrap" }}
-            >
-              Copy
-            </button>
           </div>
-        </div>
-
-        <Toast msg={toast.msg} type={toast.type} onClose={() => setToast({ msg: "", type: "" })} />
-        <button onClick={onBack} style={{ ...S.primaryBtn, width: "100%", padding: "12px" }}>← Back to Sign In</button>
+          <button type="submit" style={{ ...S.primaryBtn, width: "100%", padding: "12px" }} disabled={loading}>
+            {loading ? "Sending OTP..." : "Send OTP →"}
+          </button>
+        </form>
+        <p style={{ textAlign: "center", fontSize: 12, color: "#9ca3af", marginTop: 16, marginBottom: 0 }}>
+          Remembered it?{" "}
+          <span onClick={onBack} style={{ color: "#d97706", fontWeight: 700, cursor: "pointer" }}>Sign in</span>
+        </p>
       </>
     );
   }
 
+  // Step 2: Enter OTP
+  if (step === "otp") {
+    return (
+      <>
+        <Toast msg={toast.msg} type={toast.type} onClose={() => setToast({ msg: "", type: "" })} />
+        <Logo size={140} />
+        <div style={{ textAlign: "center", marginBottom: 24 }}>
+          <div style={{ fontSize: 40, marginBottom: 10 }}>📬</div>
+          <span style={ls.badge}>Enter OTP</span>
+          <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 6, lineHeight: 1.6 }}>
+            A 6-digit OTP has been sent to<br />
+            <strong style={{ color: "#92400e" }}>{email}</strong>
+          </p>
+          <p style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
+            Expires in {otpExpiry} minutes
+          </p>
+        </div>
+        <form onSubmit={handleVerifyOtp}>
+          <OtpInput length={6} value={otp} onChange={setOtp} disabled={loading} />
+          <div style={{ marginTop: 24 }}>
+            <button type="submit" style={{ ...S.primaryBtn, width: "100%", padding: "12px" }} disabled={loading || otp.length !== 6}>
+              {loading ? "Verifying..." : "Verify OTP →"}
+            </button>
+          </div>
+        </form>
+        <div style={{ textAlign: "center", marginTop: 16 }}>
+          <span
+            onClick={handleResendOtp}
+            style={{
+              fontSize: 12, fontWeight: 600, cursor: "pointer",
+              color: resendTimer > 0 ? "#9ca3af" : "#d97706",
+              pointerEvents: resendTimer > 0 ? "none" : "auto",
+            }}
+          >
+            {resendTimer > 0 ? `Resend OTP in ${resendTimer}s` : "Resend OTP"}
+          </span>
+        </div>
+        <p style={{ textAlign: "center", fontSize: 12, color: "#9ca3af", marginTop: 12, marginBottom: 0 }}>
+          <span onClick={() => { setStep("email"); setOtp(""); }} style={{ color: "#d97706", fontWeight: 700, cursor: "pointer" }}>
+            ← Change email
+          </span>
+          {" · "}
+          <span onClick={onBack} style={{ color: "#d97706", fontWeight: 700, cursor: "pointer" }}>Sign in</span>
+        </p>
+      </>
+    );
+  }
+
+  // Step 3: Set new password
   return (
     <>
       <Toast msg={toast.msg} type={toast.type} onClose={() => setToast({ msg: "", type: "" })} />
       <Logo size={140} />
       <div style={{ textAlign: "center", marginBottom: 24 }}>
-        <div style={{ fontSize: 40, marginBottom: 10 }}>🔑</div>
-        <span style={ls.badge}>Reset Password</span>
+        <div style={{ fontSize: 40, marginBottom: 10 }}>🛡️</div>
+        <span style={ls.badge}>Set New Password</span>
         <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 6, fontStyle: "italic" }}>
-          Enter your registered email and we'll send a reset link
+          OTP verified for <strong style={{ color: "#92400e" }}>{email}</strong>
         </p>
       </div>
-      <form onSubmit={handleForgot}>
-        <label style={S.label}>Registered Email Address</label>
-        <div style={{ position: "relative", marginBottom: 20 }}>
-          <span style={S.fieldIcon}>📧</span>
+      <form onSubmit={handleResetPassword}>
+        <label style={S.label}>New Password</label>
+        <div style={{ position: "relative", marginBottom: 4 }}>
+          <span style={S.fieldIcon}>🔒</span>
           <input
             style={{ ...S.input, paddingLeft: 32 }}
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            placeholder="your@email.com"
+            type={showPass ? "text" : "password"}
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder="Min. 8 characters"
             autoFocus
+            disabled={loading}
           />
+          <button type="button" onClick={() => setShowPass(!showPass)}
+            style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 16 }}>
+            {showPass ? "🙈" : "👁️"}
+          </button>
         </div>
-        <button type="submit" style={{ ...S.primaryBtn, width: "100%", padding: "12px" }}>
-          Send Reset Link →
+        <StrengthBar password={password} />
+        <div style={{ marginTop: 14, marginBottom: 20 }}>
+          <label style={S.label}>Confirm New Password</label>
+          <div style={{ position: "relative" }}>
+            <span style={S.fieldIcon}>🛡️</span>
+            <input
+              style={{ ...S.input, paddingLeft: 32 }}
+              type="password"
+              value={confirmPassword}
+              onChange={e => setConfirm(e.target.value)}
+              placeholder="Re-enter new password"
+              disabled={loading}
+            />
+          </div>
+          {confirmPassword && (
+            <p style={{ fontSize: 11, marginTop: 4, color: password === confirmPassword ? "#10b981" : "#ef4444", fontWeight: 600 }}>
+              {password === confirmPassword ? "✅ Passwords match" : "❌ Passwords do not match"}
+            </p>
+          )}
+        </div>
+        <button type="submit" style={{ ...S.primaryBtn, width: "100%", padding: "12px" }} disabled={loading}>
+          {loading ? "Updating Password..." : "Update Password →"}
         </button>
       </form>
-      <p style={{ textAlign: "center", fontSize: 12, color: "#9ca3af", marginTop: 16, marginBottom: 0 }}>
-        Remembered it?{" "}
-        <span onClick={onBack} style={{ color: "#d97706", fontWeight: 700, cursor: "pointer" }}>Sign in</span>
-      </p>
     </>
   );
 }

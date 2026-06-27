@@ -83,7 +83,7 @@ function ChildFormModal({ child, centers = [], classes = [], onSave, onClose, se
   };
 
   return (
-    <Modal title={isEdit ? "?? Edit Child Profile" : "?? Enroll New Child"} onClose={onClose}>
+    <Modal title={isEdit ? "Edit Child Profile" : "Enroll New Child"} onClose={onClose}>
       <form onSubmit={handleSubmit}>
         <label style={S.label}>Child's Full Name *</label>
         <input style={{ ...S.input, marginBottom: 12 }} value={form.name}
@@ -196,7 +196,7 @@ function ChildFormModal({ child, centers = [], classes = [], onSave, onClose, se
         </select>
 
         <button type="submit" disabled={saving} style={{ ...S.primaryBtn, width: "100%", opacity: saving ? 0.7 : 1 }}>
-          {saving ? "Saving..." : isEdit ? "Update Profile ?" : "Enroll Child ?"}
+          {saving ? "Saving..." : isEdit ? "Update Profile" : "Enroll Child"}
         </button>
       </form>
     </Modal>

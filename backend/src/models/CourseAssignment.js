@@ -28,7 +28,7 @@ const courseAssignmentSchema = new mongoose.Schema(
     teacher: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     dueDate: Date,
-    status: { type: String, default: "assigned" },
+    status: { type: String, enum: ["assigned", "in_progress", "submitted", "completed", "under_review", "reviewed", "approved", "revision"], default: "assigned" },
     progressPercent: { type: Number, min: 0, max: 100, default: 0 },
     completedContent: [{ type: String }],
     completedAt: Date,

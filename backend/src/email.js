@@ -78,18 +78,25 @@ export async function sendBulkEmails({ recipients, subject, body }) {
     .replace(/\n/g, "<br>")
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
 
-  const results = await Promise.allSettled(
-    recipients.map(async (r) => {
-      const result = await sendEmail({ to: r.email, subject, html });
-      return { recipientId: r._id, email: r.email, ...result };
-    })
-  );
+  const BATCH_SIZE = 10;
+  const allResults = [];
 
-  return results.map((r) =>
-    r.status === "fulfilled"
-      ? r.value
-      : { recipientId: null, success: false, error: r.reason?.message || "Failed to send" }
-  );
+  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+    const batch = recipients.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map(async (r) => {
+        const result = await sendEmail({ to: r.email, subject, html });
+        return { recipientId: r._id, email: r.email, ...result };
+      })
+    );
+    allResults.push(...results.map((r) =>
+      r.status === "fulfilled"
+        ? r.value
+        : { recipientId: null, success: false, error: r.reason?.message || "Failed to send" }
+    ));
+  }
+
+  return allResults;
 }
 
 /**

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Modal, S, SectionCard, StatCard, StatusBadge } from "../components/Shared";
-import { getAdminDashboard, getAdminTeachers, getTrainers, getCourses, getAdminUsers, getPortalSettings, updatePortalSettings, testSmtpEmail } from "../services/api";
+import { getAdminDashboard, getAdminTeachers, getTrainers, getCourses, getAdminUsers, getPortalSettings, updatePortalSettings, testSmtpEmail, updateAdminLanguage } from "../services/api";
 import { setLanguage, getCurrentLanguage } from "../services/i18n";
 
 const safeBool = (val, defaultVal = false) => {
@@ -35,6 +35,12 @@ export default function SettingsTab({ setToast }) {
     requireNumbers: true,
     requireSpecial: false,
     expiryDays: 90,
+  });
+  const [gradingConfig, setGradingConfig] = useState({
+    gradeAPlus: 90,
+    gradeA: 80,
+    gradeBPlus: 70,
+    gradeB: 60,
   });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -85,6 +91,12 @@ export default function SettingsTab({ setToast }) {
             requireNumbers: safeBool(serverSettings.requireNumbers, prev.requireNumbers),
             requireSpecial: safeBool(serverSettings.requireSpecial, prev.requireSpecial),
             expiryDays: safeNum(serverSettings.expiryDays, prev.expiryDays),
+          }));
+          setGradingConfig((prev) => ({
+            gradeAPlus: safeNum(serverSettings.gradeAPlus, prev.gradeAPlus),
+            gradeA: safeNum(serverSettings.gradeA, prev.gradeA),
+            gradeBPlus: safeNum(serverSettings.gradeBPlus, prev.gradeBPlus),
+            gradeB: safeNum(serverSettings.gradeB, prev.gradeB),
           }));
         }
       } catch {
@@ -204,9 +216,17 @@ export default function SettingsTab({ setToast }) {
         twilioSid: twilioConfig.twilioSid,
         twilioToken: twilioConfig.twilioToken,
         twilioFrom: twilioConfig.twilioFrom,
+        gradeAPlus: gradingConfig.gradeAPlus,
+        gradeA: gradingConfig.gradeA,
+        gradeBPlus: gradingConfig.gradeBPlus,
+        gradeB: gradingConfig.gradeB,
       };
 
       const data = await updatePortalSettings(payload);
+      // Also save admin language to Atlas User record
+      if (settings.adminLanguage) {
+        await updateAdminLanguage(settings.adminLanguage);
+      }
       if (data?.settings) {
         setDirty(false);
         setToast?.({ msg: "All settings saved to server successfully!", type: "success" });
@@ -216,7 +236,7 @@ export default function SettingsTab({ setToast }) {
     } finally {
       setSaving(false);
     }
-  }, [settings, passwordPolicy, emailConfig, twilioConfig, setToast]);
+  }, [settings, passwordPolicy, emailConfig, twilioConfig, gradingConfig, setToast]);
 
   const markDirty = useCallback(() => setDirty(true), []);
 
@@ -280,6 +300,7 @@ export default function SettingsTab({ setToast }) {
     { key: "email", label: "📧 Email" },
     { key: "messaging", label: "📱 SMS & WhatsApp" },
     { key: "security", label: "🔒 Security" },
+    { key: "grading", label: "📊 Grading" },
     { key: "roles", label: "🛡️ Roles" },
   ];
 
@@ -386,6 +407,27 @@ export default function SettingsTab({ setToast }) {
                   <select style={S.input} value={settings.timezone} onChange={(e) => { setSettings((p) => ({ ...p, timezone: e.target.value })); markDirty(); }}>
                     <option>Asia/Kolkata (IST)</option>
                     <option>UTC</option>
+                    <option>America/New_York (EST)</option>
+                    <option>America/Chicago (CST)</option>
+                    <option>America/Los_Angeles (PST)</option>
+                    <option>Europe/London (GMT)</option>
+                    <option>Europe/Paris (CET)</option>
+                    <option>Europe/Berlin (CET)</option>
+                    <option>Asia/Dubai (GST)</option>
+                    <option>Asia/Singapore (SGT)</option>
+                    <option>Asia/Tokyo (JST)</option>
+                    <option>Asia/Shanghai (CST)</option>
+                    <option>Asia/Hong_Kong (HKT)</option>
+                    <option>Australia/Sydney (AEST)</option>
+                    <option>Pacific/Auckland (NZST)</option>
+                    <option>Africa/Cairo (EET)</option>
+                    <option>Africa/Lagos (WAT)</option>
+                    <option>America/Sao_Paulo (BRT)</option>
+                    <option>Asia/Seoul (KST)</option>
+                    <option>Asia/Karachi (PKT)</option>
+                    <option>Asia/Dhaka (BST)</option>
+                    <option>Asia/Kathmandu (NPT)</option>
+                    <option>Asia/Colombo (IST)</option>
                   </select>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0", borderTop: "1px solid #f3f4f6", marginTop: 4 }}>
@@ -569,6 +611,58 @@ export default function SettingsTab({ setToast }) {
                     </div>
                   </div>
                 ))}
+              </div>
+            </SectionCard>
+          )}
+
+          {/* Grading Configuration */}
+          {activeSection === "grading" && (
+            <SectionCard title="📊 Grading Configuration">
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16, lineHeight: 1.5 }}>
+                Configure grade letter thresholds. These percentages determine which letter grade is assigned.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                {[
+                  { key: "gradeAPlus", label: "A+ Threshold (%)", default: 90, color: "#10b981" },
+                  { key: "gradeA", label: "A Threshold (%)", default: 80, color: "#3b82f6" },
+                  { key: "gradeBPlus", label: "B+ Threshold (%)", default: 70, color: "#f59e0b" },
+                  { key: "gradeB", label: "B Threshold (%)", default: 60, color: "#8b5cf6" },
+                ].map((item) => (
+                  <div key={item.key}>
+                    <label style={S.label}>{item.label}</label>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        style={{ ...S.input, width: 100 }}
+                        value={gradingConfig[item.key] ?? item.default}
+                        onChange={(e) => {
+                          setGradingConfig((p) => ({ ...p, [item.key]: Number(e.target.value) }));
+                          markDirty();
+                        }}
+                      />
+                      <span style={{ fontSize: 12, color: "#9ca3af" }}>% and above</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop: 16, padding: 12, background: "#f9fafb", borderRadius: 8, border: "1px solid #f3f4f6" }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 8 }}>Preview</div>
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  {[
+                    { letter: "A+", threshold: gradingConfig.gradeAPlus ?? 90, color: "#10b981" },
+                    { letter: "A", threshold: gradingConfig.gradeA ?? 80, color: "#3b82f6" },
+                    { letter: "B+", threshold: gradingConfig.gradeBPlus ?? 70, color: "#f59e0b" },
+                    { letter: "B", threshold: gradingConfig.gradeB ?? 60, color: "#8b5cf6" },
+                    { letter: "C", threshold: 0, color: "#6b7280" },
+                  ].map((g) => (
+                    <div key={g.letter} style={{ padding: "6px 12px", borderRadius: 8, background: `${g.color}15`, border: `1px solid ${g.color}30` }}>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: g.color }}>{g.letter}</span>
+                      <span style={{ fontSize: 11, color: "#6b7280", marginLeft: 6 }}>{g.threshold}%+</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </SectionCard>
           )}

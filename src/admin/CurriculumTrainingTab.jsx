@@ -348,10 +348,13 @@ function CourseFormModal({ course, onSave, onClose, setToast }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!form.title || !form.description || !form.contentLink) {
+    if (!form.title || !form.description) {
       setToast({ msg: "Please fill all required fields.", type: "error" }); return;
     }
-    const yId = form.contentType === "Video" ? getYoutubeId(form.contentLink) : null;
+    if (form.contentType === "Video" && !form.contentLink && (!form.modules || form.modules.length === 0)) {
+      setToast({ msg: "Please add a YouTube URL or provide course modules.", type: "error" }); return;
+    }
+    const yId = form.contentType === "Video" && form.contentLink ? getYoutubeId(form.contentLink) : null;
     onSave({ ...form, youtubeId: yId, notes });
     onClose();
   };
@@ -867,6 +870,8 @@ export default function CurriculumTrainingTab({ setToast }) {
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshingId, setRefreshingId] = useState(null);
+  const [deleteModal, setDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [toast, setLocalToast] = useState({ msg: "", type: "" });
 
   const showToast = setToast || setLocalToast;

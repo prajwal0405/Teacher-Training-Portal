@@ -3,7 +3,8 @@ import LoginPage       from "./pages/LoginPage";
 import AdminDashboard  from "./pages/AdminDashboard";
 import TeacherDashboard from "./pages/TeacherDashboard";
 import { getStoredSession, storeSession, clearSession } from "./services/api";
-import { LANG_CHANGE_EVENT } from "./services/i18n";
+import { LANG_CHANGE_EVENT, setLanguage } from "./services/i18n";
+import { SocketProvider } from "./context/SocketContext";
 
 export default function App() {
   const [initialSession] = useState(getStoredSession);
@@ -31,6 +32,11 @@ export default function App() {
 
     setCurrentUser(user);
     setScreen(user.role === "admin" ? "admin" : "teacher");
+
+    // Sync language from Atlas on login
+    if (user.language) {
+      setLanguage(user.language);
+    }
   };
 
   const handleLogout = () => {
@@ -39,7 +45,18 @@ export default function App() {
     setScreen("login");
   };
 
-  if (screen === "admin")   return <AdminDashboard   key={`admin-${langKey}`}   user={currentUser} onLogout={handleLogout}/>;
-  if (screen === "teacher") return <TeacherDashboard key={`teacher-${langKey}`} user={currentUser} onLogout={handleLogout}/>;
-  return <LoginPage onLogin={handleLogin}/>;
+  const dashboardContent = (
+    <>
+      {screen === "admin" && <AdminDashboard key={`admin-${langKey}`} user={currentUser} onLogout={handleLogout}/>}
+      {screen === "teacher" && <TeacherDashboard key={`teacher-${langKey}`} user={currentUser} onLogout={handleLogout}/>}
+    </>
+  );
+
+  if (screen === "login") return <LoginPage onLogin={handleLogin}/>;
+
+  return (
+    <SocketProvider>
+      {dashboardContent}
+    </SocketProvider>
+  );
 }

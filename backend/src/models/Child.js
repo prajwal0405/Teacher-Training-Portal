@@ -7,11 +7,15 @@ const childSchema = new mongoose.Schema(
     fullName: { type: String, required: true },
     rollNo: String,
     dateOfBirth: Date,
+    age: Number,
+    gender: { type: String, enum: ["Male", "Female", "Other", ""], default: "" },
+    email: String,
     guardianName: String,
     guardianPhone: String,
     address: String,
     status: { type: String, enum: ["active", "inactive"], default: "active" },
     notes: String,
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   },
   { timestamps: true }
 );

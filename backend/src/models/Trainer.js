@@ -15,7 +15,7 @@ const trainerSchema = new mongoose.Schema(
     rating: { type: Number, default: 0 },
     status: { type: String, enum: ["active", "inactive"], default: "active", index: true },
     joined: String,
-    assignedCourses: [String],
+    assignedCourses: [{ type: mongoose.Schema.Types.ObjectId, ref: "Course" }],
     portalAccess: {
       uploadContent: { type: Boolean, default: true },
       reviewAssignments: { type: Boolean, default: true },

@@ -25,3 +25,17 @@ backend/.env
 *.sln
 *.sw?
 
+# AI agent tool directories
+.kilo/
+.kilocode/
+.agents/
+
+# Duplicate/backup directories
+teacher-training-backend/
+
+# Build artifacts
+*.snippet.js
+
+# Empty directories
+uploads/
+

@@ -1,4 +1,4 @@
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash"; // eslint-disable-line no-undef
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash"; // eslint-disable-line no-undef
 
 function aiLog(event, details = {}) {
   console.log(`[ai-course] ${event}`, JSON.stringify(details));
@@ -6,8 +6,8 @@ function aiLog(event, details = {}) {
 
 function clampModuleCount(value) {
   const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return 6;
-  return Math.min(10, Math.max(6, Math.round(numeric)));
+  if (!Number.isFinite(numeric)) return 4;
+  return Math.min(10, Math.max(2, Math.round(numeric)));
 }
 
 function extractYoutubeId(url) {
@@ -36,33 +36,11 @@ function pickUniqueVideo(seen, preferred) {
     seen.add(preferredId);
     return preferred;
   }
-
   return "";
-}
-
-function hashSeed(text) {
-  let hash = 2166136261;
-  for (let i = 0; i < text.length; i += 1) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function makeLocalYoutubeUrl(seed) {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-  let value = hashSeed(seed);
-  let id = "";
-  for (let i = 0; i < 11; i += 1) {
-    value = (value * 1664525 + 1013904223) >>> 0;
-    id += alphabet[value % alphabet.length];
-  }
-  return `https://www.youtube.com/watch?v=${id}`;
 }
 
 function buildLocalLesson(topic, moduleTitle, moduleIndex, lessonIndex) {
   const lessonNo = lessonIndex + 1;
-  const seed = `${topic}|${moduleTitle}|${moduleIndex}|${lessonIndex}`;
   const lessonTitle = `${moduleTitle} Lesson ${lessonNo}`;
   return {
     title: lessonTitle,
@@ -80,7 +58,7 @@ function buildLocalLesson(topic, moduleTitle, moduleIndex, lessonIndex) {
     suggestedDuration: "45 minutes",
     youtubeVideo: {
       title: `${lessonTitle} video`,
-      url: makeLocalYoutubeUrl(seed),
+      url: "",
     },
   };
 }
@@ -416,16 +394,8 @@ export function validateGeneratedCourse(course) {
     errors.push("At least one generated module is required.");
   }
 
-  const moduleTitles = new Set();
-  const lessonTitles = new Set();
-  const videoIds = new Set();
-
   course?.modules?.forEach((module, moduleIndex) => {
     if (!module.title) errors.push(`Module ${moduleIndex + 1} title is required.`);
-    if (module.title && moduleTitles.has(module.title.toLowerCase())) {
-      errors.push(`Duplicate module title: ${module.title}`);
-    }
-    if (module.title) moduleTitles.add(module.title.toLowerCase());
     if (!Array.isArray(module.contents) || module.contents.length === 0) {
       errors.push(`Module ${moduleIndex + 1} must include lessons.`);
     }
@@ -433,18 +403,6 @@ export function validateGeneratedCourse(course) {
     module.contents?.forEach((lesson, lessonIndex) => {
       const label = `Module ${moduleIndex + 1}, lesson ${lessonIndex + 1}`;
       if (!lesson.title) errors.push(`${label} title is required.`);
-      if (lesson.title && lessonTitles.has(lesson.title.toLowerCase())) {
-        errors.push(`Duplicate lesson title: ${lesson.title}`);
-      }
-      if (lesson.title) lessonTitles.add(lesson.title.toLowerCase());
-      const videoId = extractYoutubeId(lesson.externalUrl);
-      if (!videoId) {
-        errors.push(`${label} must include a valid YouTube URL.`);
-      } else if (videoIds.has(videoId)) {
-        errors.push(`${label} duplicates YouTube video ${videoId}.`);
-      } else {
-        videoIds.add(videoId);
-      }
     });
   });
 
@@ -476,12 +434,15 @@ export async function generateAICourse(input) {
   if (!geminiApiKey || /^YOUR_(OPENAI|GEMINI)/i.test(geminiApiKey) || /placeholder/i.test(geminiApiKey)) {
     aiLog("missing_api_key");
     const fallbackCourse = buildLocalCourse({ topic: courseTopic, category, level, format, duration, tone, numModules });
+    fallbackCourse.isLocalFallback = true;
     validateGeneratedCourse(fallbackCourse);
     return fallbackCourse;
   }
 
   try {
     aiLog("request_start", { model: GEMINI_MODEL, topic: courseTopic, category, level, duration, numModules });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
       method: "POST",
       headers: {
@@ -499,8 +460,10 @@ export async function generateAICourse(input) {
             ]
           }
         ]
-      })
+      }),
+      signal: controller.signal
     });
+    clearTimeout(timeout);
 
     if (!response.ok) {
       const detail = await response.text();
@@ -515,6 +478,7 @@ export async function generateAICourse(input) {
 
       aiLog("request_failed", { status: response.status, message });
       const fallbackCourse = buildLocalCourse({ topic: courseTopic, category, level, format, duration, tone, numModules });
+      fallbackCourse.isLocalFallback = true;
       validateGeneratedCourse(fallbackCourse);
       return fallbackCourse;
     }
@@ -529,7 +493,13 @@ export async function generateAICourse(input) {
 
     let generated;
     try {
-      generated = JSON.parse(raw);
+      // Strip markdown code fences if present (LLMs commonly wrap JSON in ```json...```)
+      let cleanRaw = raw;
+      const fenceMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+      if (fenceMatch) {
+        cleanRaw = fenceMatch[1].trim();
+      }
+      generated = JSON.parse(cleanRaw);
       aiLog("json_parse_success", {
         title: generated.title,
         moduleCount: Array.isArray(generated.modules) ? generated.modules.length : 0,
@@ -537,6 +507,7 @@ export async function generateAICourse(input) {
     } catch (parseError) {
       aiLog("json_parse_failed", { message: parseError.message, preview: raw.slice(0, 500) });
       const fallbackCourse = buildLocalCourse({ topic: courseTopic, category, level, format, duration, tone, numModules });
+      fallbackCourse.isLocalFallback = true;
       validateGeneratedCourse(fallbackCourse);
       return fallbackCourse;
     }

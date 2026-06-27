@@ -141,10 +141,15 @@ export async function requireAuth(req, res, next) {
     if (payload.type !== "access") {
       return res.status(401).json({ message: "Invalid token type" });
     }
-    const user = await User.findById(payload.id).select("_id role name email status permissions").lean();
+    const user = await User.findById(payload.id).select("_id role name email status permissions passwordChangedAt passwordExpiresAt").lean();
 
     if (!user || user.status !== "approved") {
       return res.status(401).json({ message: "Account is not active" });
+    }
+
+    // Check password expiry
+    if (user.passwordExpiresAt && new Date(user.passwordExpiresAt) < new Date()) {
+      return res.status(401).json({ message: "Password has expired. Please reset your password.", code: "PASSWORD_EXPIRED" });
     }
 
     req.user = {

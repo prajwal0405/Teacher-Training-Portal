@@ -11,6 +11,8 @@ import multer from "multer";
 import mongoose from "mongoose";
 import { connectDb } from "./db.js";
 import { hashPassword, requireAuth, requireRole, signToken, verifyPassword, validatePasswordAgainstPolicy, createPasswordResetToken, verifyPasswordResetToken } from "./auth.js";
+import { generateOtp, storeOtp, verifyOtp, deleteOtp, OTP_TTL_MINUTES } from "./otp.js";
+import { sendNotification, broadcastNotification, CHANNELS, TEMPLATES } from "./services/notificationService.js";
 import { autoSeed } from "./auto-seed.js";
 import { generateAICourse } from "./services/aiCourseGenerator.js";
 import { User } from "./models/User.js";
@@ -32,7 +34,10 @@ import { ChildAttendanceSession, TeacherAttendanceRecord } from "./models/Attend
 import { Notification } from "./models/Notification.js";
 import { ReportJob } from "./models/ReportJob.js";
 import { PortalSetting } from "./models/PortalSetting.js";
+import { TrainerMessage } from "./models/TrainerMessage.js";
+import { TrainerPayout } from "./models/TrainerPayout.js";
 import { sendBulkEmails, sendEmail, getTwilioConfig } from "./email.js";
+import { initSocket, createAndEmitNotification } from "./socket.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "../.env") });
@@ -59,6 +64,8 @@ const databaseModels = [
    ReportJob,
    TeacherAttendanceRecord,
    Trainer,
+   TrainerMessage,
+   TrainerPayout,
    User,
   ];
 
@@ -80,6 +87,15 @@ function objectIdFilter(queryValue, fieldName) {
   }
   requireObjectId(queryValue, fieldName);
   return queryValue;
+}
+
+function normalizePhoneE164(phone, defaultCountryCode = "91") {
+  if (!phone) return phone;
+  let cleaned = phone.replace(/[\s\-().]/g, "");
+  if (cleaned.startsWith("+")) return cleaned;
+  if (cleaned.length === 10) return `+${defaultCountryCode}${cleaned}`;
+  if (cleaned.length > 10) return `+${cleaned}`;
+  return cleaned;
 }
 
 function mapFormModulesToCourse(modules = []) {
@@ -231,6 +247,8 @@ const bypassRoutes = [
   "/api/auth/login",
   "/api/auth/register-teacher",
   "/api/auth/forgot-password",
+  "/api/auth/forgot-password-otp",
+  "/api/auth/verify-otp",
   "/api/auth/reset-password",
   "/api/auth/reset-password/verify"
 ];
@@ -300,6 +318,9 @@ app.post("/api/auth/login", async (req, res, next) => {
         name: user.name,
         email: user.email,
         phone: user.phone,
+        photoUrl: user.photoUrl,
+        language: user.language || "English",
+        preferredNotificationChannel: user.preferredNotificationChannel || "in_app",
         teacherProfile: user.teacherProfile,
         subject: user.teacherProfile?.subject,
         address: user.teacherProfile?.address,
@@ -420,11 +441,129 @@ app.post("/api/auth/reset-password", async (req, res, next) => {
     }
 
     user.passwordHash = await hashPassword(password);
+    user.passwordChangedAt = new Date();
+    // Set password expiry based on policy
+    const expiryDoc = await PortalSetting.findOne({ key: "passwordExpiryDays" });
+    const expiryDays = expiryDoc ? Number(expiryDoc.value) : 90;
+    if (expiryDays > 0) {
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + expiryDays);
+      user.passwordExpiresAt = expiresAt;
+    } else {
+      user.passwordExpiresAt = null;
+    }
     await user.save();
 
     res.json({ success: true, message: "Password updated successfully" });
   } catch (error) {
     res.status(400).json({ message: "Reset link is invalid or expired" });
+  }
+});
+
+// ==========================================
+// OTP-BASED PASSWORD RESET (SHA-256 + In-Memory)
+// ==========================================
+app.post("/api/auth/forgot-password-otp", async (req, res, next) => {
+  try {
+    const email = String(req.body.email || "").toLowerCase().trim();
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const user = await User.findOne({ email }).select("_id email name");
+    // Always return success to prevent email enumeration
+    const successResponse = {
+      success: true,
+      message: "If the account exists, a 6-digit OTP has been sent to your email.",
+      otpExpiryMinutes: OTP_TTL_MINUTES,
+    };
+
+    if (!user) {
+      return res.json(successResponse);
+    }
+
+    // Generate 6-digit OTP
+    const otp = generateOtp();
+    // Store hashed OTP in memory
+    storeOtp(email, otp);
+
+    // Send OTP via email
+    const emailResult = await sendEmail({
+      to: user.email,
+      subject: "SpacECE Portal — Password Reset OTP",
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#f8fafc;border-radius:16px;">
+          <div style="text-align:center;margin-bottom:24px;">
+            <h2 style="color:#f59e0b;margin:0;">🔐 Password Reset</h2>
+            <p style="color:#6b7280;font-size:14px;margin-top:8px;">SpacECE Teacher Training Portal</p>
+          </div>
+          <div style="background:white;border-radius:12px;padding:24px;text-align:center;border:2px dashed #fbbf24;">
+            <p style="color:#374151;font-size:14px;margin:0 0 12px;">Hello <strong>${user.name || "User"}</strong>,</p>
+            <p style="color:#6b7280;font-size:13px;margin:0 0 20px;">Your 6-digit One-Time Password (OTP) is:</p>
+            <div style="font-size:36px;font-weight:900;color:#f59e0b;letter-spacing:12px;margin:16px 0;background:#fef3c7;padding:16px;border-radius:10px;">${otp}</div>
+            <p style="color:#9ca3af;font-size:12px;margin:16px 0 0;">This OTP expires in <strong>${OTP_TTL_MINUTES} minutes</strong>.</p>
+            <p style="color:#9ca3af;font-size:12px;margin:4px 0 0;">Do not share this code with anyone.</p>
+          </div>
+          <p style="color:#d1d5db;font-size:11px;text-align:center;margin-top:20px;">
+            If you didn't request this, please ignore this email.<br/>
+            Sent at ${new Date().toLocaleString("en-IN")} · SpacECE Portal
+          </p>
+        </div>
+      `,
+    });
+
+    console.log("[otp] generated_and_sent", JSON.stringify({
+      email,
+      emailSent: emailResult.success,
+      otpLength: otp.length,
+    }));
+
+    res.json({
+      ...successResponse,
+      emailSent: emailResult.success,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/auth/verify-otp", async (req, res, next) => {
+  try {
+    const email = String(req.body.email || "").toLowerCase().trim();
+    const otp = String(req.body.otp || "").trim();
+
+    if (!email || !otp) {
+      return res.status(400).json({ message: "Email and OTP are required" });
+    }
+
+    if (!/^\d{6}$/.test(otp)) {
+      return res.status(400).json({ message: "OTP must be a 6-digit number" });
+    }
+
+    const result = verifyOtp(email, otp);
+
+    if (!result.valid) {
+      const messages = {
+        no_otp: "No OTP found. Please request a new one.",
+        expired: "OTP has expired. Please request a new one.",
+        rate_limited: "Too many attempts. Please request a new OTP.",
+        invalid: `Invalid OTP. ${result.attemptsLeft || 0} attempts remaining.`,
+      };
+      return res.status(400).json({ message: messages[result.reason] || "Invalid OTP" });
+    }
+
+    // OTP verified — generate a short-lived reset token
+    const resetToken = createPasswordResetToken(email);
+
+    console.log("[otp] verified", JSON.stringify({ email }));
+
+    res.json({
+      success: true,
+      message: "OTP verified successfully. You can now set a new password.",
+      resetToken,
+    });
+  } catch (error) {
+    next(error);
   }
 });
 
@@ -452,7 +591,18 @@ app.post("/api/teacher/change-password", requireAuth, async (req, res, next) => 
     }
 
     const newPasswordHash = await hashPassword(newPassword);
-    await User.findByIdAndUpdate(req.user.id, { $set: { passwordHash: newPasswordHash } });
+    const updateData = { passwordHash: newPasswordHash, passwordChangedAt: new Date() };
+    // Set password expiry based on policy
+    const expiryDoc = await PortalSetting.findOne({ key: "passwordExpiryDays" });
+    const expiryDays = expiryDoc ? Number(expiryDoc.value) : 90;
+    if (expiryDays > 0) {
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + expiryDays);
+      updateData.passwordExpiresAt = expiresAt;
+    } else {
+      updateData.passwordExpiresAt = null;
+    }
+    await User.findByIdAndUpdate(req.user.id, { $set: updateData });
 
     res.json({ message: "Password changed successfully" });
   } catch (error) {
@@ -614,6 +764,10 @@ app.post("/api/admin/children", requireAuth, requireRole("admin"), async (req, r
       class: classId,
       rollNo: req.body.rollNo || await getNextChildRollNo(classId),
       status: req.body.status || "active",
+      age: req.body.age || undefined,
+      gender: req.body.gender || undefined,
+      email: req.body.email || undefined,
+      createdBy: req.user.id,
     });
     res.status(201).json({ child });
   } catch (error) {
@@ -727,6 +881,129 @@ app.get("/api/teacher/me", requireAuth, requireRole("teacher"), async (req, res,
   }
 });
 
+app.patch("/api/teacher/me", requireAuth, requireRole("teacher"), async (req, res, next) => {
+  try {
+    const { name, phone, photoUrl, language, preferredNotificationChannel, teacherProfile = {} } = req.body;
+    const allowedProfileFields = ["qualification", "subject", "experience", "address"];
+    const update = {};
+
+    if (name !== undefined) update.name = name;
+    if (phone !== undefined) update.phone = phone;
+    if (photoUrl !== undefined) update.photoUrl = photoUrl;
+    if (language !== undefined) update.language = language;
+    if (preferredNotificationChannel !== undefined) update.preferredNotificationChannel = preferredNotificationChannel;
+
+    for (const field of allowedProfileFields) {
+      if (teacherProfile[field] !== undefined) {
+        update[`teacherProfile.${field}`] = teacherProfile[field];
+      }
+    }
+
+    const teacher = await User.findByIdAndUpdate(req.user.id, { $set: update }, { new: true })
+      .select("-passwordHash")
+      .populate("teacherProfile.center", "name address city pincode contactPerson phone email")
+      .populate("teacherProfile.class", "name ageGroup curriculumLevel schedule");
+
+    res.json({ teacher });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── Teacher Language Preference (persisted to Atlas) ──
+app.patch("/api/teacher/me/language", requireAuth, requireRole("teacher"), async (req, res, next) => {
+  try {
+    const { language } = req.body;
+    const validLanguages = ["English", "Hindi", "Marathi", "Telugu", "Kannada", "Tamil"];
+    if (!language || !validLanguages.includes(language)) {
+      return res.status(400).json({ message: "Invalid language. Supported: " + validLanguages.join(", ") });
+    }
+    await User.findByIdAndUpdate(req.user.id, { language });
+    res.json({ success: true, language });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── Teacher Notification Preference (persisted to Atlas) ──
+app.patch("/api/teacher/me/notification-preference", requireAuth, requireRole("teacher"), async (req, res, next) => {
+  try {
+    const { preferredNotificationChannel } = req.body;
+    const validChannels = ["in_app", "email", "sms", "whatsapp", "all"];
+    if (!preferredNotificationChannel || !validChannels.includes(preferredNotificationChannel)) {
+      return res.status(400).json({ message: "Invalid channel. Supported: " + validChannels.join(", ") });
+    }
+    await User.findByIdAndUpdate(req.user.id, { preferredNotificationChannel });
+    res.json({ success: true, preferredNotificationChannel });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── Admin Language Preference (persisted to Atlas User) ──
+app.patch("/api/admin/me/language", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { language } = req.body;
+    const validLanguages = ["English", "Hindi", "Marathi", "Telugu", "Kannada", "Tamil"];
+    if (!language || !validLanguages.includes(language)) {
+      return res.status(400).json({ message: "Invalid language. Supported: " + validLanguages.join(", ") });
+    }
+    await User.findByIdAndUpdate(req.user.id, { language });
+    // Also save to PortalSetting for consistency
+    await PortalSetting.findOneAndUpdate({ key: "adminLanguage" }, { value: language }, { upsert: true });
+    res.json({ success: true, language });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── Admin SMTP Config Save (persisted to Atlas PortalSetting) ──
+app.post("/api/admin/settings/smtp", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName } = req.body;
+    if (!smtpHost || !smtpUser || !smtpPass) {
+      return res.status(400).json({ message: "SMTP host, user, and password are required" });
+    }
+    const upserts = [
+      { key: "smtpHost", value: smtpHost },
+      { key: "smtpPort", value: String(smtpPort || 587) },
+      { key: "smtpUser", value: smtpUser },
+      { key: "smtpPass", value: smtpPass },
+      { key: "fromEmail", value: fromEmail || smtpUser },
+      { key: "fromName", value: fromName || "SpacECE Notifications" },
+    ];
+    for (const s of upserts) {
+      await PortalSetting.findOneAndUpdate({ key: s.key }, { value: s.value }, { upsert: true });
+    }
+    console.log("[admin] smtp_config_saved", JSON.stringify({ smtpHost, smtpUser }));
+    res.json({ success: true, message: "SMTP configuration saved to database" });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── Admin Twilio Config Save (persisted to Atlas PortalSetting) ──
+app.post("/api/admin/settings/twilio", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { twilioSid, twilioToken, twilioFrom } = req.body;
+    if (!twilioSid || !twilioToken || !twilioFrom) {
+      return res.status(400).json({ message: "Twilio SID, token, and from number are required" });
+    }
+    const upserts = [
+      { key: "twilioSid", value: twilioSid },
+      { key: "twilioToken", value: twilioToken },
+      { key: "twilioFrom", value: twilioFrom },
+    ];
+    for (const s of upserts) {
+      await PortalSetting.findOneAndUpdate({ key: s.key }, { value: s.value }, { upsert: true });
+    }
+    console.log("[admin] twilio_config_saved", JSON.stringify({ twilioSid }));
+    res.json({ success: true, message: "Twilio configuration saved to database" });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/teacher/classes", requireAuth, requireRole("teacher"), async (req, res, next) => {
   try {
     const teacher = await User.findById(req.user.id).select("teacherProfile");
@@ -788,6 +1065,7 @@ app.post("/api/teacher/children", requireAuth, requireRole("teacher"), async (re
       class: classId,
       rollNo: await getNextChildRollNo(classId),
       status: req.body.status || "active",
+      createdBy: req.user.id,
     });
 
     res.status(201).json({ child });
@@ -804,12 +1082,16 @@ app.post("/api/teacher/children", requireAuth, requireRole("teacher"), async (re
 
 app.get("/api/teacher/progress", requireAuth, requireRole("teacher"), async (req, res, next) => {
   try {
-    const [courses, lessons, activities, attendance] = await Promise.all([
+    // FIX: get classId from teacher's profile first
+    const teacherUser = await User.findById(req.user.id).select("teacherProfile");
+    const classId = teacherUser?.teacherProfile?.class;
+
+    const [courses, lessons, activities, attendance, totalChildren] = await Promise.all([
       CourseAssignment.find({ teacher: req.user.id }).populate("course"),
       LessonPlanAssignment.find({ teacher: req.user.id }).populate("lessonPlan", "title scheduleDate"),
       ActivitySubmission.find({ teacher: req.user.id }).sort({ activityDate: -1 }),
       TeacherAttendanceRecord.find({ teacher: req.user.id }).sort({ attendanceDate: -1 }),
-      classId ? Child.countDocuments({ class: classId, status: "active" }) : 0,
+      classId ? Child.countDocuments({ class: classId, status: "active" }) : Promise.resolve(0),
     ]);
 
     const completedCourses = courses.filter((item) => item.status === "completed" || item.progressPercent === 100).length;
@@ -1153,12 +1435,14 @@ app.patch("/api/admin/teachers/:id/unblock", requireAuth, requireRole("admin"), 
 
 app.patch("/api/admin/teachers/:id/assign-center", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    const { centerId } = req.body;
-    const updateData = { "teacherProfile.center": centerId || null };
+    const { centerId, classId } = req.body;
+    const updateData = {};
+    if (centerId !== undefined) updateData["teacherProfile.center"] = centerId || null;
+    if (classId !== undefined) updateData["teacherProfile.class"] = classId || null;
     const teacher = await User.findByIdAndUpdate(req.params.id, updateData, { new: true })
       .select("-passwordHash")
-      .populate("teacherProfile.center", "name city")
-      .populate("teacherProfile.class", "name ageGroup");
+      .populate("teacherProfile.center", "name address city pincode contactPerson phone email")
+      .populate("teacherProfile.class", "name ageGroup curriculumLevel schedule");
     if (!teacher) return res.status(404).json({ message: "Teacher not found." });
     res.json({ teacher });
   } catch (error) {
@@ -1193,13 +1477,17 @@ app.delete("/api/courses/:id", requireAuth, requireRole("admin"), async (req, re
 });
 
 // AI Course Generation (mounted router with auth + admin middleware)
-app.use("/api/courses", requireAuth, requireRole("admin"), courseAiRouter);
 import courseAiRouter from "./routes/courseAi.js";
+app.use("/api/courses/ai", requireAuth, requireRole("admin"), courseAiRouter);
 // Grades routes
-app.use("/api/grades", gradesRouter);
 import gradesRouter from "./routes/grades.js";
-// Schedules
-//app.use("/api/schedules", schedulesRouter);
+app.use("/api/grades", gradesRouter);
+// Schedules routes
+import schedulesRouter from "./routes/schedules.js";
+app.use("/api/schedules", schedulesRouter);
+// Certificates routes
+import certificatesRouter from "./routes/certificates.js";
+app.use("/api/certificates", certificatesRouter);
 
 app.post("/api/courses/:id/assign", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
@@ -1208,15 +1496,24 @@ app.post("/api/courses/:id/assign", requireAuth, requireRole("admin"), async (re
     requireObjectId(teacherId, "teacherId");
     const assignment = await CourseAssignment.findOneAndUpdate(
       { course: req.params.id, teacher: teacherId },
-      { course: req.params.id, teacher: teacherId, assignedBy: req.user.id, dueDate, status: "assigned" },
-      { upsert: true, new: true }
+      { 
+        course: req.params.id, 
+        teacher: teacherId, 
+        assignedBy: req.user.id, 
+        dueDate, 
+        status: "assigned",
+        progressPercent: 0,
+        completedContent: []
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
     );
-    await Notification.create({
-      recipient: teacherId,
+    // Real-time notification via socket
+    await createAndEmitNotification({
+      recipientId: teacherId,
       title: "New course assigned",
       body: "A training course has been assigned to your teacher portal.",
-      status: "sent",
-      sentAt: new Date(),
+      type: "course_assigned",
+      metadata: { courseId: req.params.id, assignmentId: assignment._id },
     });
     res.status(201).json({ assignment });
   } catch (error) {
@@ -1262,6 +1559,24 @@ app.patch("/api/admin/courses/assignments/:id", requireAuth, requireRole("admin"
       { new: true }
     ).populate("course").populate("teacher", "name email").populate("reviewedBy", "name email");
     
+    // Real-time notify teacher when admin reviews
+    if (status && assignment?.teacher?._id) {
+      const statusMessages = {
+        approved: "Your assignment has been approved!",
+        reviewed: "Your assignment has been reviewed. Check your grades.",
+        revision: "Your assignment needs revision. Please check feedback and resubmit.",
+      };
+      if (statusMessages[status]) {
+        await createAndEmitNotification({
+          recipientId: assignment.teacher._id,
+          title: `Assignment ${status}: ${assignment.course?.title || "Course"}`,
+          body: statusMessages[status],
+          type: "assignment_reviewed",
+          metadata: { assignmentId: req.params.id, status, score },
+        });
+      }
+    }
+    
     res.json({ assignment });
   } catch (error) {
     next(error);
@@ -1289,6 +1604,21 @@ app.patch("/api/teacher/courses/assignments/:id", requireAuth, requireRole("teac
       update,
       { new: true }
     ).populate("course");
+
+    // Notify admin when teacher submits an assignment
+    if (status === "submitted" && assignment) {
+      const admins = await User.find({ role: "admin" }).select("_id");
+      for (const admin of admins) {
+        await createAndEmitNotification({
+          recipientId: admin._id,
+          title: `Assignment Submitted: ${assignment.course?.title || "Course"}`,
+          body: `${req.user.name || "A teacher"} has submitted "${assignment.title || "Course Assignment"}" for your review.`,
+          type: "assignment_submitted",
+          metadata: { assignmentId: req.params.id },
+        });
+      }
+    }
+
     res.json({ assignment });
   } catch (error) {
     next(error);
@@ -1410,6 +1740,11 @@ app.delete("/api/lesson-plans/:id", requireAuth, requireRole("admin"), async (re
     requireObjectId(req.params.id, "lesson plan id");
     const lessonPlan = await LessonPlan.findByIdAndDelete(req.params.id);
     if (!lessonPlan) return res.status(404).json({ message: "Lesson plan not found." });
+    // Cascade delete associated assignments and reports
+    const assignments = await LessonPlanAssignment.find({ lessonPlan: req.params.id });
+    const assignmentIds = assignments.map(a => a._id);
+    await LessonPlanAssignment.deleteMany({ lessonPlan: req.params.id });
+    await LessonCompletionReport.deleteMany({ assignment: { $in: assignmentIds } });
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -1423,6 +1758,13 @@ app.post("/api/lesson-plans/assign", requireAuth, requireRole("admin"), async (r
     if (teacherId) requireObjectId(teacherId, "teacherId");
     if (centerId) requireObjectId(centerId, "centerId");
     if (classId) requireObjectId(classId, "classId");
+    // Prevent duplicate assignments
+    if (teacherId && lessonPlanId) {
+      const existing = await LessonPlanAssignment.findOne({ lessonPlan: lessonPlanId, teacher: teacherId });
+      if (existing) {
+        return res.status(200).json({ assignment: existing, message: "Assignment already exists." });
+      }
+    }
     const assignment = await LessonPlanAssignment.create({
       lessonPlan: lessonPlanId,
       teacher: teacherId,
@@ -1549,6 +1891,10 @@ app.patch("/api/admin/lesson-plans/reports/:id", requireAuth, requireRole("admin
       { status, adminFeedback, reviewedBy: req.user.id, reviewedAt: new Date() },
       { new: true }
     );
+    // Also update the parent assignment status when report is approved
+    if (report && (status === "approved" || status === "rejected")) {
+      await LessonPlanAssignment.findByIdAndUpdate(report.assignment, { status: "reviewed" });
+    }
     res.json({ report });
   } catch (error) {
     next(error);
@@ -1819,6 +2165,98 @@ app.delete("/api/trainers/:id", requireAuth, requireRole("admin"), async (req, r
   }
 });
 
+// ==========================================
+// TRAINER MESSAGES
+// ==========================================
+
+app.get("/api/trainers/:trainerId/messages", requireAuth, async (req, res, next) => {
+  try {
+    const messages = await TrainerMessage.find({ trainer: req.params.trainerId })
+      .populate("sender", "name email role")
+      .sort({ createdAt: -1 })
+      .limit(100);
+    res.json({ messages });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/trainers/:trainerId/messages", requireAuth, async (req, res, next) => {
+  try {
+    const { subject, body } = req.body;
+    if (!subject || !body) {
+      return res.status(400).json({ message: "Subject and body are required." });
+    }
+    const message = await TrainerMessage.create({
+      trainer: req.params.trainerId,
+      sender: req.user.id,
+      subject,
+      body,
+    });
+    res.status(201).json({ message });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/trainers/messages/:messageId/read", requireAuth, async (req, res, next) => {
+  try {
+    const message = await TrainerMessage.findByIdAndUpdate(
+      req.params.messageId,
+      { read: true },
+      { new: true }
+    );
+    res.json({ message });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==========================================
+// TRAINER PAYOUTS
+// ==========================================
+app.get("/api/trainers/:trainerId/payouts", requireAuth, async (req, res, next) => {
+  try {
+    const payouts = await TrainerPayout.find({ trainer: req.params.trainerId })
+      .populate("paidBy", "name email")
+      .sort({ createdAt: -1 });
+    res.json({ payouts });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/trainers/:trainerId/payouts", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { amount, sessions, description, period } = req.body;
+    const payout = await TrainerPayout.create({
+      trainer: req.params.trainerId,
+      amount,
+      sessions: sessions || 0,
+      description,
+      period,
+      status: "pending",
+    });
+    res.status(201).json({ payout });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/trainers/payouts/:payoutId/pay", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const payout = await TrainerPayout.findByIdAndUpdate(
+      req.params.payoutId,
+      { status: "paid", paidAt: new Date(), paidBy: req.user.id },
+      { new: true }
+    );
+    if (!payout) return res.status(404).json({ message: "Payout not found." });
+    res.json({ payout });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/feedbacks", requireAuth, async (req, res, next) => {
   try {
     const filter = req.user.role === "admin" ? {} : { anonymous: false };
@@ -1876,62 +2314,22 @@ app.patch("/api/notifications/:id/read", requireAuth, async (req, res, next) => 
   }
 });
 
-app.delete("/api/admin/notifications/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
+app.post("/api/notifications/mark-all-read", requireAuth, async (req, res, next) => {
   try {
-    await Notification.findByIdAndDelete(req.params.id);
+    await Notification.updateMany(
+      { recipient: req.user.id, read: false },
+      { read: true, readAt: new Date() }
+    );
     res.json({ success: true });
   } catch (error) {
     next(error);
   }
 });
 
-// ==========================================
-// PORTAL SETTINGS
-// ==========================================
-app.get("/api/admin/settings", requireAuth, requireRole("admin"), async (_req, res, next) => {
+app.delete("/api/admin/notifications/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    const settings = await PortalSetting.find();
-    const map = {};
-    settings.forEach((s) => {
-      map[s.key] = s.value;
-    });
-    res.json({ settings: map });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.put("/api/admin/settings", requireAuth, requireRole("admin"), async (req, res, next) => {
-  try {
-    const { settings } = req.body;
-    if (!settings || typeof settings !== "object") {
-      return res.status(400).json({ message: "Settings object is required" });
-    }
-
-    const keys = Object.keys(settings);
-    const operations = keys.map((key) => ({
-      updateOne: {
-        filter: { key },
-        update: {
-          $set: {
-            key,
-            value: settings[key],
-            updatedBy: req.user.id,
-          },
-        },
-        upsert: true,
-      },
-    }));
-
-    await PortalSetting.bulkWrite(operations);
-
-    const updated = await PortalSetting.find();
-    const map = {};
-    updated.forEach((s) => {
-      map[s.key] = s.value;
-    });
-
-    res.json({ settings: map });
+    await Notification.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -2177,8 +2575,90 @@ app.post("/api/admin/settings/test-email", requireAuth, requireRole("admin"), as
 });
 
 // ==========================================
+// ADMIN SETTINGS — TEST SMS
+// ==========================================
+app.post("/api/admin/settings/test-sms", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { to } = req.body;
+    if (!to) {
+      return res.status(400).json({ success: false, message: "Phone number is required." });
+    }
+    const twilioConf = await getTwilioConfig();
+    if (!twilioConf) {
+      return res.status(500).json({ success: false, message: "Twilio credentials are not configured." });
+    }
+    const cleanPhone = normalizePhoneE164(to);
+    const twilioBase = `https://api.twilio.com/2010-04-01/Accounts/${twilioConf.sid}/Messages.json`;
+    try {
+      const resp = await fetch(twilioBase, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: "Basic " + Buffer.from(`${twilioConf.sid}:${twilioConf.token}`).toString("base64"),
+        },
+        body: new URLSearchParams({ To: cleanPhone, From: twilioConf.from, Body: "SpacECE Portal — Test SMS successful! Your Twilio SMS configuration is working." }).toString(),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        return res.json({ success: true, message: `Test SMS sent to ${cleanPhone}.`, sid: data.sid });
+      } else {
+        return res.status(500).json({ success: false, message: data.message || "Twilio SMS failed." });
+      }
+    } catch (err) {
+      return res.status(500).json({ success: false, message: err.message || "Twilio network error." });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==========================================
+// ADMIN SETTINGS — TEST WHATSAPP
+// ==========================================
+app.post("/api/admin/settings/test-whatsapp", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { to } = req.body;
+    if (!to) {
+      return res.status(400).json({ success: false, message: "Phone number is required." });
+    }
+    const twilioConf = await getTwilioConfig();
+    if (!twilioConf) {
+      return res.status(500).json({ success: false, message: "Twilio credentials are not configured." });
+    }
+    const cleanPhone = normalizePhoneE164(to);
+    const toNumber = `whatsapp:${cleanPhone}`;
+    const fromNumber = `whatsapp:${twilioConf.from}`;
+    const twilioBase = `https://api.twilio.com/2010-04-01/Accounts/${twilioConf.sid}/Messages.json`;
+    try {
+      const resp = await fetch(twilioBase, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: "Basic " + Buffer.from(`${twilioConf.sid}:${twilioConf.token}`).toString("base64"),
+        },
+        body: new URLSearchParams({ To: toNumber, From: fromNumber, Body: "SpacECE Portal — Test WhatsApp successful! Your Twilio WhatsApp configuration is working." }).toString(),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        return res.json({ success: true, message: `Test WhatsApp sent to ${cleanPhone}.`, sid: data.sid });
+      } else {
+        return res.status(500).json({ success: false, message: data.message || "Twilio WhatsApp failed." });
+      }
+    } catch (err) {
+      return res.status(500).json({ success: false, message: err.message || "Twilio network error." });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==========================================
 // ADMIN NOTIFICATIONS
 // ==========================================
+const broadcastRateLimit = { lastBroadcast: null, count: 0, windowStart: null };
+const BROADCAST_RATE_LIMIT = 10; // max broadcasts per hour
+const BROADCAST_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
 app.get("/api/admin/notifications", requireAuth, requireRole("admin"), async (_req, res, next) => {
   try {
     const notifications = await Notification.find()
@@ -2193,6 +2673,20 @@ app.get("/api/admin/notifications", requireAuth, requireRole("admin"), async (_r
 
 app.post("/api/admin/notifications/broadcast", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
+    // Rate limiting check
+    const now = new Date();
+    if (broadcastRateLimit.windowStart && (now - broadcastRateLimit.windowStart) > BROADCAST_WINDOW_MS) {
+      broadcastRateLimit.count = 0;
+      broadcastRateLimit.windowStart = now;
+    }
+    if (!broadcastRateLimit.windowStart) {
+      broadcastRateLimit.windowStart = now;
+    }
+    broadcastRateLimit.count++;
+    if (broadcastRateLimit.count > BROADCAST_RATE_LIMIT) {
+      return res.status(429).json({ message: `Rate limit exceeded. Maximum ${BROADCAST_RATE_LIMIT} broadcasts per hour.` });
+    }
+
     const {
       subject,
       body,
@@ -2207,8 +2701,6 @@ app.post("/api/admin/notifications/broadcast", requireAuth, requireRole("admin")
     if (!subject || !body) {
       return res.status(400).json({ message: "Subject and message are required" });
     }
-
-    const now = new Date();
 
     // ─── RETRY LOGIC ───
     if (isRetry && originalNotificationId) {
@@ -2244,7 +2736,7 @@ app.post("/api/admin/notifications/broadcast", requireAuth, requireRole("admin")
         } else if (!recipient.phone) {
           errorMsg = "Recipient has no phone number";
         } else {
-          const cleanPhone = recipient.phone.replace(/\s+/g, "");
+          const cleanPhone = normalizePhoneE164(recipient.phone);
           const toNumber = channel === "whatsapp" ? `whatsapp:${cleanPhone}` : cleanPhone;
           const fromNumber = channel === "whatsapp" ? `whatsapp:${twilioConf.from}` : twilioConf.from;
           const twilioBase = `https://api.twilio.com/2010-04-01/Accounts/${twilioConf.sid}/Messages.json`;
@@ -2355,7 +2847,7 @@ app.post("/api/admin/notifications/broadcast", requireAuth, requireRole("admin")
         const messageResults = await Promise.allSettled(
           recipients.map(async (r) => {
             if (!r.phone) return { recipientId: r._id, success: false, error: "No phone number on record" };
-            const cleanPhone = r.phone.replace(/\s+/g, "");
+            const cleanPhone = normalizePhoneE164(r.phone);
             const toNumber = channel === "whatsapp" ? `whatsapp:${cleanPhone}` : cleanPhone;
             const fromNumber = channel === "whatsapp" ? `whatsapp:${twilioConf.from}` : twilioConf.from;
 
@@ -2461,6 +2953,179 @@ app.get("/api/admin/activities", requireAuth, requireRole("admin"), async (req, 
   }
 });
 
+// ==========================================
+// AUTOMATION ENDPOINTS
+// ==========================================
+
+// Auto-send attendance reminders to teachers who haven't marked attendance today
+app.post("/api/automation/attendance-reminders", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Get all approved teachers
+    const allTeachers = await User.find({ role: "teacher", status: "approved" }).select("_id name email phone language");
+    
+    // Get teachers who already marked attendance today
+    const attendedToday = await TeacherAttendanceRecord.find({
+      attendanceDate: { $gte: today, $lte: new Date(today.getTime() + 86400000) }
+    }).select("teacher");
+    const attendedIds = new Set(attendedToday.map(r => r.teacher.toString()));
+
+    // Filter teachers who haven't attended
+    const pendingTeachers = allTeachers.filter(t => !attendedIds.has(t._id.toString()));
+
+    if (pendingTeachers.length === 0) {
+      return res.json({ message: "All teachers have marked attendance today!", sent: 0 });
+    }
+
+    // Send reminders via preferred channel
+    const channel = req.body.channel || "in_app";
+    const results = await broadcastNotification({
+      recipientIds: pendingTeachers.map(t => t._id),
+      templateKey: "attendance_reminder",
+      channel,
+      priority: "high",
+      metadata: { automation: true, type: "attendance_reminder" },
+    });
+
+    console.log("[automation] attendance_reminders", JSON.stringify({ sent: results.success, pending: pendingTeachers.length }));
+
+    res.json({
+      message: `Attendance reminders sent to ${results.success} teachers`,
+      totalPending: pendingTeachers.length,
+      sent: results.success,
+      failed: results.failed,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Auto-notify admin when teacher submits assignment
+app.post("/api/automation/notify-assignment-submission", requireAuth, requireRole("teacher"), async (req, res, next) => {
+  try {
+    const admins = await User.find({ role: "admin" }).select("_id");
+    const teacher = await User.findById(req.user.id).select("name");
+
+    for (const admin of admins) {
+      await sendNotification({
+        recipientId: admin._id,
+        templateKey: "assignment_submitted",
+        channel: "in_app",
+        priority: "normal",
+        replacements: { teacherName: teacher?.name || "A teacher" },
+        metadata: { automation: true, teacherId: req.user.id },
+      });
+    }
+
+    res.json({ success: true, message: "Admin notified of submission" });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Auto-assign courses to teachers based on subject match
+app.post("/api/automation/auto-assign-courses", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { courseId } = req.body;
+    if (!courseId) return res.status(400).json({ message: "Course ID is required" });
+
+    const course = await Course.findById(courseId);
+    if (!course) return res.status(404).json({ message: "Course not found" });
+
+    // Find teachers with matching subject or unassigned
+    const teachers = await User.find({
+      role: "teacher",
+      status: "approved",
+      $or: [
+        { "teacherProfile.subject": { $regex: course.category || "", $options: "i" } },
+        { "teacherProfile.subject": { $exists: false } },
+      ],
+    }).select("_id name email phone language");
+
+    if (teachers.length === 0) {
+      return res.json({ message: "No matching teachers found for this course", assigned: 0 });
+    }
+
+    let assignedCount = 0;
+    for (const teacher of teachers) {
+      const existing = await CourseAssignment.findOne({ course: courseId, teacher: teacher._id });
+      if (!existing) {
+        await CourseAssignment.create({
+          course: courseId,
+          teacher: teacher._id,
+          assignedBy: req.user.id,
+          status: "assigned",
+          progressPercent: 0,
+        });
+
+        // Notify teacher
+        await sendNotification({
+          recipientId: teacher._id,
+          templateKey: "course_assigned",
+          channel: "all",
+          priority: "normal",
+          metadata: { automation: true, courseId },
+        });
+
+        assignedCount++;
+      }
+    }
+
+    console.log("[automation] auto_assign_courses", JSON.stringify({ courseId, assigned: assignedCount }));
+
+    res.json({
+      message: `Course auto-assigned to ${assignedCount} teachers`,
+      assigned: assignedCount,
+      total: teachers.length,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Dashboard automation status
+app.get("/api/automation/status", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const [
+      totalTeachers,
+      attendedToday,
+      pendingAssignments,
+      unreadNotifications,
+    ] = await Promise.all([
+      User.countDocuments({ role: "teacher", status: "approved" }),
+      TeacherAttendanceRecord.countDocuments({ attendanceDate: { $gte: today } }),
+      CourseAssignment.countDocuments({ status: "assigned" }),
+      Notification.countDocuments({ read: false }),
+    ]);
+
+    res.json({
+      automationStatus: {
+        attendanceReminders: {
+          enabled: true,
+          pending: totalTeachers - attendedToday,
+          total: totalTeachers,
+        },
+        courseAssignments: {
+          enabled: true,
+          pending: pendingAssignments,
+        },
+        notifications: {
+          enabled: true,
+          unread: unreadNotifications,
+        },
+      },
+      lastChecked: new Date().toISOString(),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.use((error, _req, res, _next) => {
   void _next;
   console.error(error);
@@ -2483,6 +3148,11 @@ await connectDb();
 await ensureDatabaseReady();
 
 const server = http.createServer(app);
+
+// Initialize Socket.IO for real-time communication
+const io = initSocket(server);
+console.log("[socket] Socket.IO initialized");
+
 server.listen(port, () => {
   console.log(`API running on http://localhost:${port}`);
 });
