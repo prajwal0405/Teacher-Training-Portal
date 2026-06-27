@@ -51,7 +51,7 @@ export default function AdminDashboard({ user, onLogout }) {
       assigned: "pending",
       in_progress: "under review",
       completed: "reviewed",
-      submitted: "pending",
+      submitted: "submitted",
       reviewed: "reviewed",
       approved: "approved",
       revision: "revision",

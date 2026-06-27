@@ -95,7 +95,7 @@ export default function TrainingAndClassroomManager({ user }) {
 
       await submitActivity({
         center: getId(teacher?.teacherProfile?.center),
-        class: getId(teacher?.teacherProfile?.class),
+        class: getId((teacher?.teacherProfile?.classes || [])[0]),
         lessonPlan: selectedLessonId || undefined,
         activityDate,
         description: activityDescription.trim(),

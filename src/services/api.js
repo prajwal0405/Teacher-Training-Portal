@@ -134,6 +134,16 @@ export function deleteCenter(id) {
   });
 }
 
+export function getCenterTeacherAssignments(centerId) {
+  return request(`/api/centers/${centerId}/teacher-assignments`);
+}
+
+export function validateCenterAssignments(centerId) {
+  return request(`/api/centers/${centerId}/validate-assignments`, {
+    method: "POST"
+  });
+}
+
 // Class Management APIs
 export function getClasses(centerId = "") {
   const path = centerId ? `/api/admin/classes?centerId=${centerId}` : "/api/admin/classes";

@@ -48,7 +48,7 @@ export default function AttendanceManager({ user }) {
     getTeacherMe()
       .then(res => {
         setTeacherProfile(res.teacher);
-        const defaultClassId = res.teacher?.teacherProfile?.class?._id || res.teacher?.teacherProfile?.class;
+        const defaultClassId = (res.teacher?.teacherProfile?.classes || [])[0]?._id || (res.teacher?.teacherProfile?.classes || [])[0];
         
         getTeacherClasses()
           .then(classRes => {
@@ -72,7 +72,7 @@ export default function AttendanceManager({ user }) {
   // Fetch children list and attendance for selected date
   const loadRosterAndAttendance = () => {
     if (!teacherProfile) return;
-    const classId = selectedClassId || teacherProfile?.teacherProfile?.class?._id || teacherProfile?.teacherProfile?.class;
+    const classId = selectedClassId || (teacherProfile?.teacherProfile?.classes || [])[0]?._id || (teacherProfile?.teacherProfile?.classes || [])[0];
     setLoading(true);
 
     Promise.all([
@@ -249,7 +249,7 @@ export default function AttendanceManager({ user }) {
 
   const saveAttendanceToDb = (dict) => {
     const centerId = teacherProfile?.teacherProfile?.center?._id || teacherProfile?.teacherProfile?.center;
-    const classId = selectedClassId || teacherProfile?.teacherProfile?.class?._id || teacherProfile?.teacherProfile?.class;
+    const classId = selectedClassId || (teacherProfile?.teacherProfile?.classes || [])[0]?._id || (teacherProfile?.teacherProfile?.classes || [])[0];
 
     if (!centerId || !classId) {
       return Promise.reject(new Error("Center/Class assignment missing in teacher profile."));
@@ -325,7 +325,7 @@ export default function AttendanceManager({ user }) {
     e.preventDefault();
     if (!newStudentName.trim()) return;
 
-    const classId = selectedClassId || teacherProfile?.teacherProfile?.class?._id || teacherProfile?.teacherProfile?.class;
+    const classId = selectedClassId || (teacherProfile?.teacherProfile?.classes || [])[0]?._id || (teacherProfile?.teacherProfile?.classes || [])[0];
     createTeacherChild({
       fullName: newStudentName.trim(),
       age: newStudentAge ? Number(newStudentAge) : undefined,

@@ -11,7 +11,7 @@ const mapTeacherFromApi = (t) => ({
   id: t._id || t.id,
   name: t.name,
   centerId: t.teacherProfile?.center?._id || t.teacherProfile?.center || "",
-  classId: t.teacherProfile?.class?._id || t.teacherProfile?.class || "",
+  classId: (t.teacherProfile?.classes || [])[0]?._id || "",
 });
 
 const mapPlanFromApi = (p, assignments = []) => {

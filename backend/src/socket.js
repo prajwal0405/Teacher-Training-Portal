@@ -33,7 +33,7 @@ export function initSocket(httpServer) {
   });
 
   io.on("connection", (socket) => {
-    console.log(`[socket] ${socket.userName} (${socket.userRole}) connected - ${socket.id}`);
+
 
     // Join role-based room
     socket.join(`role:${socket.userRole}`);
@@ -46,7 +46,7 @@ export function initSocket(httpServer) {
     }
 
     socket.on("disconnect", () => {
-      console.log(`[socket] ${socket.userName} disconnected - ${socket.id}`);
+
     });
 
     // Allow joining specific rooms

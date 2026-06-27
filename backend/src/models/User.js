@@ -20,7 +20,7 @@ const userSchema = new mongoose.Schema(
     passwordExpiresAt: Date,
     teacherProfile: {
       center: { type: mongoose.Schema.Types.ObjectId, ref: "Center" },
-      class: { type: mongoose.Schema.Types.ObjectId, ref: "Class" },
+      classes: [{ type: mongoose.Schema.Types.ObjectId, ref: "Class" }],
       qualification: String,
       subject: String,
       experience: String,

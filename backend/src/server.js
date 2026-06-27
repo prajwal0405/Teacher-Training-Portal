@@ -335,7 +335,7 @@ app.post("/api/auth/login", async (req, res, next) => {
 
 app.post("/api/auth/register-teacher", async (req, res, next) => {
   try {
-    const { name, email, phone, password, qualification, subject, experience, address, center, class: classId } = req.body;
+    const { name, email, phone, password, qualification, subject, experience, address, center, class: classId, classIds } = req.body;
     
     const policyResult = await validatePasswordAgainstPolicy(password);
     if (!policyResult.valid) {
@@ -344,6 +344,13 @@ app.post("/api/auth/register-teacher", async (req, res, next) => {
 
     const passwordHash = await hashPassword(password);
 
+    let assignedClasses = classIds || [];
+    if (classId && !classIds) {
+      assignedClasses = [classId];
+    }
+    // Don't auto-assign all classes when only center is provided
+    // Teachers should only get classes that are explicitly assigned to them
+
     const teacher = await User.create({
       role: "teacher",
       name,
@@ -351,7 +358,7 @@ app.post("/api/auth/register-teacher", async (req, res, next) => {
       phone,
       passwordHash,
       status: "pending",
-      teacherProfile: { qualification, subject, experience, address, center, class: classId },
+      teacherProfile: { qualification, subject, experience, address, center, class: classId, classes: assignedClasses },
     });
 
     res.status(201).json({
@@ -682,15 +689,111 @@ app.get("/api/centers", requireAuth, requireRole("admin"), async (_req, res, nex
 
 app.post("/api/centers", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    const { teachers = [], ...centerPayload } = req.body;
+    const { teachers = [], classes: classesPayload = [], ...centerPayload } = req.body;
     const center = await Center.create(centerPayload);
-    if (teachers.length) {
-      await User.updateMany(
-        { _id: { $in: teachers }, role: "teacher" },
-        { $set: { "teacherProfile.center": center._id } }
+
+    // Create classes for this center and track teacher-class assignments
+    const createdClasses = [];
+    const teacherClassMap = {}; // { teacherId: [classId, ...] }
+    const assignmentErrors = [];
+
+    for (const cls of classesPayload) {
+      const { teacherId, ...classData } = cls;
+      const classRecord = await ClassModel.findOneAndUpdate(
+        { center: center._id, name: classData.name },
+        { center: center._id, ...classData },
+        { new: true, upsert: true, setDefaultsOnInsert: true }
       );
+      createdClasses.push(classRecord);
+
+      // Map teacher to this class (one teacher per class)
+      if (teacherId) {
+        // Check if teacher is already assigned to another class (anywhere)
+        const existingAssignment = await User.findOne({
+          _id: teacherId,
+          role: "teacher",
+          "teacherProfile.classes": { $exists: true, $ne: [] },
+        }).select("_id name teacherProfile.classes");
+
+        if (existingAssignment && existingAssignment.teacherProfile?.classes?.length > 0) {
+          // Check if the existing assignment is to a different class
+          const existingClassIds = existingAssignment.teacherProfile.classes.map(String);
+          if (!existingClassIds.includes(classRecord._id.toString())) {
+            assignmentErrors.push({
+              teacherId,
+              teacherName: existingAssignment.name,
+              className: classData.name,
+              message: `Teacher "${existingAssignment.name}" is already assigned to another class. 1 teacher can only be assigned to 1 class.`,
+            });
+            continue; // Skip this assignment
+          }
+        }
+
+        if (!teacherClassMap[teacherId]) teacherClassMap[teacherId] = [];
+        teacherClassMap[teacherId].push(classRecord._id);
+      }
     }
-    res.status(201).json({ center });
+
+    // If there are assignment errors, return them but still create the center
+    if (assignmentErrors.length > 0) {
+      // Assign teachers with valid assignments
+      for (const [teacherId, classIds] of Object.entries(teacherClassMap)) {
+        await User.findByIdAndUpdate(teacherId, {
+          $set: {
+            "teacherProfile.center": center._id,
+            "teacherProfile.classes": classIds,
+          },
+        });
+      }
+      // For teachers without specific class assignments, only set the center
+      const teachersWithClasses = Object.keys(teacherClassMap);
+      const teachersWithoutClasses = teachers.filter(t => !teachersWithClasses.includes(t));
+      if (teachersWithoutClasses.length > 0) {
+        await User.updateMany(
+          { _id: { $in: teachersWithoutClasses }, role: "teacher" },
+          { $set: { "teacherProfile.center": center._id } }
+        );
+      }
+      
+      return res.status(201).json({ 
+        center, 
+        classes: createdClasses, 
+        warnings: assignmentErrors,
+        message: `Center created with warnings: ${assignmentErrors.map(e => e.message).join("; ")}`,
+      });
+    }
+
+    // Assign teachers to center and their respective classes
+    if (teachers.length) {
+      // If classes were provided with teacher assignments, use the map
+      if (classesPayload.length > 0 && Object.keys(teacherClassMap).length > 0) {
+        for (const [teacherId, classIds] of Object.entries(teacherClassMap)) {
+          await User.findByIdAndUpdate(teacherId, {
+            $set: {
+              "teacherProfile.center": center._id,
+              "teacherProfile.classes": classIds,
+            },
+          });
+        }
+        // For teachers without specific class assignments, only set the center
+        const teachersWithClasses = Object.keys(teacherClassMap);
+        const teachersWithoutClasses = teachers.filter(t => !teachersWithClasses.includes(t));
+        if (teachersWithoutClasses.length > 0) {
+          await User.updateMany(
+            { _id: { $in: teachersWithoutClasses }, role: "teacher" },
+            { $set: { "teacherProfile.center": center._id } }
+          );
+        }
+      } else {
+        // No specific class assignments - only set the center, don't auto-assign all classes
+        await User.updateMany(
+          { _id: { $in: teachers }, role: "teacher" },
+          { $set: { "teacherProfile.center": center._id } }
+        );
+      }
+    }
+
+    res.status(201).json({ center, classes: createdClasses });
   } catch (error) {
     next(error);
   }
@@ -701,7 +804,7 @@ app.get("/api/admin/teachers", requireAuth, requireRole("admin"), async (_req, r
     const teachers = await User.find({ role: "teacher" })
       .select("-passwordHash")
       .populate("teacherProfile.center", "name city")
-      .populate("teacherProfile.class", "name ageGroup")
+      .populate("teacherProfile.classes", "name ageGroup curriculumLevel schedule")
       .sort({ createdAt: -1 });
 
     res.json({ teachers });
@@ -873,7 +976,7 @@ app.get("/api/teacher/me", requireAuth, requireRole("teacher"), async (req, res,
     const teacher = await User.findById(req.user.id)
       .select("-passwordHash")
       .populate("teacherProfile.center", "name address city pincode contactPerson phone email")
-      .populate("teacherProfile.class", "name ageGroup curriculumLevel schedule");
+      .populate("teacherProfile.classes", "name ageGroup curriculumLevel schedule");
 
     res.json({ teacher });
   } catch (error) {
@@ -902,7 +1005,7 @@ app.patch("/api/teacher/me", requireAuth, requireRole("teacher"), async (req, re
     const teacher = await User.findByIdAndUpdate(req.user.id, { $set: update }, { new: true })
       .select("-passwordHash")
       .populate("teacherProfile.center", "name address city pincode contactPerson phone email")
-      .populate("teacherProfile.class", "name ageGroup curriculumLevel schedule");
+      .populate("teacherProfile.classes", "name ageGroup curriculumLevel schedule");
 
     res.json({ teacher });
   } catch (error) {
@@ -1007,12 +1110,14 @@ app.post("/api/admin/settings/twilio", requireAuth, requireRole("admin"), async 
 app.get("/api/teacher/classes", requireAuth, requireRole("teacher"), async (req, res, next) => {
   try {
     const teacher = await User.findById(req.user.id).select("teacherProfile");
-    const classId = teacher?.teacherProfile?.class;
-    if (!classId) {
+    const classIds = teacher?.teacherProfile?.classes || [];
+    const singleClassId = teacher?.teacherProfile?.class;
+    const allClassIds = [...new Set([...classIds.map(id => id.toString()), singleClassId?.toString()].filter(Boolean))];
+    if (allClassIds.length === 0) {
       return res.json({ classes: [] });
     }
-    const cls = await ClassModel.find({ _id: classId });
-    res.json({ classes: cls });
+    const classes = await ClassModel.find({ _id: { $in: allClassIds } });
+    res.json({ classes });
   } catch (error) {
     next(error);
   }
@@ -1021,13 +1126,15 @@ app.get("/api/teacher/classes", requireAuth, requireRole("teacher"), async (req,
 app.get("/api/teacher/children", requireAuth, requireRole("teacher"), async (req, res, next) => {
   try {
     const teacher = await User.findById(req.user.id).select("teacherProfile");
-    const classId = teacher?.teacherProfile?.class;
+    const classIds = teacher?.teacherProfile?.classes || [];
+    const singleClassId = teacher?.teacherProfile?.class;
+    const allClassIds = [...new Set([...classIds.map(id => id.toString()), singleClassId?.toString()].filter(Boolean))];
 
-    if (!classId) {
+    if (allClassIds.length === 0) {
       return res.json({ children: [] });
     }
 
-    const children = await Child.find({ class: classId, status: "active" })
+    const children = await Child.find({ class: { $in: allClassIds }, status: "active" })
       .populate("center", "name city")
       .populate("class", "name ageGroup curriculumLevel schedule")
       .sort({ rollNo: 1, fullName: 1 });
@@ -1131,7 +1238,7 @@ app.post("/api/teacher/chatbot", requireAuth, requireRole("teacher"), async (req
       User.findById(req.user.id)
         .select("-passwordHash")
         .populate("teacherProfile.center", "name city")
-        .populate("teacherProfile.class", "name schedule"),
+        .populate("teacherProfile.classes", "name schedule"),
       CourseAssignment.countDocuments({ teacher: req.user.id }),
       LessonPlanAssignment.countDocuments({ teacher: req.user.id, status: "pending" }),
       ActivitySubmission.countDocuments({ teacher: req.user.id, status: "pending" }),
@@ -1149,7 +1256,9 @@ app.post("/api/teacher/chatbot", requireAuth, requireRole("teacher"), async (req
     } else if (text.includes("activity") || text.includes("upload")) {
       reply = `You have ${pendingActivities} activity submission${pendingActivities === 1 ? "" : "s"} waiting for admin review. Open Training & Lessons, then Classroom Activities to upload more evidence.`;
     } else if (text.includes("center") || text.includes("class")) {
-      reply = `Your assigned center is ${teacher?.teacherProfile?.center?.name || "not assigned yet"} and your class is ${teacher?.teacherProfile?.class?.name || "not assigned yet"}.`;
+      const classNames = (teacher?.teacherProfile?.classes || []).map(c => c?.name).filter(Boolean);
+      const className = teacher?.teacherProfile?.class?.name || (classNames.length > 0 ? classNames.join(", ") : "not assigned yet");
+      reply = `Your assigned center is ${teacher?.teacherProfile?.center?.name || "not assigned yet"} and your class(es) are ${className}.`;
     } else if (text.includes("notification") || text.includes("alert")) {
       reply = `You have ${notifications} unread notification${notifications === 1 ? "" : "s"}. Open Notifications to review them.`;
     } else if (text.includes("profile") || text.includes("phone") || text.includes("qualification")) {
@@ -1220,14 +1329,124 @@ app.post("/api/upload", requireAuth, upload.single("file"), async (req, res, nex
 // ==========================================
 app.patch("/api/centers/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    const { teachers = [], ...centerPayload } = req.body;
+    const { teachers = [], classes: classesPayload, ...centerPayload } = req.body;
     const center = await Center.findByIdAndUpdate(req.params.id, centerPayload, { new: true });
-    if (teachers.length) {
+
+    // If classes payload provided, handle class creation/update and teacher assignments
+    if (classesPayload && Array.isArray(classesPayload)) {
+      const createdClasses = [];
+      const teacherClassMap = {}; // { teacherId: [classId, ...] }
+      const assignmentErrors = [];
+
+      for (const cls of classesPayload) {
+        const { teacherId, id: classId, ...classData } = cls;
+        let classRecord;
+
+        if (classId) {
+          // Update existing class
+          classRecord = await ClassModel.findByIdAndUpdate(classId, classData, { new: true });
+        } else {
+          // Create new class
+          classRecord = await ClassModel.findOneAndUpdate(
+            { center: req.params.id, name: classData.name },
+            { center: req.params.id, ...classData },
+            { new: true, upsert: true, setDefaultsOnInsert: true }
+          );
+        }
+        createdClasses.push(classRecord);
+
+        // Map teacher to this class (one teacher per class)
+        if (teacherId) {
+          // Check if teacher is already assigned to another class (anywhere)
+          const existingAssignment = await User.findOne({
+            _id: teacherId,
+            role: "teacher",
+            "teacherProfile.classes": { $exists: true, $ne: [] },
+          }).select("_id name teacherProfile.classes");
+
+          if (existingAssignment && existingAssignment.teacherProfile?.classes?.length > 0) {
+            // Check if the existing assignment is to a different class
+            const existingClassIds = existingAssignment.teacherProfile.classes.map(String);
+            if (!existingClassIds.includes(classRecord._id.toString())) {
+              assignmentErrors.push({
+                teacherId,
+                teacherName: existingAssignment.name,
+                className: classData.name,
+                message: `Teacher "${existingAssignment.name}" is already assigned to another class. 1 teacher can only be assigned to 1 class.`,
+              });
+              continue; // Skip this assignment
+            }
+          }
+
+          if (!teacherClassMap[teacherId]) teacherClassMap[teacherId] = [];
+          teacherClassMap[teacherId].push(classRecord._id);
+        }
+      }
+
+      // If there are assignment errors, return them but still update the center
+      if (assignmentErrors.length > 0) {
+        // Assign teachers with valid assignments
+        for (const [teacherId, classIds] of Object.entries(teacherClassMap)) {
+          await User.findByIdAndUpdate(teacherId, {
+            $set: {
+              "teacherProfile.center": req.params.id,
+              "teacherProfile.classes": classIds,
+            },
+          });
+        }
+        // For teachers without specific class assignments, only set the center
+        const teachersWithClasses = Object.keys(teacherClassMap);
+        const teachersWithoutClasses = teachers.filter(t => !teachersWithClasses.includes(t));
+        if (teachersWithoutClasses.length > 0) {
+          await User.updateMany(
+            { _id: { $in: teachersWithoutClasses }, role: "teacher" },
+            { $set: { "teacherProfile.center": req.params.id } }
+          );
+        }
+        
+        return res.json({ 
+          center, 
+          warnings: assignmentErrors,
+          message: `Center updated with warnings: ${assignmentErrors.map(e => e.message).join("; ")}`,
+        });
+      }
+
+      // Assign teachers to center and their respective classes
+      if (teachers.length) {
+        if (Object.keys(teacherClassMap).length > 0) {
+          for (const [teacherId, classIds] of Object.entries(teacherClassMap)) {
+            await User.findByIdAndUpdate(teacherId, {
+              $set: {
+                "teacherProfile.center": req.params.id,
+                "teacherProfile.classes": classIds,
+              },
+            });
+          }
+          // For teachers without specific class assignments, only set the center
+          const teachersWithClasses = Object.keys(teacherClassMap);
+          const teachersWithoutClasses = teachers.filter(t => !teachersWithClasses.includes(t));
+          if (teachersWithoutClasses.length > 0) {
+            await User.updateMany(
+              { _id: { $in: teachersWithoutClasses }, role: "teacher" },
+              { $set: { "teacherProfile.center": req.params.id } }
+            );
+          }
+        } else {
+          // No specific class assignments - only set the center, don't auto-assign all classes
+          await User.updateMany(
+            { _id: { $in: teachers }, role: "teacher" },
+            { $set: { "teacherProfile.center": req.params.id } }
+          );
+        }
+      }
+    } else if (teachers.length) {
+      // No classes payload - only set the center, don't auto-assign all classes
       await User.updateMany(
         { _id: { $in: teachers }, role: "teacher" },
         { $set: { "teacherProfile.center": req.params.id } }
       );
     }
+
     res.json({ center });
   } catch (error) {
     next(error);
@@ -1238,6 +1457,116 @@ app.delete("/api/centers/:id", requireAuth, requireRole("admin"), async (req, re
   try {
     await Center.findByIdAndDelete(req.params.id);
     res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==========================================
+// TEACHER-CLASS ASSIGNMENTS FOR A CENTER
+// ==========================================
+app.get("/api/centers/:id/teacher-assignments", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    requireObjectId(req.params.id, "center id");
+    
+    // Get all classes for this center
+    const classes = await ClassModel.find({ center: req.params.id })
+      .select("_id name ageGroup curriculumLevel schedule")
+      .sort({ name: 1 });
+    
+    // Get all teachers assigned to this center
+    const teachers = await User.find({
+      role: "teacher",
+      "teacherProfile.center": req.params.id,
+    })
+      .select("_id name email status teacherProfile.classes")
+      .sort({ name: 1 });
+    
+    // Build assignment map: classId -> teacher
+    const assignments = {};
+    for (const teacher of teachers) {
+      const classIds = (teacher.teacherProfile?.classes || []).map(String);
+      for (const classId of classIds) {
+        if (!assignments[classId]) {
+          assignments[classId] = [];
+        }
+        assignments[classId].push({
+          _id: teacher._id,
+          name: teacher.name,
+          email: teacher.email,
+          status: teacher.status,
+        });
+      }
+    }
+    
+    // Build response with one-teacher-per-class validation
+    const classAssignments = classes.map(cls => {
+      const assignedTeachers = assignments[cls._id.toString()] || [];
+      return {
+        class: cls,
+        teacher: assignedTeachers.length > 0 ? assignedTeachers[0] : null,
+        hasMultipleTeachers: assignedTeachers.length > 1,
+      };
+    });
+    
+    res.json({ 
+      centerId: req.params.id,
+      classes: classAssignments,
+      totalClasses: classes.length,
+      assignedClasses: classAssignments.filter(a => a.teacher).length,
+      unassignedClasses: classAssignments.filter(a => !a.teacher).length,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==========================================
+// VALIDATE ONE-TEACHER-PER-CLASS
+// ==========================================
+app.post("/api/centers/:id/validate-assignments", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    requireObjectId(req.params.id, "center id");
+    
+    // Get all classes for this center
+    const classes = await ClassModel.find({ center: req.params.id }).select("_id name");
+    
+    // Get all teachers assigned to this center
+    const teachers = await User.find({
+      role: "teacher",
+      "teacherProfile.center": req.params.id,
+    }).select("_id name teacherProfile.classes");
+    
+    // Check for violations
+    const violations = [];
+    const classTeacherCount = {};
+    
+    for (const teacher of teachers) {
+      const classIds = (teacher.teacherProfile?.classes || []).map(String);
+      for (const classId of classIds) {
+        if (!classTeacherCount[classId]) classTeacherCount[classId] = [];
+        classTeacherCount[classId].push(teacher.name);
+      }
+    }
+    
+    for (const [classId, teacherNames] of Object.entries(classTeacherCount)) {
+      if (teacherNames.length > 1) {
+        const className = classes.find(c => c._id.toString() === classId)?.name || classId;
+        violations.push({
+          classId,
+          className,
+          teachers: teacherNames,
+          message: `Class "${className}" has ${teacherNames.length} teachers: ${teacherNames.join(", ")}`,
+        });
+      }
+    }
+    
+    res.json({
+      valid: violations.length === 0,
+      violations,
+      totalClasses: classes.length,
+      totalTeachers: teachers.length,
+    });
   } catch (error) {
     next(error);
   }
@@ -1385,11 +1714,13 @@ app.patch("/api/admin/teachers/:id", requireAuth, requireRole("admin"), async (r
         ...(existing?.teacherProfile || {}),
         ...teacherProfile
       };
+      // Don't auto-assign all classes when only center is set
+      // Teachers should only get classes that are explicitly assigned to them
     }
     const teacher = await User.findByIdAndUpdate(req.params.id, updateData, { new: true })
       .select("-passwordHash")
       .populate("teacherProfile.center", "name city")
-      .populate("teacherProfile.class", "name ageGroup");
+      .populate("teacherProfile.classes", "name ageGroup curriculumLevel schedule");
     res.json({ teacher });
   } catch (error) {
     next(error);
@@ -1435,14 +1766,19 @@ app.patch("/api/admin/teachers/:id/unblock", requireAuth, requireRole("admin"), 
 
 app.patch("/api/admin/teachers/:id/assign-center", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    const { centerId, classId } = req.body;
+    const { centerId, classIds } = req.body;
     const updateData = {};
+
     if (centerId !== undefined) updateData["teacherProfile.center"] = centerId || null;
-    if (classId !== undefined) updateData["teacherProfile.class"] = classId || null;
+
+    if (classIds !== undefined) {
+      updateData["teacherProfile.classes"] = Array.isArray(classIds) ? classIds : [];
+    }
+
     const teacher = await User.findByIdAndUpdate(req.params.id, updateData, { new: true })
       .select("-passwordHash")
       .populate("teacherProfile.center", "name address city pincode contactPerson phone email")
-      .populate("teacherProfile.class", "name ageGroup curriculumLevel schedule");
+      .populate("teacherProfile.classes", "name ageGroup curriculumLevel schedule");
     if (!teacher) return res.status(404).json({ message: "Teacher not found." });
     res.json({ teacher });
   } catch (error) {
@@ -3130,7 +3466,7 @@ const server = http.createServer(app);
 
 // Initialize Socket.IO for real-time communication
 const io = initSocket(server);
-console.log("[socket] Socket.IO initialized");
+
 
 server.listen(port, () => {
   console.log(`API running on http://localhost:${port}`);

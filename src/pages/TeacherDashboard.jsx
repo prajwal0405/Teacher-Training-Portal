@@ -72,8 +72,12 @@ function OverviewTab({ user, setActiveTab, courses = [], assignments = [], lesso
   const centerName = user.teacherProfile?.center
     ? [user.teacherProfile.center.name, user.teacherProfile.center.city].filter(Boolean).join(", ")
     : (user.workingCenter || "Center not assigned");
-  const className = user.teacherProfile?.class?.name || "No class assigned";
+  const classNames = (user.teacherProfile?.classes || []).map(c => c?.name).filter(Boolean);
+  const className = classNames.length > 0 ? classNames.join(", ") : "No class assigned";
   const studentsCount = summary.totalChildren || user.students || 0;
+  
+  // Get full class details for the assigned classes (use only classes array, ignore old class field)
+  const allAssignedClasses = user.teacherProfile?.classes || [];
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
@@ -99,8 +103,63 @@ function OverviewTab({ user, setActiveTab, courses = [], assignments = [], lesso
         <span>Working Center: {centerName}</span>
       </div>
 
+      {/* ── My Assigned Class Section ── */}
+      <div style={{ marginBottom: 20, marginTop: 20 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#1c1917", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 18 }}>📚</span> My Assigned Class
+        </div>
+        
+        {allAssignedClasses.length > 0 ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 12 }}>
+            {allAssignedClasses.map((cls, i) => (
+              <div key={cls?._id || cls?.id || i} style={{
+                background: "white", borderRadius: 14, padding: "16px",
+                border: "1px solid #e5e7eb", boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+                borderLeft: "4px solid #f59e0b"
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 10,
+                    background: "linear-gradient(135deg,#fef3c7,#fbbf24)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 18, flexShrink: 0
+                  }}>🏫</div>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917" }}>{cls?.name || "Unknown Class"}</div>
+                    {cls?.ageGroup && <div style={{ fontSize: 11, color: "#6b7280" }}>Age: {cls.ageGroup}</div>}
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {cls?.curriculumLevel && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#374151" }}>
+                      <span style={{ color: "#f59e0b" }}>📚</span> {cls.curriculumLevel}
+                    </div>
+                  )}
+                  {cls?.schedule && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#374151" }}>
+                      <span style={{ color: "#f59e0b" }}>⏰</span> {cls.schedule}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#374151" }}>
+                    <span style={{ color: "#f59e0b" }}>🏫</span> {centerName}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{
+            background: "white", borderRadius: 14, padding: "24px",
+            border: "1px solid #e5e7eb", textAlign: "center"
+          }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#6b7280" }}>No class assigned yet</div>
+            <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>Contact admin to assign you to a class</div>
+          </div>
+        )}
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 16, marginBottom: 24, marginTop: 16 }}>
-        <StatCard icon="CL" label="My Class" val={className} color="#f59e0b" bg="#fef3c7"/>
         <StatCard icon="ST" label="Total Students" val={studentsCount} color="#3b82f6" bg="#dbeafe"/>
         <StatCard icon="AT" label="Attendance" val={`${attendance}%`} color={attColor} bg={attendance>=85?"#d1fae5":attendance>=70?"#fef3c7":"#fee2e2"}/>
         <StatCard icon="GR" label="Avg Grade" val={gradedAssignments.length ? `${averageScore}%` : "N/A"} color="#8b5cf6" bg="#ede9fe"/>
@@ -615,6 +674,7 @@ const isCertificateReady = (item) => item.status === "completed" || item.progres
 
 function ScheduleTab({ user, lessons = [] }) {
   const [filter, setFilter] = useState("all");
+  const classNames = (user.teacherProfile?.classes || []).map(c => c?.name).filter(Boolean);
   const items = lessons
     .map((item) => ({
       id: item._id,
@@ -644,7 +704,7 @@ function ScheduleTab({ user, lessons = [] }) {
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
       <h1 style={S.pageTitle}>Schedule</h1>
-      <p style={S.pageSub}>Subject: {user.subject || user.teacherProfile?.subject || "Assigned teacher"} · {user.teacherProfile?.class?.name || "Class not assigned"}</p>
+      <p style={S.pageSub}>Subject: {user.subject || user.teacherProfile?.subject || "Assigned teacher"} · {classNames.length > 0 ? classNames.join(", ") : "Class not assigned"}</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(190px,1fr))", gap: 16, marginBottom: 20 }}>
         <StatCard icon="📅" label="Scheduled Lessons" val={items.length} color="#3b82f6" bg="#dbeafe" />
         <StatCard icon="⏳" label="Upcoming" val={upcoming.length} color="#f59e0b" bg="#fef3c7" />

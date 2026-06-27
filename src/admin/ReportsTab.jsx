@@ -93,7 +93,7 @@ export default function ReportsTab({ teachers = [], courses = [] }) {
         teacher.email,
         teacher.status,
         teacher.teacherProfile?.center?.name || "",
-        teacher.teacherProfile?.class?.name || "",
+        (teacher.teacherProfile?.classes || []).map(c => c?.name).filter(Boolean).join(", ") || "",
         teacher.createdAt ? new Date(teacher.createdAt).toLocaleDateString("en-IN") : "",
       ]),
     ]);

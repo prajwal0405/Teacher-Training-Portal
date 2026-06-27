@@ -1,7 +1,7 @@
 // CenterManagementTab.jsx
 import { useState, useEffect } from "react";
 import { Modal, S, SearchBar, SectionCard, StatCard, StatusBadge, Toast } from "../components/Shared";
-import { getCenters, createCenter, updateCenter, deleteCenter, getAdminTeachers, updateTeacherProfile, getClasses, createClass, updateClass, deleteClass, getClassLogs } from "../services/api";
+import { getCenters, createCenter, updateCenter, deleteCenter, getAdminTeachers, updateTeacherProfile, getClasses, createClass, updateClass, deleteClass, getClassLogs, getCenterTeacherAssignments, validateCenterAssignments } from "../services/api";
 
 const mapCenterFromApi = (c) => ({
   id: c._id || c.id,
@@ -28,6 +28,7 @@ const mapCenterToApi = (c) => ({
   contactPerson: c.contactPerson,
   status: c.status,
   teachers: c.teachers,
+  classes: c.classes || [],
 });
 
 const EMPTY_FORM = {
@@ -41,6 +42,57 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
   const isEdit = !!center;
   const [form, setForm] = useState(center ? { ...center } : { ...EMPTY_FORM });
   const [saving, setSaving] = useState(false);
+  
+  // Classes state for creating classes during center creation
+  const [classesList, setClassesList] = useState([]);
+  const [showClassForm, setShowClassForm] = useState(false);
+  const [newClass, setNewClass] = useState({
+    name: "",
+    ageGroup: "",
+    curriculumLevel: "",
+    schedule: "",
+    teacherId: "",
+  });
+
+  // Load existing classes when editing
+  useEffect(() => {
+    if (isEdit && center?.id) {
+      loadExistingClasses();
+    }
+  }, [isEdit, center?.id]);
+
+  const loadExistingClasses = async () => {
+    try {
+      const res = await getClasses(center.id);
+      const existingClasses = (res.classes || []).map(c => ({
+        id: c._id || c.id,
+        name: c.name,
+        ageGroup: c.ageGroup || "",
+        curriculumLevel: c.curriculumLevel || "",
+        schedule: c.schedule || "",
+        teacherId: "", // Will be populated from assignments
+      }));
+      
+      // Load teacher assignments
+      const assignmentsRes = await getCenterTeacherAssignments(center.id);
+      const assignments = assignmentsRes.classes || [];
+      
+      // Map teacher to each class
+      const classesWithTeachers = existingClasses.map(cls => {
+        const assignment = assignments.find(a => 
+          (a.class?._id || a.class?.id) === cls.id
+        );
+        return {
+          ...cls,
+          teacherId: assignment?.teacher?._id || assignment?.teacher?.id || "",
+        };
+      });
+      
+      setClassesList(classesWithTeachers);
+    } catch (err) {
+      console.error("Failed to load existing classes:", err);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -48,9 +100,67 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
       setToast({ msg: "Please fill all required fields.", type: "error" });
       return;
     }
+    
+    // Validate one-teacher-per-class (1 teacher = 1 class only)
+    const teacherClassMap = {};
+    for (const cls of classesList) {
+      if (cls.teacherId) {
+        if (!teacherClassMap[cls.teacherId]) {
+          teacherClassMap[cls.teacherId] = [];
+        }
+        teacherClassMap[cls.teacherId].push(cls.name);
+      }
+    }
+    
+    // Check if any teacher is assigned to multiple classes
+    for (const [teacherId, classNames] of Object.entries(teacherClassMap)) {
+      if (classNames.length > 1) {
+        const teacher = approvedTeachers.find(t => (t._id || t.id) === teacherId);
+        setToast({ 
+          msg: `Error: Teacher "${teacher?.name || teacherId}" is assigned to ${classNames.length} classes (${classNames.join(", ")}). 1 teacher can only be assigned to 1 class.`, 
+          type: "error" 
+        });
+        return;
+      }
+    }
+    
+    // Also check if any teacher already has a class assigned in another center
+    for (const cls of classesList) {
+      if (cls.teacherId) {
+        const teacher = approvedTeachers.find(t => (t._id || t.id) === cls.teacherId);
+        const existingClasses = teacher?.teacherProfile?.classes || [];
+        if (existingClasses.length > 0) {
+          // Check if any of the existing classes are not in this center's classes list
+          const existingClassIds = existingClasses.map(c => c._id || c.id);
+          const currentClassIds = classesList.filter(c => c.id).map(c => c.id);
+          const hasExternalAssignment = existingClassIds.some(id => !currentClassIds.includes(id));
+          
+          if (hasExternalAssignment) {
+            setToast({ 
+              msg: `Error: Teacher "${teacher.name}" is already assigned to another class in a different center. 1 teacher can only be assigned to 1 class.`, 
+              type: "error" 
+            });
+            return;
+          }
+        }
+      }
+    }
+    
     setSaving(true);
     try {
-      await onSave(form);
+      // Prepare form data with classes
+      const formDataWithClasses = {
+        ...form,
+        classes: classesList.map(cls => ({
+          id: cls.id, // For existing classes
+          name: cls.name,
+          ageGroup: cls.ageGroup,
+          curriculumLevel: cls.curriculumLevel,
+          schedule: cls.schedule,
+          teacherId: cls.teacherId || undefined,
+        })),
+      };
+      await onSave(formDataWithClasses);
     } finally {
       setSaving(false);
     }
@@ -65,7 +175,97 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
     }));
   };
 
+  const addClass = () => {
+    if (!newClass.name) {
+      setToast({ msg: "Class name is required.", type: "error" });
+      return;
+    }
+    
+    // Check if class name already exists
+    if (classesList.some(c => c.name.toLowerCase() === newClass.name.toLowerCase())) {
+      setToast({ msg: "Class name already exists.", type: "error" });
+      return;
+    }
+    
+    setClassesList(prev => [...prev, { ...newClass, id: null }]);
+    setNewClass({ name: "", ageGroup: "", curriculumLevel: "", schedule: "", teacherId: "" });
+    setShowClassForm(false);
+    setToast({ msg: "Class added. Save the center to create it.", type: "success" });
+  };
+
+  const removeClass = (index) => {
+    setClassesList(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const updateClassTeacher = (index, teacherId) => {
+    setClassesList(prev => prev.map((cls, i) => 
+      i === index ? { ...cls, teacherId } : cls
+    ));
+  };
+
   const approvedTeachers = allTeachers.filter(t => t.status === "approved" || t.status === "pending");
+  
+  const currentCenterId = form.id || center?.id;
+  const isNewCenter = !currentCenterId;
+
+  // Get teacher availability status with assignment info
+  const getTeacherAvailability = () => {
+    return approvedTeachers.map(t => {
+      const teacherClasses = t.teacherProfile?.classes || [];
+      
+      // No classes = fully available
+      if (teacherClasses.length === 0) {
+        return { ...t, available: true, reason: "" };
+      }
+      
+      // For NEW center: show as available with info about existing assignment
+      if (isNewCenter) {
+        const classNames = teacherClasses.map(c => c?.name).filter(Boolean);
+        return { 
+          ...t, 
+          available: true, 
+          reason: classNames.length > 0 ? `Currently: ${classNames.join(", ")}` : "" 
+        };
+      }
+      
+      // For EDITING: available if belongs to this center
+      const teacherCenterId = t.teacherProfile?.center?._id || t.teacherProfile?.center;
+      if (teacherCenterId && String(teacherCenterId) === String(currentCenterId)) {
+        const classNames = teacherClasses.map(c => c?.name).filter(Boolean);
+        return { 
+          ...t, 
+          available: true, 
+          reason: classNames.length > 0 ? `This center: ${classNames.join(", ")}` : "" 
+        };
+      }
+      
+      // Assigned to ANOTHER center = not available, show where
+      const classNames = teacherClasses.map(c => c?.name).filter(Boolean);
+      const centerName = t.teacherProfile?.center?.name || "Another center";
+      return { 
+        ...t, 
+        available: false, 
+        reason: `Assigned to: ${classNames.join(", ")} (${centerName})` 
+      };
+    });
+  };
+
+  const teacherAvailability = getTeacherAvailability();
+  const availableTeachers = teacherAvailability.filter(t => t.available);
+  const unavailableTeachers = teacherAvailability.filter(t => !t.available);
+
+  // Get available teachers for a specific class (used in select dropdowns)
+  const getAvailableTeachersForClass = (currentIndex) => {
+    const assignedInForm = classesList
+      .filter((_, i) => i !== currentIndex)
+      .map(c => c.teacherId)
+      .filter(Boolean);
+
+    return teacherAvailability.filter(t => {
+      if (assignedInForm.includes(t._id || t.id)) return false;
+      return t.available;
+    });
+  };
 
   return (
     <Modal title={isEdit ? "✏️ Edit Center" : "➕ Add New Center"} onClose={onClose}>
@@ -119,8 +319,239 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
           <option value="inactive">Inactive</option>
         </select>
 
+        {/* ── Classes Section ── */}
+        <div style={{
+          background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12,
+          padding: "16px", marginBottom: 16
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div>
+              <label style={{ ...S.label, marginBottom: 0, color: "#065f46" }}>
+                🏛️ Classes for this Center
+              </label>
+              <div style={{ fontSize: 11, color: "#059669", marginTop: 2 }}>
+                Create classes and assign one teacher per class
+              </div>
+            </div>
+            <button type="button" onClick={() => setShowClassForm(true)}
+              style={{
+                padding: "6px 12px", borderRadius: 8, border: "1.5px solid #10b981",
+                background: "#d1fae5", color: "#065f46", fontSize: 12, fontWeight: 600,
+                cursor: "pointer", fontFamily: "inherit"
+              }}>
+              + Add Class
+            </button>
+          </div>
+
+          {/* Class Form */}
+          {showClassForm && (
+            <div style={{
+              background: "white", borderRadius: 10, padding: "12px",
+              border: "1px solid #d1fae5", marginBottom: 12
+            }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                <div>
+                  <label style={{ ...S.label, fontSize: 11 }}>Class Name *</label>
+                  <input
+                    style={{ ...S.input, fontSize: 12 }}
+                    value={newClass.name}
+                    onChange={e => setNewClass({ ...newClass, name: e.target.value })}
+                    placeholder="e.g. Nursery A"
+                  />
+                </div>
+                <div>
+                  <label style={{ ...S.label, fontSize: 11 }}>Age Group</label>
+                  <input
+                    style={{ ...S.input, fontSize: 12 }}
+                    value={newClass.ageGroup}
+                    onChange={e => setNewClass({ ...newClass, ageGroup: e.target.value })}
+                    placeholder="e.g. 3-4 years"
+                  />
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                <div>
+                  <label style={{ ...S.label, fontSize: 11 }}>Curriculum Level</label>
+                  <input
+                    style={{ ...S.input, fontSize: 12 }}
+                    value={newClass.curriculumLevel}
+                    onChange={e => setNewClass({ ...newClass, curriculumLevel: e.target.value })}
+                    placeholder="e.g. Foundation"
+                  />
+                </div>
+                <div>
+                  <label style={{ ...S.label, fontSize: 11 }}>Schedule</label>
+                  <input
+                    style={{ ...S.input, fontSize: 12 }}
+                    value={newClass.schedule}
+                    onChange={e => setNewClass({ ...newClass, schedule: e.target.value })}
+                    placeholder="e.g. Mon-Fri 9AM-12PM"
+                  />
+                </div>
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label style={{ ...S.label, fontSize: 11 }}>
+                  Assign Teacher (1 teacher = 1 class only)
+                </label>
+                <select
+                  style={{ ...S.input, fontSize: 12 }}
+                  value={newClass.teacherId}
+                  onChange={e => setNewClass({ ...newClass, teacherId: e.target.value })}
+                >
+                  <option value="">No teacher assigned</option>
+                  {(() => {
+                    const assignedInForm = classesList.map(c => c.teacherId).filter(Boolean);
+                    const formAvailable = availableTeachers.filter(t => !assignedInForm.includes(t._id || t.id));
+                    const formUnavailable = unavailableTeachers.filter(t => !assignedInForm.includes(t._id || t.id));
+                    return (
+                      <>
+                        {formAvailable.length > 0 && (
+                          <optgroup label="Available">
+                            {formAvailable.map(t => (
+                              <option key={t._id || t.id} value={t._id || t.id}>
+                                {t.name} {t.reason ? `(${t.reason})` : ""}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {formUnavailable.length > 0 && (
+                          <optgroup label="Already Assigned (unavailable)">
+                            {formUnavailable.map(t => (
+                              <option key={t._id || t.id} value="" disabled>
+                                {t.name} - {t.reason}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </>
+                    );
+                  })()}
+                </select>
+                {availableTeachers.filter(t => !classesList.map(c => c.teacherId).filter(Boolean).includes(t._id || t.id)).length === 0 && (
+                  <div style={{ fontSize: 10, color: "#dc2626", marginTop: 4 }}>
+                    No available teachers. All teachers are already assigned to other classes.
+                  </div>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" onClick={addClass}
+                  style={{
+                    padding: "6px 14px", borderRadius: 6, border: "none",
+                    background: "#10b981", color: "white", fontSize: 12, fontWeight: 600,
+                    cursor: "pointer"
+                  }}>
+                  Add Class
+                </button>
+                <button type="button" onClick={() => setShowClassForm(false)}
+                  style={{
+                    padding: "6px 14px", borderRadius: 6, border: "1px solid #e5e7eb",
+                    background: "white", color: "#6b7280", fontSize: 12, fontWeight: 600,
+                    cursor: "pointer"
+                  }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Classes List */}
+          {classesList.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {classesList.map((cls, index) => {
+                const assignedTeacher = cls.teacherId 
+                  ? approvedTeachers.find(t => (t._id || t.id) === cls.teacherId)
+                  : null;
+                
+                return (
+                  <div key={index} style={{
+                    background: "white", borderRadius: 10, padding: "10px 12px",
+                    border: "1px solid #e5e7eb"
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1917" }}>{cls.name}</div>
+                        <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                          {cls.ageGroup && <span>👶 {cls.ageGroup}</span>}
+                          {cls.ageGroup && cls.curriculumLevel && <span> · </span>}
+                          {cls.curriculumLevel && <span>📚 {cls.curriculumLevel}</span>}
+                          {cls.schedule && <div style={{ marginTop: 2 }}>⏰ {cls.schedule}</div>}
+                        </div>
+                      </div>
+                      <button type="button" onClick={() => removeClass(index)}
+                        style={{
+                          padding: "4px 8px", borderRadius: 4, border: "1px solid #fecaca",
+                          background: "#fef2f2", color: "#dc2626", fontSize: 11, fontWeight: 600,
+                          cursor: "pointer"
+                        }}>
+                        ✕
+                      </button>
+                    </div>
+                    
+                    {/* Teacher Assignment */}
+                    <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 11, color: "#6b7280" }}>👩‍🏫 Teacher:</span>
+                      <select
+                        style={{
+                          ...S.input, fontSize: 11, padding: "4px 8px", flex: 1,
+                          borderColor: assignedTeacher ? "#10b981" : "#e5e7eb"
+                        }}
+                        value={cls.teacherId}
+                        onChange={e => updateClassTeacher(index, e.target.value)}
+                      >
+                        <option value="">No teacher</option>
+                        {(() => {
+                          const assignedToOther = classesList
+                            .filter((_, i) => i !== index)
+                            .map(c => c.teacherId)
+                            .filter(Boolean);
+                          const classAvailable = teacherAvailability.filter(t => t.available && !assignedToOther.includes(t._id || t.id));
+                          const classUnavailable = teacherAvailability.filter(t => !t.available && !assignedToOther.includes(t._id || t.id));
+                          return (
+                            <>
+                              {classAvailable.map(t => (
+                                <option key={t._id || t.id} value={t._id || t.id}>
+                                  {t.name} {t.reason ? `(${t.reason})` : ""}
+                                </option>
+                              ))}
+                              {classUnavailable.map(t => (
+                                <option key={t._id || t.id} value="" disabled>
+                                  {t.name} - {t.reason}
+                                </option>
+                              ))}
+                            </>
+                          );
+                        })()}
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{
+              padding: "16px", textAlign: "center", color: "#059669", fontSize: 12,
+              background: "white", borderRadius: 8, border: "1px dashed #bbf7d0"
+            }}>
+              No classes added yet. Click "+ Add Class" to create classes for this center.
+            </div>
+          )}
+          
+          {classesList.length > 0 && (
+            <div style={{
+              marginTop: 10, padding: "8px 10px", background: "#ecfdf5", borderRadius: 6,
+              fontSize: 11, color: "#065f46"
+            }}>
+              📊 <b>{classesList.length} class(es)</b> will be created. 
+              {classesList.filter(c => c.teacherId).length > 0 && (
+                <span> <b>{classesList.filter(c => c.teacherId).length}</b> teacher(s) will be assigned (1 teacher = 1 class only).</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Teachers Section ── */}
         <label style={S.label}>
-          Assign Teachers
+          Assign Teachers to Center
           <span style={{ fontSize: 10, color: "#9ca3af", fontWeight: 400, marginLeft: 6 }}>
             (selected teachers will have this center set on their dashboard)
           </span>
@@ -137,33 +568,39 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
           ) : approvedTeachers.map(t => {
             const teacherId = t._id || t.id;
             const selected = form.teachers.includes(teacherId);
+            const assignedToClass = classesList.some(c => c.teacherId === teacherId);
             return (
               <div key={teacherId} onClick={() => toggleTeacher(teacherId)}
                 style={{
                   display: "flex", alignItems: "center", gap: 10,
                   padding: "8px 12px", borderRadius: 8, cursor: "pointer",
-                  border: `1.5px solid ${selected ? "#f59e0b" : "#e5e7eb"}`,
-                  background: selected ? "#fef3c7" : "#f9fafb",
+                  border: `1.5px solid ${selected ? "#f59e0b" : assignedToClass ? "#10b981" : "#e5e7eb"}`,
+                  background: selected ? "#fef3c7" : assignedToClass ? "#ecfdf5" : "#f9fafb",
                   transition: "all 0.15s"
                 }}>
                 <div style={{
                   width: 18, height: 18, borderRadius: 4,
-                  border: `2px solid ${selected ? "#f59e0b" : "#d1d5db"}`,
-                  background: selected ? "#f59e0b" : "white",
+                  border: `2px solid ${selected ? "#f59e0b" : assignedToClass ? "#10b981" : "#d1d5db"}`,
+                  background: selected ? "#f59e0b" : assignedToClass ? "#10b981" : "white",
                   display: "flex", alignItems: "center", justifyContent: "center",
                   fontSize: 11, color: "white", flexShrink: 0
                 }}>
-                  {selected ? "✓" : ""}
+                  {selected ? "✓" : assignedToClass ? "✓" : ""}
                 </div>
                 <img
                   src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(t.name)}`}
                   alt="" style={{ width: 26, height: 26, borderRadius: "50%", border: "1px solid #e5e7eb" }}
                 />
                 <div style={{ flex: 1 }}>
-                  <span style={{ fontSize: 13, fontWeight: selected ? 700 : 500, color: selected ? "#92400e" : "#374151" }}>
+                  <span style={{ fontSize: 13, fontWeight: selected || assignedToClass ? 700 : 500, color: selected ? "#92400e" : assignedToClass ? "#065f46" : "#374151" }}>
                     {t.name}
                   </span>
                   <span style={{ fontSize: 10, color: "#9ca3af", marginLeft: 6 }}>{t.email}</span>
+                  {assignedToClass && !selected && (
+                    <span style={{ fontSize: 10, color: "#10b981", marginLeft: 6, fontWeight: 600 }}>
+                      (Assigned to class)
+                    </span>
+                  )}
                 </div>
                 <StatusBadge status={t.status} />
               </div>
@@ -190,7 +627,28 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
 }
 
 /* ── Center Detail View ── */
-function CenterDetailModal({ center, allTeachers = [], onClose }) {
+function CenterDetailModal({ center, allTeachers = [], onClose, setToast }) {
+  const [assignments, setAssignments] = useState([]);
+  const [loadingAssignments, setLoadingAssignments] = useState(true);
+
+  useEffect(() => {
+    loadAssignments();
+  }, [center?.id]);
+
+  const loadAssignments = async () => {
+    if (!center?.id) return;
+    try {
+      setLoadingAssignments(true);
+      const res = await getCenterTeacherAssignments(center.id);
+      setAssignments(res.classes || []);
+    } catch (err) {
+      console.error("Failed to load assignments:", err);
+      setToast({ msg: "Failed to load teacher assignments", type: "error" });
+    } finally {
+      setLoadingAssignments(false);
+    }
+  };
+
   const assignedTeachers = allTeachers.filter(t => {
     const tid = t._id || t.id;
     return center.teachers.includes(tid);
@@ -236,27 +694,118 @@ function CenterDetailModal({ center, allTeachers = [], onClose }) {
         </div>
       </div>
 
+      {/* ── Teacher-Class Assignments Section ── */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 8 }}>👩‍🏫 Assigned Teachers</div>
-        {assignedTeachers.length > 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {assignedTeachers.map((t, i) => (
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 8 }}>
+          👩‍🏫 Teacher-Class Assignments
+        </div>
+        
+        {loadingAssignments ? (
+          <div style={{ textAlign: "center", padding: "16px", color: "#9ca3af", fontSize: 12 }}>
+            Loading assignments...
+          </div>
+        ) : assignments.length > 0 ? (
+          <div style={{
+            background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10,
+            padding: "12px", maxHeight: 200, overflowY: "auto"
+          }}>
+            {assignments.map((assignment, i) => (
               <div key={i} style={{
                 display: "flex", alignItems: "center", gap: 10,
-                padding: "8px 12px", background: "#f9fafb",
-                borderRadius: 8, border: "1px solid #f1f5f9"
+                padding: "8px 10px", background: "white",
+                borderRadius: 8, marginBottom: 6, border: "1px solid #e5e7eb"
               }}>
-                <img
-                  src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(t.name)}`}
-                  alt="" style={{ width: 32, height: 32, borderRadius: "50%", border: "1.5px solid #f59e0b" }}
-                />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1917" }}>{t.name}</div>
-                  <div style={{ fontSize: 11, color: "#9ca3af" }}>{t.email}</div>
+                <div style={{
+                  width: 32, height: 32, borderRadius: 8,
+                  background: assignment.teacher ? "#d1fae5" : "#f3f4f6",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 14, flexShrink: 0
+                }}>
+                  {assignment.teacher ? "👩‍🏫" : "📋"}
                 </div>
-                <StatusBadge status={t.status} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1c1917" }}>
+                    {assignment.class?.name || "Unknown Class"}
+                  </div>
+                  <div style={{ fontSize: 10, color: "#6b7280" }}>
+                    {assignment.class?.ageGroup || "—"}
+                    {assignment.class?.curriculumLevel && ` · ${assignment.class.curriculumLevel}`}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  {assignment.teacher ? (
+                    <>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "#065f46" }}>
+                        {assignment.teacher.name}
+                      </div>
+                      <div style={{ fontSize: 9, color: "#9ca3af" }}>
+                        {assignment.teacher.email}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 11, color: "#dc2626", fontWeight: 600 }}>
+                      No teacher assigned
+                    </div>
+                  )}
+                </div>
+                {assignment.hasMultipleTeachers && (
+                  <div style={{
+                    padding: "2px 6px", borderRadius: 4,
+                    background: "#fef3c7", color: "#92400e",
+                    fontSize: 9, fontWeight: 700
+                  }}>
+                    ⚠️ Multiple
+                  </div>
+                )}
               </div>
             ))}
+          </div>
+        ) : (
+          <div style={{
+            textAlign: "center", padding: "16px", color: "#9ca3af", fontSize: 12,
+            background: "#f9fafb", borderRadius: 8, border: "1px dashed #e5e7eb"
+          }}>
+            No classes or teacher assignments found for this center.
+          </div>
+        )}
+      </div>
+
+      {/* ── Assigned Teachers List ── */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 8 }}>
+          👩‍🏫 Assigned Teachers ({assignedTeachers.length})
+        </div>
+        {assignedTeachers.length > 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {assignedTeachers.map((t, i) => {
+              // Find which class this teacher is assigned to
+              const assignedClass = assignments.find(a => 
+                a.teacher && (a.teacher._id === t._id || a.teacher.id === t.id)
+              );
+              
+              return (
+                <div key={i} style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "8px 12px", background: "#f9fafb",
+                  borderRadius: 8, border: "1px solid #f1f5f9"
+                }}>
+                  <img
+                    src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(t.name)}`}
+                    alt="" style={{ width: 32, height: 32, borderRadius: "50%", border: "1.5px solid #f59e0b" }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1917" }}>{t.name}</div>
+                    <div style={{ fontSize: 11, color: "#9ca3af" }}>{t.email}</div>
+                    {assignedClass && (
+                      <div style={{ fontSize: 10, color: "#10b981", fontWeight: 600, marginTop: 2 }}>
+                        📚 Assigned to: {assignedClass.class?.name || "Unknown Class"}
+                      </div>
+                    )}
+                  </div>
+                  <StatusBadge status={t.status} />
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div style={{ textAlign: "center", padding: "16px", color: "#9ca3af", fontSize: 12 }}>
@@ -633,6 +1182,7 @@ export default function CenterManagementTab({ setToast }) {
   const [manageCenterId, setManageCenterId] = useState(null);
   const [addClassModal, setAddClassModal] = useState(false);
   const [classes, setClasses]           = useState([]);
+  const [centerAssignments, setCenterAssignments] = useState({});
   const [loading, setLoading]         = useState(true);
   const [toast, setLocalToast]        = useState({ msg: "", type: "" });
 
@@ -641,7 +1191,8 @@ export default function CenterManagementTab({ setToast }) {
   const loadData = async () => {
     try {
       const [centersRes, teachersRes, classesRes] = await Promise.all([getCenters(), getAdminTeachers(), getClasses()]);
-      setCenters((centersRes.centers || []).map(mapCenterFromApi));
+      const centersData = (centersRes.centers || []).map(mapCenterFromApi);
+      setCenters(centersData);
       setAllTeachers(teachersRes.teachers || []);
       setClasses((classesRes.classes || []).map(c => ({
         id: c._id || c.id,
@@ -651,6 +1202,19 @@ export default function CenterManagementTab({ setToast }) {
         curriculumLevel: c.curriculumLevel || "",
         schedule: c.schedule || "",
       })));
+      
+      // Load teacher assignments for each center
+      const assignmentsMap = {};
+      for (const center of centersData) {
+        try {
+          const assignRes = await getCenterTeacherAssignments(center.id);
+          assignmentsMap[center.id] = assignRes.classes || [];
+        } catch (err) {
+          console.warn(`Failed to load assignments for center ${center.id}:`, err);
+          assignmentsMap[center.id] = [];
+        }
+      }
+      setCenterAssignments(assignmentsMap);
     } catch (err) {
       showToast({ msg: "Failed to load centers: " + err.message, type: "error" });
     } finally {
@@ -673,14 +1237,26 @@ export default function CenterManagementTab({ setToast }) {
     const payload = mapCenterToApi(saved);
     try {
       let centerId;
+      let warnings = [];
+      
       if (editCenter) {
-        await updateCenter(editCenter.id, payload);
+        const res = await updateCenter(editCenter.id, payload);
         centerId = editCenter.id;
-        showToast({ msg: "Center updated successfully!", type: "success" });
+        warnings = res.warnings || [];
+        if (warnings.length > 0) {
+          showToast({ msg: `Center updated with warnings: ${warnings.map(w => w.message).join("; ")}`, type: "error" });
+        } else {
+          showToast({ msg: "Center updated successfully!", type: "success" });
+        }
       } else {
         const res = await createCenter(payload);
         centerId = res.center?._id || res.center?.id;
-        showToast({ msg: "Center created successfully!", type: "success" });
+        warnings = res.warnings || [];
+        if (warnings.length > 0) {
+          showToast({ msg: `Center created with warnings: ${warnings.map(w => w.message).join("; ")}`, type: "error" });
+        } else {
+          showToast({ msg: "Center created successfully!", type: "success" });
+        }
       }
 
       // KEY: push centerId to every selected teacher so it shows on their dashboard
@@ -791,6 +1367,7 @@ export default function CenterManagementTab({ setToast }) {
           center={detailCenter}
           allTeachers={allTeachers}
           onClose={() => setDetailCenter(null)}
+          setToast={showToast}
         />
       )}
 
@@ -895,6 +1472,36 @@ export default function CenterManagementTab({ setToast }) {
               ))}
             </div>
 
+            {/* Teacher-Class Assignment Summary */}
+            {centerAssignments[c.id] && centerAssignments[c.id].length > 0 && (
+              <div style={{
+                marginBottom: 14, padding: "10px", background: "#f0fdf4",
+                borderRadius: 8, border: "1px solid #bbf7d0"
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#065f46", marginBottom: 6, textTransform: "uppercase" }}>
+                  Teacher-Class Mapping
+                </div>
+                {centerAssignments[c.id].slice(0, 3).map((assignment, i) => (
+                  <div key={i} style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "4px 0", borderBottom: i < Math.min(centerAssignments[c.id].length, 3) - 1 ? "1px solid #d1fae5" : "none"
+                  }}>
+                    <span style={{ fontSize: 10, color: "#059669", flex: 1 }}>
+                      📚 {assignment.class?.name || "Class"}
+                    </span>
+                    <span style={{ fontSize: 10, color: assignment.teacher ? "#065f46" : "#dc2626", fontWeight: 600 }}>
+                      {assignment.teacher ? `👩‍🏫 ${assignment.teacher.name}` : "⚠️ No teacher"}
+                    </span>
+                  </div>
+                ))}
+                {centerAssignments[c.id].length > 3 && (
+                  <div style={{ fontSize: 9, color: "#059669", marginTop: 4, textAlign: "center" }}>
+                    +{centerAssignments[c.id].length - 3} more classes
+                  </div>
+                )}
+              </div>
+            )}
+
             <div style={{ display: "flex", gap: 6, paddingTop: 12, borderTop: "1px solid #f3f4f6" }}>
               <button onClick={() => setDetailCenter(c)} style={{ ...S.tblBtn, flex: 1, color: "#4f46e5", borderColor: "#c4b5fd" }}>
                 👁 View
@@ -918,7 +1525,7 @@ export default function CenterManagementTab({ setToast }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 800, color: "#1c1917", margin: "0 0 4px" }}>🏛️ All Classes</h2>
-            <p style={{ fontSize: 12, color: "#6b7280", margin: 0 }}>Complete class directory across all centers</p>
+            <p style={{ fontSize: 12, color: "#6b7280", margin: 0 }}>Complete class directory across all centers with teacher assignments</p>
           </div>
           <button onClick={() => setAddClassModal(true)} style={{ ...S.primaryBtn, whiteSpace: "nowrap", background: "#f59e0b", padding: "10px 20px", fontSize: 13, borderRadius: 10, fontWeight: 700 }}>
             + Add Class
@@ -931,6 +1538,7 @@ export default function CenterManagementTab({ setToast }) {
               <tr style={{ background: "#f8fafc", borderBottom: "2px solid #e5e7eb" }}>
                 <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>Class Name</th>
                 <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>Center</th>
+                <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>Assigned Teacher</th>
                 <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>Age Group</th>
                 <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>Curriculum Level</th>
                 <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>Schedule</th>
@@ -941,10 +1549,30 @@ export default function CenterManagementTab({ setToast }) {
               {classes.length > 0 ? (
                 classes.map(cls => {
                   const center = centers.find(c => c.id === (cls.center || cls.center?._id));
+                  // Find assigned teacher for this class
+                  const centerAssign = centerAssignments[cls.center] || [];
+                  const classAssignment = centerAssign.find(a => 
+                    (a.class?._id || a.class?.id) === cls.id
+                  );
+                  const assignedTeacher = classAssignment?.teacher;
+                  
                   return (
                     <tr key={cls.id} style={{ borderBottom: "1px solid #f1f5f9", transition: "background 0.15s" }}>
                       <td style={{ padding: "12px 16px", fontWeight: 600, color: "#1c1917" }}>{cls.name}</td>
                       <td style={{ padding: "12px 16px", color: "#6b7280" }}>{center ? center.name : "—"}</td>
+                      <td style={{ padding: "12px 16px" }}>
+                        {assignedTeacher ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <img
+                              src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(assignedTeacher.name)}`}
+                              alt="" style={{ width: 20, height: 20, borderRadius: "50%", border: "1px solid #e5e7eb" }}
+                            />
+                            <span style={{ fontSize: 12, fontWeight: 600, color: "#065f46" }}>{assignedTeacher.name}</span>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: 12, color: "#dc2626", fontWeight: 600 }}>No teacher</span>
+                        )}
+                      </td>
                       <td style={{ padding: "12px 16px", color: "#6b7280" }}>{cls.ageGroup || "—"}</td>
                       <td style={{ padding: "12px 16px", color: "#6b7280" }}>{cls.curriculumLevel || "—"}</td>
                       <td style={{ padding: "12px 16px", color: "#6b7280" }}>{cls.schedule || "—"}</td>
@@ -957,7 +1585,7 @@ export default function CenterManagementTab({ setToast }) {
                 })
               ) : (
                 <tr>
-                  <td colSpan={6} style={{ padding: "32px 16px", textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
+                  <td colSpan={7} style={{ padding: "32px 16px", textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
                     No classes found. Click "+ Add Class" to create your first class.
                   </td>
                 </tr>
