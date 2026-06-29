@@ -2,6 +2,50 @@ import { useState, useEffect } from "react";
 import { Modal, S, SearchBar, SectionCard, StatCard, StatusBadge, Toast } from "../components/Shared";
 import { getAdminTeachers } from "../services/api";
 
+// ─────────────────────────────────────────────────────────────
+// 🚧 FEATURE FLAG
+// Set this to `false` whenever you want to re-enable the full
+// Schedule Management UI (form, list, stats, filters, etc).
+// Setting it to `true` shows the "under work" placeholder instead,
+// WITHOUT deleting or breaking any of the existing functionality below.
+// ─────────────────────────────────────────────────────────────
+const SHOW_UNDER_CONSTRUCTION = true;
+
+// Reusable "under construction" placeholder — same visual style as
+// the "Training & Lessons is under work" screen.
+function UnderConstruction({ title = "This section", icon = "🎓" }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        minHeight: "60vh",
+        padding: 20,
+      }}
+    >
+      <div
+        style={{
+          background: "white",
+          borderRadius: 16,
+          padding: "48px 56px",
+          border: "2px dashed #f59e0b",
+          textAlign: "center",
+          maxWidth: 460,
+        }}
+      >
+        <div style={{ fontSize: 44, marginBottom: 16 }}>{icon}</div>
+        <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginBottom: 10 }}>
+          {title} is under work
+        </div>
+        <div style={{ fontSize: 14, color: "#6b7280", lineHeight: 1.6 }}>
+          This section is currently being built and is not connected yet. Please check back soon — thank you for your patience!
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // We need schedule APIs from api.js - inline them since they're already defined
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
@@ -42,6 +86,13 @@ const STATUS_BG = {
 };
 
 export default function ScheduleManagementTab({ setToast }) {
+  // 🚧 Early-return placeholder. Flip SHOW_UNDER_CONSTRUCTION to false
+  // above to restore the full, working tab instantly — nothing else
+  // in this file needs to change.
+  if (SHOW_UNDER_CONSTRUCTION) {
+    return <UnderConstruction title="Schedule Management" icon="📅" />;
+  }
+
   const [schedules, setSchedules] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);

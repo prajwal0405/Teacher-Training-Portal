@@ -59,6 +59,31 @@ function SidebarAvatar({ teacher, size = 34 }) {
   );
 }
 
+/* ── Under Construction Placeholder ── */
+function UnderConstructionTab({ label = "This page", icon = "🚧" }) {
+  return (
+    <div style={{ animation: "fadeIn 0.3s ease", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
+      <div style={{
+        background: "white",
+        borderRadius: 20,
+        padding: "48px 56px",
+        textAlign: "center",
+        border: "1px dashed #fbbf24",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.06)",
+        maxWidth: 460
+      }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>{icon}</div>
+        <div style={{ fontSize: 18, fontWeight: 800, color: "#1c1917", marginBottom: 8 }}>
+          {label} is under work
+        </div>
+        <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.6 }}>
+          This section is currently being built and is not connected yet. Please check back soon — thank you for your patience!
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── OverviewTab ── */
 function OverviewTab({ user, setActiveTab, courses = [], assignments = [], lessons = [], activities = [], summary = {} }) {
   const attendance = summary.attendanceRate !== undefined ? summary.attendanceRate : 0;
@@ -1960,6 +1985,10 @@ export default function TeacherDashboard({ user, onLogout }) {
 
   const enrichedUser = { ...currentUser, workingCenter };
 
+  // Pages that are fully wired to backend/database and should render normally.
+  // Every other page shows an "Under Construction" placeholder instead.
+  const WORKING_TABS = new Set(["overview", "children_att", "geotag", "profile"]);
+
   const renderContent = () => {
     if (loading) {
       return (
@@ -1975,6 +2004,15 @@ export default function TeacherDashboard({ user, onLogout }) {
         </div>
       );
     }
+
+    // Gate: only the explicitly whitelisted tabs render their real component.
+    // Everything else shows the Under Construction placeholder, without
+    // touching any of the existing tab implementations or data wiring.
+    if (!WORKING_TABS.has(activeTab)) {
+      const navItem = navItems.find(n => n.key === activeTab);
+      return <UnderConstructionTab label={navItem ? t(navItem.label) : "This page"} icon={navItem?.icon || "🚧"} />;
+    }
+
     switch(activeTab) {
       case "overview":      return <OverviewTab user={enrichedUser} setActiveTab={handleTabSwitch} courses={courses} assignments={courses} lessons={lessons} activities={activities} summary={summary}/>;
       case "children_att":  return <AttendanceManager user={enrichedUser}/>;
