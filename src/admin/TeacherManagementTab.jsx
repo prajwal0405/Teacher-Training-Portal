@@ -178,6 +178,97 @@ function DirectMessageModal({ teacher, onClose, setToast }) {
   );
 }
 
+/* ── Edit Teacher Modal ── */
+function EditTeacherModal({ teacher, onSave, onClose, setToast }) {
+  const [form, setForm] = useState({
+    name: teacher.name || "",
+    email: teacher.email || "",
+    phone: teacher.phone || "",
+    subject: teacher.subject || "",
+    qualification: teacher.qualification || "",
+    experience: teacher.experience || "",
+    address: teacher.address || "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.name || !form.email) {
+      setToast({ msg: "Name and email are required.", type: "error" });
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateTeacherProfile(teacher.id, {
+        name: form.name,
+        email: form.email,
+        phone: form.phone,
+        teacherProfile: {
+          subject: form.subject,
+          qualification: form.qualification,
+          experience: form.experience,
+          address: form.address,
+        },
+      });
+      setToast({ msg: "Teacher profile updated!", type: "success" });
+      onSave();
+      onClose();
+    } catch (err) {
+      setToast({ msg: err.message || "Failed to update teacher", type: "error" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title={`✏️ Edit Teacher — ${teacher.name}`} onClose={onClose}>
+      <form onSubmit={handleSubmit}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div>
+            <label style={S.label}>Full Name *</label>
+            <input style={S.input} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Teacher name" />
+          </div>
+          <div>
+            <label style={S.label}>Email *</label>
+            <input style={S.input} type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="teacher@email.com" />
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+          <div>
+            <label style={S.label}>Phone</label>
+            <input style={S.input} value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+91 98765 43210" />
+          </div>
+          <div>
+            <label style={S.label}>Subject</label>
+            <input style={S.input} value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} placeholder="e.g. Early Childhood" />
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+          <div>
+            <label style={S.label}>Qualification</label>
+            <select style={S.input} value={form.qualification} onChange={e => setForm({ ...form, qualification: e.target.value })}>
+              {["", "Graduate", "Post-Graduate", "B.Ed", "D.El.Ed", "Other"].map(o => <option key={o} value={o}>{o || "Select..."}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={S.label}>Experience</label>
+            <select style={S.input} value={form.experience} onChange={e => setForm({ ...form, experience: e.target.value })}>
+              {["", "Fresher", "1-2 yrs", "3-5 yrs", "5-10 yrs", "10+ yrs"].map(o => <option key={o} value={o}>{o || "Select..."}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <label style={S.label}>Address</label>
+          <textarea style={{ ...S.input, height: 60, resize: "none" }} value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder="Teacher address" />
+        </div>
+        <button type="submit" disabled={saving} style={{ ...S.primaryBtn, width: "100%", marginTop: 16, opacity: saving ? 0.7 : 1 }}>
+          {saving ? "Saving..." : "Save Changes →"}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
 /* ── Change Center Modal ── */
 function ChangeCenterModal({ teacher, centers = [], classes = [], onSave, onClose }) {
   const [selectedCenter, setSelectedCenter] = useState(teacher.centerId || "");
@@ -269,6 +360,7 @@ function TeacherProfileView({ teacher, centers = [], classes = [], onBack, onUpd
   const [showBlock,    setShowBlock]    = useState(false);
   const [showMsg,      setShowMsg]      = useState(false);
   const [showCourses,  setShowCourses]  = useState(false);
+  const [showEdit,     setShowEdit]     = useState(false);
   // NEW: lightbox to view full-size profile photo
   const [photoLightbox, setPhotoLightbox] = useState(false);
 
@@ -312,6 +404,7 @@ function TeacherProfileView({ teacher, centers = [], classes = [], onBack, onUpd
   const quickActions = [
     { icon: "💬", label: "Send Message",   onClick: () => setShowMsg(true),     color: "#8b5cf6", bg: "#ede9fe" },
     { icon: "🏫", label: "Change Center",  onClick: () => setShowCourses(true), color: "#f59e0b", bg: "#fef3c7" },
+    { icon: "✏️", label: "Edit Profile",   onClick: () => setShowEdit(true),    color: "#2563eb", bg: "#dbeafe" },
   ];
 
   return (
@@ -320,6 +413,7 @@ function TeacherProfileView({ teacher, centers = [], classes = [], onBack, onUpd
       {showBlock    && <BlockModal   teacher={teacher} onClose={() => setShowBlock(false)}   onConfirm={doBlock} />}
       {showMsg      && <DirectMessageModal teacher={teacher} onClose={() => setShowMsg(false)} setToast={setToast} />}
       {showCourses  && <ChangeCenterModal  teacher={teacher} centers={centers} classes={classes} onClose={() => setShowCourses(false)} onSave={doChangeCenter} />}
+      {showEdit     && <EditTeacherModal  teacher={teacher} onClose={() => setShowEdit(false)} onSave={() => { onUpdate(); }} setToast={setToast} />}
 
       {/* NEW: full-size photo lightbox */}
       {photoLightbox && teacher.photoUrl && (
@@ -395,6 +489,7 @@ function TeacherProfileView({ teacher, centers = [], classes = [], onBack, onUpd
           {isApproved && <button onClick={() => setShowBlock(true)} style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>🚫 Block</button>}
           {isBlocked  && <button onClick={doUnblock} style={S.primaryBtn}>✓ Unblock</button>}
           {isRejected && <button onClick={doApprove} style={S.primaryBtn}>✓ Reactivate</button>}
+          <button onClick={() => setShowEdit(true)} style={{ ...S.tblBtn, color: "#2563eb", borderColor: "#93c5fd" }}>✏️ Edit</button>
           <button onClick={doDelete} style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>🗑️ Delete</button>
         </div>
       </div>

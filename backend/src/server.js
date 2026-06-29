@@ -706,26 +706,25 @@ app.post("/api/centers", requireAuth, requireRole("admin"), async (req, res, nex
       );
       createdClasses.push(classRecord);
 
-      // Map teacher to this class (one teacher per class)
+      // Map teacher to this class (multiple teachers per class allowed)
       if (teacherId) {
-        // Check if teacher is already assigned to another class (anywhere)
-        const existingAssignment = await User.findOne({
+        // Check for cross-center assignment warnings
+        const existingUser = await User.findOne({
           _id: teacherId,
           role: "teacher",
-          "teacherProfile.classes": { $exists: true, $ne: [] },
-        }).select("_id name teacherProfile.classes");
+        }).select("_id name teacherProfile.center teacherProfile.classes");
 
-        if (existingAssignment && existingAssignment.teacherProfile?.classes?.length > 0) {
-          // Check if the existing assignment is to a different class
-          const existingClassIds = existingAssignment.teacherProfile.classes.map(String);
-          if (!existingClassIds.includes(classRecord._id.toString())) {
+        if (existingUser && existingUser.teacherProfile?.center) {
+          const existingCenterId = String(existingUser.teacherProfile.center);
+          if (existingCenterId !== String(center._id)) {
+            // Teacher is assigned to a different center — emit a warning
             assignmentErrors.push({
               teacherId,
-              teacherName: existingAssignment.name,
+              teacherName: existingUser.name,
               className: classData.name,
-              message: `Teacher "${existingAssignment.name}" is already assigned to another class. 1 teacher can only be assigned to 1 class.`,
+              message: `Teacher "${existingUser.name}" is already assigned to another center. Please verify schedule conflicts and travel feasibility.`,
+              type: "cross_center_warning",
             });
-            continue; // Skip this assignment
           }
         }
 
@@ -734,44 +733,19 @@ app.post("/api/centers", requireAuth, requireRole("admin"), async (req, res, nex
       }
     }
 
-    // If there are assignment errors, return them but still create the center
-    if (assignmentErrors.length > 0) {
-      // Assign teachers with valid assignments
-      for (const [teacherId, classIds] of Object.entries(teacherClassMap)) {
-        await User.findByIdAndUpdate(teacherId, {
-          $set: {
-            "teacherProfile.center": center._id,
-            "teacherProfile.classes": classIds,
-          },
-        });
-      }
-      // For teachers without specific class assignments, only set the center
-      const teachersWithClasses = Object.keys(teacherClassMap);
-      const teachersWithoutClasses = teachers.filter(t => !teachersWithClasses.includes(t));
-      if (teachersWithoutClasses.length > 0) {
-        await User.updateMany(
-          { _id: { $in: teachersWithoutClasses }, role: "teacher" },
-          { $set: { "teacherProfile.center": center._id } }
-        );
-      }
-      
-      return res.status(201).json({ 
-        center, 
-        classes: createdClasses, 
-        warnings: assignmentErrors,
-        message: `Center created with warnings: ${assignmentErrors.map(e => e.message).join("; ")}`,
-      });
-    }
-
-    // Assign teachers to center and their respective classes
+    // Assign teachers to center and their respective classes (warnings are non-blocking)
     if (teachers.length) {
-      // If classes were provided with teacher assignments, use the map
       if (classesPayload.length > 0 && Object.keys(teacherClassMap).length > 0) {
         for (const [teacherId, classIds] of Object.entries(teacherClassMap)) {
+          // Merge new classes with existing classes to support multi-center assignments
+          const existingUser = await User.findById(teacherId).select("teacherProfile.classes");
+          const existingClassIds = (existingUser?.teacherProfile?.classes || []).map(String);
+          const mergedClassIds = [...new Set([...existingClassIds, ...classIds.map(String)])];
+
           await User.findByIdAndUpdate(teacherId, {
             $set: {
               "teacherProfile.center": center._id,
-              "teacherProfile.classes": classIds,
+              "teacherProfile.classes": mergedClassIds,
             },
           });
         }
@@ -785,12 +759,23 @@ app.post("/api/centers", requireAuth, requireRole("admin"), async (req, res, nex
           );
         }
       } else {
-        // No specific class assignments - only set the center, don't auto-assign all classes
+        // No specific class assignments - only set the center
         await User.updateMany(
           { _id: { $in: teachers }, role: "teacher" },
           { $set: { "teacherProfile.center": center._id } }
         );
       }
+    }
+
+    // Return center with any cross-center warnings (non-blocking)
+    const crossCenterWarnings = assignmentErrors.filter(e => e.type === "cross_center_warning");
+    if (crossCenterWarnings.length > 0) {
+      return res.status(201).json({
+        center,
+        classes: createdClasses,
+        warnings: crossCenterWarnings,
+        message: `Center created. Note: ${crossCenterWarnings.map(e => e.message).join("; ")}`,
+      });
     }
 
     res.status(201).json({ center, classes: createdClasses });
@@ -838,6 +823,7 @@ app.get("/api/admin/children", requireAuth, requireRole("admin"), async (req, re
     const children = await Child.find(filter)
       .populate("center", "name city")
       .populate("class", "name ageGroup")
+      .populate("createdBy", "name email")
       .sort({ createdAt: -1 });
 
     res.json({ children });
@@ -1134,7 +1120,16 @@ app.get("/api/teacher/children", requireAuth, requireRole("teacher"), async (req
       return res.json({ children: [] });
     }
 
-    const children = await Child.find({ class: { $in: allClassIds }, status: "active" })
+    const requestedClassId = req.query.classId;
+    const filter = { status: "active" };
+
+    if (requestedClassId && allClassIds.includes(requestedClassId)) {
+      filter.class = requestedClassId;
+    } else {
+      filter.class = { $in: allClassIds };
+    }
+
+    const children = await Child.find(filter)
       .populate("center", "name city")
       .populate("class", "name ageGroup curriculumLevel schedule")
       .sort({ rollNo: 1, fullName: 1 });
@@ -1160,15 +1155,26 @@ app.post("/api/teacher/children", requireAuth, requireRole("teacher"), async (re
   try {
     const teacher = await User.findById(req.user.id).select("teacherProfile");
     const centerId = teacher?.teacherProfile?.center;
-    const classId = teacher?.teacherProfile?.class;
+    const defaultClassId = teacher?.teacherProfile?.class;
+    const assignedClassIds = (teacher?.teacherProfile?.classes || []).map(id => id.toString());
+    const allClassIds = [...new Set([defaultClassId?.toString(), ...assignedClassIds].filter(Boolean))];
 
-    if (!centerId || !classId) {
-      return res.status(400).json({ message: "Teacher is not assigned to a center and class yet" });
+    // Allow teacher to specify classId if they have multiple classes
+    const classId = req.body.classId || defaultClassId;
+    if (!classId) {
+      return res.status(400).json({ message: "No class assigned. Please contact admin." });
     }
+    // Verify teacher is assigned to this class
+    if (!allClassIds.includes(classId.toString())) {
+      return res.status(403).json({ message: "You are not assigned to this class." });
+    }
+
+    // Resolve center from class if not from teacher profile
+    const resolvedCenter = centerId || req.body.centerId;
 
     const child = await Child.create({
       ...req.body,
-      center: centerId,
+      center: resolvedCenter,
       class: classId,
       rollNo: await getNextChildRollNo(classId),
       status: req.body.status || "active",
@@ -1355,26 +1361,25 @@ app.patch("/api/centers/:id", requireAuth, requireRole("admin"), async (req, res
         }
         createdClasses.push(classRecord);
 
-        // Map teacher to this class (one teacher per class)
+        // Map teacher to this class (multiple teachers per class allowed)
         if (teacherId) {
-          // Check if teacher is already assigned to another class (anywhere)
-          const existingAssignment = await User.findOne({
+          // Check for cross-center assignment warnings
+          const existingUser = await User.findOne({
             _id: teacherId,
             role: "teacher",
-            "teacherProfile.classes": { $exists: true, $ne: [] },
-          }).select("_id name teacherProfile.classes");
+          }).select("_id name teacherProfile.center teacherProfile.classes");
 
-          if (existingAssignment && existingAssignment.teacherProfile?.classes?.length > 0) {
-            // Check if the existing assignment is to a different class
-            const existingClassIds = existingAssignment.teacherProfile.classes.map(String);
-            if (!existingClassIds.includes(classRecord._id.toString())) {
+          if (existingUser && existingUser.teacherProfile?.center) {
+            const existingCenterId = String(existingUser.teacherProfile.center);
+            if (existingCenterId !== String(req.params.id)) {
+              // Teacher is assigned to a different center — emit a warning
               assignmentErrors.push({
                 teacherId,
-                teacherName: existingAssignment.name,
+                teacherName: existingUser.name,
                 className: classData.name,
-                message: `Teacher "${existingAssignment.name}" is already assigned to another class. 1 teacher can only be assigned to 1 class.`,
+                message: `Teacher "${existingUser.name}" is already assigned to another center. Please verify schedule conflicts and travel feasibility.`,
+                type: "cross_center_warning",
               });
-              continue; // Skip this assignment
             }
           }
 
@@ -1383,42 +1388,19 @@ app.patch("/api/centers/:id", requireAuth, requireRole("admin"), async (req, res
         }
       }
 
-      // If there are assignment errors, return them but still update the center
-      if (assignmentErrors.length > 0) {
-        // Assign teachers with valid assignments
-        for (const [teacherId, classIds] of Object.entries(teacherClassMap)) {
-          await User.findByIdAndUpdate(teacherId, {
-            $set: {
-              "teacherProfile.center": req.params.id,
-              "teacherProfile.classes": classIds,
-            },
-          });
-        }
-        // For teachers without specific class assignments, only set the center
-        const teachersWithClasses = Object.keys(teacherClassMap);
-        const teachersWithoutClasses = teachers.filter(t => !teachersWithClasses.includes(t));
-        if (teachersWithoutClasses.length > 0) {
-          await User.updateMany(
-            { _id: { $in: teachersWithoutClasses }, role: "teacher" },
-            { $set: { "teacherProfile.center": req.params.id } }
-          );
-        }
-        
-        return res.json({ 
-          center, 
-          warnings: assignmentErrors,
-          message: `Center updated with warnings: ${assignmentErrors.map(e => e.message).join("; ")}`,
-        });
-      }
-
-      // Assign teachers to center and their respective classes
+      // Assign teachers to center and their respective classes (warnings are non-blocking)
       if (teachers.length) {
         if (Object.keys(teacherClassMap).length > 0) {
           for (const [teacherId, classIds] of Object.entries(teacherClassMap)) {
+            // Merge new classes with existing classes to support multi-center assignments
+            const existingUser = await User.findById(teacherId).select("teacherProfile.classes");
+            const existingClassIds = (existingUser?.teacherProfile?.classes || []).map(String);
+            const mergedClassIds = [...new Set([...existingClassIds, ...classIds.map(String)])];
+
             await User.findByIdAndUpdate(teacherId, {
               $set: {
                 "teacherProfile.center": req.params.id,
-                "teacherProfile.classes": classIds,
+                "teacherProfile.classes": mergedClassIds,
               },
             });
           }
@@ -1432,22 +1414,41 @@ app.patch("/api/centers/:id", requireAuth, requireRole("admin"), async (req, res
             );
           }
         } else {
-          // No specific class assignments - only set the center, don't auto-assign all classes
+          // No specific class assignments - only set the center
           await User.updateMany(
             { _id: { $in: teachers }, role: "teacher" },
             { $set: { "teacherProfile.center": req.params.id } }
           );
         }
+      } else if (teachers.length) {
+        // No classes payload - only set the center
+        await User.updateMany(
+          { _id: { $in: teachers }, role: "teacher" },
+          { $set: { "teacherProfile.center": req.params.id } }
+        );
       }
+
+      // Return with any cross-center warnings (non-blocking)
+      const crossCenterWarnings = assignmentErrors.filter(e => e.type === "cross_center_warning");
+      if (crossCenterWarnings.length > 0) {
+        return res.json({
+          center,
+          warnings: crossCenterWarnings,
+          message: `Center updated. Note: ${crossCenterWarnings.map(e => e.message).join("; ")}`,
+        });
+      }
+
+      res.json({ center });
     } else if (teachers.length) {
-      // No classes payload - only set the center, don't auto-assign all classes
+      // No classes payload - only set the center
       await User.updateMany(
         { _id: { $in: teachers }, role: "teacher" },
         { $set: { "teacherProfile.center": req.params.id } }
       );
+      res.json({ center });
+    } else {
+      res.json({ center });
     }
-
-    res.json({ center });
   } catch (error) {
     next(error);
   }
@@ -1455,7 +1456,7 @@ app.patch("/api/centers/:id", requireAuth, requireRole("admin"), async (req, res
 
 app.delete("/api/centers/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    await Center.findByIdAndDelete(req.params.id);
+    await Center.findByIdAndUpdate(req.params.id, { status: "inactive" });
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -1499,12 +1500,13 @@ app.get("/api/centers/:id/teacher-assignments", requireAuth, requireRole("admin"
       }
     }
     
-    // Build response with one-teacher-per-class validation
+    // Build response with all teachers per class
     const classAssignments = classes.map(cls => {
       const assignedTeachers = assignments[cls._id.toString()] || [];
       return {
         class: cls,
-        teacher: assignedTeachers.length > 0 ? assignedTeachers[0] : null,
+        teachers: assignedTeachers,
+        teacher: assignedTeachers.length > 0 ? assignedTeachers[0] : null, // backward compat
         hasMultipleTeachers: assignedTeachers.length > 1,
       };
     });
@@ -1522,7 +1524,7 @@ app.get("/api/centers/:id/teacher-assignments", requireAuth, requireRole("admin"
 });
 
 // ==========================================
-// VALIDATE ONE-TEACHER-PER-CLASS
+// VALIDATE ASSIGNMENTS (Informational Only)
 // ==========================================
 app.post("/api/centers/:id/validate-assignments", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
@@ -1535,12 +1537,10 @@ app.post("/api/centers/:id/validate-assignments", requireAuth, requireRole("admi
     const teachers = await User.find({
       role: "teacher",
       "teacherProfile.center": req.params.id,
-    }).select("_id name teacherProfile.classes");
+    }).select("_id name teacherProfile.classes teacherProfile.center");
     
-    // Check for violations
-    const violations = [];
+    // Build assignment summary per class
     const classTeacherCount = {};
-    
     for (const teacher of teachers) {
       const classIds = (teacher.teacherProfile?.classes || []).map(String);
       for (const classId of classIds) {
@@ -1549,23 +1549,54 @@ app.post("/api/centers/:id/validate-assignments", requireAuth, requireRole("admi
       }
     }
     
-    for (const [classId, teacherNames] of Object.entries(classTeacherCount)) {
-      if (teacherNames.length > 1) {
-        const className = classes.find(c => c._id.toString() === classId)?.name || classId;
-        violations.push({
-          classId,
-          className,
-          teachers: teacherNames,
-          message: `Class "${className}" has ${teacherNames.length} teachers: ${teacherNames.join(", ")}`,
-        });
+    // Build informational summary (not violations)
+    const assignmentSummary = classes.map(cls => {
+      const teacherNames = classTeacherCount[cls._id.toString()] || [];
+      return {
+        classId: cls._id,
+        className: cls.name,
+        teacherCount: teacherNames.length,
+        teachers: teacherNames,
+      };
+    });
+
+    // Identify classes with multiple teachers (informational, not blocking)
+    const multiTeacherClasses = assignmentSummary.filter(s => s.teacherCount > 1);
+    
+    // Identify unassigned classes
+    const unassignedClasses = assignmentSummary.filter(s => s.teacherCount === 0);
+    
+    // Check for teachers assigned across multiple centers
+    const crossCenterTeachers = [];
+    for (const teacher of teachers) {
+      const teacherClasses = teacher.teacherProfile?.classes || [];
+      if (teacherClasses.length > 0) {
+        // Check if any of the teacher's classes belong to other centers
+        const otherCenterClasses = await ClassModel.find({
+          _id: { $in: teacherClasses },
+          center: { $ne: req.params.id },
+        }).select("_id name center");
+        if (otherCenterClasses.length > 0) {
+          crossCenterTeachers.push({
+            teacherId: teacher._id,
+            teacherName: teacher.name,
+            otherCenterClasses: otherCenterClasses.map(c => c.name),
+          });
+        }
       }
     }
     
     res.json({
-      valid: violations.length === 0,
-      violations,
+      valid: true, // Always valid — this is informational only
+      assignmentSummary,
+      multiTeacherClasses,
+      unassignedClasses,
+      crossCenterTeachers,
       totalClasses: classes.length,
       totalTeachers: teachers.length,
+      message: multiTeacherClasses.length > 0
+        ? `${multiTeacherClasses.length} class(es) have multiple teachers assigned. This is allowed.`
+        : "All assignments look good.",
     });
   } catch (error) {
     next(error);
@@ -2082,6 +2113,166 @@ app.delete("/api/lesson-plans/:id", requireAuth, requireRole("admin"), async (re
     await LessonPlanAssignment.deleteMany({ lessonPlan: req.params.id });
     await LessonCompletionReport.deleteMany({ assignment: { $in: assignmentIds } });
     res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/* ── Lesson Plan Auto-Generation Engine ── */
+app.post("/api/lesson-plans/auto-generate", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { courseId, classId, centerId, startDate, durationWeeks, maxActivitiesPerDay = 2 } = req.body;
+    requireObjectId(courseId, "courseId");
+
+    const course = await Course.findById(courseId);
+    if (!course) return res.status(404).json({ message: "Course not found." });
+
+    // Flatten all activities from course modules → contents
+    const allActivities = [];
+    (course.modules || []).forEach((mod, mi) => {
+      (mod.contents || []).forEach((content, ci) => {
+        allActivities.push({
+          moduleIndex: mi,
+          contentIndex: ci,
+          moduleTitle: mod.title,
+          contentTitle: content.title,
+          contentType: content.type,
+          durationMinutes: content.durationMinutes || 30,
+          objectives: (mod.learningOutcomes || []).join("; "),
+          instructions: content.detailedLearningContent || content.description || "",
+          resources: content.notes || "",
+          activities: content.practicalExamples ? content.practicalExamples.join(", ") : "",
+        });
+      });
+      // Also add module assessments as activities if they exist
+      if (mod.assessments) {
+        (mod.assessments.practicalAssignments || []).forEach((pa, pai) => {
+          allActivities.push({
+            moduleIndex: mi,
+            contentIndex: -1,
+            moduleTitle: mod.title,
+            contentTitle: `Assessment: ${pa.substring(0, 50)}`,
+            contentType: "assessment",
+            durationMinutes: 45,
+            objectives: (mod.learningOutcomes || []).join("; "),
+            instructions: pa,
+            resources: "",
+            activities: pa,
+          });
+        });
+      }
+    });
+
+    if (allActivities.length === 0) {
+      return res.status(400).json({ message: "Course has no modules or activities to generate from." });
+    }
+
+    // Generate working days (Mon-Fri), skip weekends
+    const start = new Date(startDate);
+    const end = new Date(start);
+    end.setDate(end.getDate() + (durationWeeks * 7));
+
+    const workingDays = [];
+    const cursor = new Date(start);
+    while (cursor < end) {
+      const dow = cursor.getDay();
+      if (dow >= 1 && dow <= 5) {
+        workingDays.push(new Date(cursor));
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    // Distribute activities across working days (max N per day)
+    const schedule = [];
+    let actIdx = 0;
+    for (const day of workingDays) {
+      if (actIdx >= allActivities.length) break;
+      const dayActivities = [];
+      for (let i = 0; i < maxActivitiesPerDay && actIdx < allActivities.length; i++) {
+        dayActivities.push({ ...allActivities[actIdx], order: i + 1 });
+        actIdx++;
+      }
+      schedule.push({
+        date: day.toISOString().split("T")[0],
+        dayOfWeek: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day.getDay()],
+        activities: dayActivities,
+      });
+    }
+
+    res.json({
+      course: { id: course._id, title: course.title, moduleCount: (course.modules || []).length },
+      totalActivities: allActivities.length,
+      totalDays: schedule.length,
+      durationWeeks,
+      maxActivitiesPerDay,
+      schedule,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/* ── Confirm & Publish Auto-Generated Plan ── */
+app.post("/api/lesson-plans/auto-publish", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { courseId, classId, centerId, schedule, title } = req.body;
+    if (!schedule || !Array.isArray(schedule) || schedule.length === 0) {
+      return res.status(400).json({ message: "Schedule data is required." });
+    }
+
+    // Create one LessonPlan per day's activities
+    const createdPlans = [];
+    for (const day of schedule) {
+      const activitiesText = day.activities.map(a => `${a.order}. [${a.moduleTitle}] ${a.contentTitle}`).join("\n");
+      const objectivesText = [...new Set(day.activities.map(a => a.objectives).filter(Boolean))].join("; ");
+      const instructionsText = day.activities.map(a => a.instructions).filter(Boolean).join("\n\n");
+      const resourcesText = day.activities.map(a => a.resources).filter(Boolean).join(", ");
+
+      const plan = await LessonPlan.create({
+        course: courseId || undefined,
+        title: title ? `${title} — ${day.date} (${day.dayOfWeek})` : `Auto Plan — ${day.date} (${day.dayOfWeek})`,
+        objectives: objectivesText,
+        instructions: instructionsText || activitiesText,
+        activities: activitiesText,
+        resources: resourcesText,
+        scheduleDate: new Date(day.date),
+        createdBy: req.user.id,
+      });
+      createdPlans.push(plan);
+    }
+
+    // Auto-assign to matching teachers
+    let assignedCount = 0;
+    if (classId || centerId) {
+      const teacherQuery = { status: "approved" };
+      if (centerId) teacherQuery["teacherProfile.center"] = centerId;
+      if (classId) teacherQuery["teacherProfile.classes"] = classId;
+
+      const teachers = await User.find(teacherQuery);
+      for (const plan of createdPlans) {
+        for (const teacher of teachers) {
+          const existing = await LessonPlanAssignment.findOne({ lessonPlan: plan._id, teacher: teacher._id });
+          if (!existing) {
+            await LessonPlanAssignment.create({
+              lessonPlan: plan._id,
+              teacher: teacher._id,
+              center: centerId || teacher.teacherProfile?.center,
+              class: classId || (teacher.teacherProfile?.classes || [])[0],
+              assignedDate: plan.scheduleDate,
+              status: "pending",
+            });
+            assignedCount++;
+          }
+        }
+      }
+    }
+
+    res.status(201).json({
+      message: `Published ${createdPlans.length} lesson plans with ${assignedCount} teacher assignments.`,
+      plansCreated: createdPlans.length,
+      assignmentsCreated: assignedCount,
+      plans: createdPlans.map(p => ({ id: p._id, title: p.title, date: p.scheduleDate })),
+    });
   } catch (error) {
     next(error);
   }
@@ -3436,6 +3627,440 @@ app.get("/api/automation/status", requireAuth, requireRole("admin"), async (req,
       },
       lastChecked: new Date().toISOString(),
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PHASE 1: USER MANAGEMENT — Auto Password, Bulk CSV Import, Restore
+// ═══════════════════════════════════════════════════════════════════
+
+function generateRandomPassword(length = 12) {
+  const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const lower = "abcdefghijklmnopqrstuvwxyz";
+  const digits = "0123456789";
+  const special = "!@#$%";
+  let pw = upper[Math.floor(Math.random() * upper.length)]
+    + lower[Math.floor(Math.random() * lower.length)]
+    + digits[Math.floor(Math.random() * digits.length)]
+    + special[Math.floor(Math.random() * special.length)];
+  const all = upper + lower + digits + special;
+  for (let i = pw.length; i < length; i++) pw += all[Math.floor(Math.random() * all.length)];
+  return pw.split("").sort(() => Math.random() - 0.5).join("");
+}
+
+app.post("/api/admin/users/import", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { users } = req.body;
+    if (!Array.isArray(users) || users.length === 0) {
+      return res.status(400).json({ message: "Provide a non-empty 'users' array." });
+    }
+    const results = [];
+    for (const u of users) {
+      try {
+        if (!u.email || !u.name || !u.role) {
+          results.push({ email: u.email || "?", success: false, error: "Missing required fields (name, email, role)" });
+          continue;
+        }
+        const existing = await User.findOne({ email: u.email.toLowerCase().trim() });
+        if (existing) {
+          results.push({ email: u.email, success: false, error: "Email already exists" });
+          continue;
+        }
+        const password = u.password || generateRandomPassword();
+        const passwordHash = await hashPassword(password);
+        const teacher = await User.create({
+          name: u.name,
+          email: u.email.toLowerCase().trim(),
+          phone: u.phone || "",
+          role: u.role || "teacher",
+          passwordHash,
+          status: "approved",
+        });
+        results.push({ email: u.email, success: true, userId: teacher._id, tempPassword: password });
+      } catch (err) {
+        results.push({ email: u.email || "?", success: false, error: err.message });
+      }
+    }
+    res.json({ imported: results.filter(r => r.success).length, failed: results.filter(r => !r.success).length, results });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/admin/users/:id/restore", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    if (user.status !== "inactive" && user.status !== "rejected") {
+      return res.status(400).json({ message: `User status is '${user.status}', cannot restore.` });
+    }
+    user.status = "approved";
+    await user.save();
+    res.json({ message: "User restored to active", user: { id: user._id, name: user.name, email: user.email, status: user.status } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PHASE 1: COURSE PUBLISHING WORKFLOW
+// ═══════════════════════════════════════════════════════════════════
+
+app.post("/api/courses/:id/publish", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const course = await Course.findById(req.params.id);
+    if (!course) return res.status(404).json({ message: "Course not found" });
+    if (course.status === "published") return res.status(400).json({ message: "Course is already published" });
+    course.status = "published";
+    await course.save();
+    res.json({ message: "Course published", course: { id: course._id, title: course.title, status: course.status } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/courses/:id/archive", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const course = await Course.findById(req.params.id);
+    if (!course) return res.status(404).json({ message: "Course not found" });
+    course.status = "archived";
+    await course.save();
+    res.json({ message: "Course archived", course: { id: course._id, title: course.title, status: course.status } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/courses/:id/review", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const course = await Course.findById(req.params.id);
+    if (!course) return res.status(404).json({ message: "Course not found" });
+    course.status = "draft";
+    await course.save();
+    res.json({ message: "Course sent back to draft for revision", course: { id: course._id, title: course.title, status: course.status } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PHASE 1: SCHEDULE CONFLICT DETECTION
+// ═══════════════════════════════════════════════════════════════════
+
+app.post("/api/schedules/check-conflicts", requireAuth, async (req, res, next) => {
+  try {
+    const { teacher, time, className, excludeId } = req.body;
+    if (!teacher || !time) return res.status(400).json({ message: "teacher and time required" });
+    const targetTime = new Date(time);
+    const windowStart = new Date(targetTime.getTime() - 60 * 60 * 1000);
+    const windowEnd = new Date(targetTime.getTime() + 60 * 60 * 1000);
+    const q = { teacher, time: { $gte: windowStart, $lte: windowEnd } };
+    if (excludeId) q._id = { $ne: excludeId };
+    const conflicts = await Schedule.find(q).populate("teacher", "name email");
+    res.json({ conflicts: conflicts.length > 0, schedules: conflicts });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PHASE 1: SYSTEM HEALTH
+// ═══════════════════════════════════════════════════════════════════
+
+app.get("/api/admin/system-health", requireAuth, requireRole("admin"), async (_req, res, next) => {
+  try {
+    const dbState = mongoose.connection.readyState;
+    const dbStates = { 0: "disconnected", 1: "connected", 2: "connecting", 3: "disconnecting" };
+    const [totalUsers, totalTeachers, totalChildren, totalCourses, totalCenters, totalClasses, totalNotifications, totalSubmissions] = await Promise.all([
+      User.countDocuments(),
+      User.countDocuments({ role: "teacher" }),
+      Child.countDocuments(),
+      Course.countDocuments(),
+      Center.countDocuments(),
+      ClassModel.countDocuments(),
+      Notification.countDocuments(),
+      ActivitySubmission.countDocuments(),
+    ]);
+    const recentErrors = [];
+    res.json({
+      status: "healthy",
+      database: { state: dbStates[dbState] || "unknown", name: mongoose.connection.name || "spacECE" },
+      counts: { users: totalUsers, teachers: totalTeachers, children: totalChildren, courses: totalCourses, centers: totalCenters, classes: totalClasses, notifications: totalNotifications, submissions: totalSubmissions },
+      uptime: Math.floor(process.uptime()),
+      memory: { used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024), total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024), unit: "MB" },
+      nodeVersion: process.version,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PHASE 1: ADMIN PROFILE
+// ═══════════════════════════════════════════════════════════════════
+
+app.get("/api/admin/profile", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id).select("name email phone photoUrl language status createdAt").lean();
+    if (!user) return res.status(404).json({ message: "Admin not found" });
+    res.json({ profile: user });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/admin/profile", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { name, email, phone, photoUrl } = req.body;
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: "Admin not found" });
+    if (name) user.name = name;
+    if (email && email !== user.email) {
+      const exists = await User.findOne({ email: email.toLowerCase().trim(), _id: { $ne: user._id } });
+      if (exists) return res.status(409).json({ message: "Email already in use" });
+      user.email = email.toLowerCase().trim();
+    }
+    if (phone !== undefined) user.phone = phone;
+    if (photoUrl !== undefined) user.photoUrl = photoUrl;
+    await user.save();
+    res.json({ message: "Profile updated", profile: { id: user._id, name: user.name, email: user.email, phone: user.phone, photoUrl: user.photoUrl } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/admin/profile/change-password", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) return res.status(400).json({ message: "Both currentPassword and newPassword required" });
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: "Admin not found" });
+    const valid = await verifyPassword(currentPassword, user.passwordHash);
+    if (!valid) return res.status(401).json({ message: "Current password is incorrect" });
+    const policyCheck = await validatePasswordAgainstPolicy(newPassword);
+    if (!policyCheck.valid) return res.status(400).json({ message: policyCheck.message });
+    user.passwordHash = await hashPassword(newPassword);
+    user.passwordChangedAt = new Date();
+    await user.save();
+    res.json({ message: "Password changed successfully" });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PHASE 2: NOTIFICATION ENGINE — Auto-triggers, History, Deadlines
+// ═══════════════════════════════════════════════════════════════════
+
+app.get("/api/admin/notifications/history", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { page = 1, limit = 50, type, read } = req.query;
+    const filter = {};
+    if (type) filter.type = type;
+    if (read !== undefined) filter.read = read === "true";
+    const total = await Notification.countDocuments(filter);
+    const notifications = await Notification.find(filter)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(Number(limit))
+      .lean();
+    res.json({ notifications, total, page: Number(page), pages: Math.ceil(total / limit) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/admin/notifications/auto-triggers/check", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const triggers = [];
+
+    const pendingTeachers = await User.countDocuments({ role: "teacher", status: "approved" });
+    const attendedToday = await TeacherAttendanceRecord.countDocuments({ attendanceDate: { $gte: today } });
+    if (pendingTeachers - attendedToday > 0) {
+      triggers.push({ type: "attendance_reminder", message: `${pendingTeachers - attendedToday} teachers haven't marked attendance today`, priority: "high" });
+    }
+
+    const pendingSubmissions = await ActivitySubmission.countDocuments({ status: "pending" });
+    if (pendingSubmissions > 0) {
+      triggers.push({ type: "submission_pending", message: `${pendingSubmissions} activity submissions awaiting review`, priority: "medium" });
+    }
+
+    const pendingAssignments = await CourseAssignment.countDocuments({ status: "assigned" });
+    if (pendingAssignments > 0) {
+      triggers.push({ type: "course_pending", message: `${pendingAssignments} course assignments not yet started`, priority: "low" });
+    }
+
+    const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const overdueSubmissions = await ActivitySubmission.countDocuments({ status: "pending", activityDate: { $lt: sevenDaysAgo } });
+    if (overdueSubmissions > 0) {
+      triggers.push({ type: "overdue_activity", message: `${overdueSubmissions} activities are overdue by 7+ days`, priority: "high" });
+    }
+
+    res.json({ triggers, checkedAt: new Date().toISOString() });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/teacher/deadline-reminders", requireAuth, requireRole("teacher"), async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const now = new Date();
+    const threeDays = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+    const reminders = [];
+
+    const pendingAssignments = await CourseAssignment.find({ teacher: userId, status: { $in: ["assigned", "in_progress"] } }).populate("course", "title").lean();
+    for (const a of pendingAssignments) {
+      if (a.deadline && new Date(a.deadline) <= threeDays) {
+        reminders.push({ type: "assignment_deadline", title: a.course?.title || "Course Assignment", deadline: a.deadline, daysLeft: Math.ceil((new Date(a.deadline) - now) / 86400000) });
+      }
+    }
+
+    const pendingLessons = await LessonPlanAssignment.find({ teacher: userId, status: { $in: ["pending", "in_progress"] } }).populate("lessonPlan", "title").lean();
+    for (const lp of pendingLessons) {
+      if (lp.lessonPlan?.date && new Date(lp.lessonPlan.date) <= threeDays) {
+        reminders.push({ type: "lesson_plan_deadline", title: lp.lessonPlan.title || "Lesson Plan", deadline: lp.lessonPlan.date, daysLeft: Math.ceil((new Date(lp.lessonPlan.date) - now) / 86400000) });
+      }
+    }
+
+    res.json({ reminders });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PHASE 3: AI/ML — Sentiment Analysis, Risk Flags, Chatbot, Auto-grade
+// ═══════════════════════════════════════════════════════════════════
+
+const SENTIMENT_POSITIVE = ["great","excellent","amazing","wonderful","fantastic","good","love","happy","thank","best","awesome","perfect","nice","helpful","well done","keep up","impressed","outstanding","superb","brilliant","beautiful","creative","effective","engaging","inspiring","professional","quality","remarkable","satisfying","successful"];
+const SENTIMENT_NEGATIVE = ["bad","terrible","awful","poor","worst","hate","angry","disappointed","frustrated","useless","boring","difficult","confusing","delayed","late","missing","incomplete","wrong","broken","failed","failure","problem","issue","complaint","unfair","stress","tired","overwhelmed","stressed","struggling"];
+
+function analyzeSentiment(text) {
+  if (!text) return { score: 0, label: "neutral", confidence: 0.5 };
+  const lower = text.toLowerCase();
+  const words = lower.split(/[\s,.'!?]+/).filter(Boolean);
+  let posCount = 0, negCount = 0;
+  for (const w of words) {
+    if (SENTIMENT_POSITIVE.some(p => w.includes(p))) posCount++;
+    if (SENTIMENT_NEGATIVE.some(n => w.includes(n))) negCount++;
+  }
+  const total = posCount + negCount || 1;
+  const score = (posCount - negCount) / total;
+  let label = "neutral";
+  if (score > 0.2) label = "positive";
+  else if (score < -0.2) label = "negative";
+  return { score: Math.round(score * 100) / 100, label, confidence: Math.round((total / words.length) * 100) / 100 };
+}
+
+app.post("/api/ai/sentiment", requireAuth, async (req, res, next) => {
+  try {
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ message: "text required" });
+    const result = analyzeSentiment(text);
+    res.json({ sentiment: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const RISK_KEYWORDS = ["inappropriate","harmful","dangerous","offensive","violent","abuse","neglect","unsafe","illegal","discriminat","harass","bully","threat","weapon","drug","alcohol","self-harm","suicide"];
+function detectRiskFlags(text, description) {
+  const combined = `${text || ""} ${description || ""}`.toLowerCase();
+  const flags = [];
+  for (const kw of RISK_KEYWORDS) {
+    if (combined.includes(kw)) flags.push({ keyword: kw, severity: "high" });
+  }
+  return { flagged: flags.length > 0, flags, riskLevel: flags.length > 2 ? "critical" : flags.length > 0 ? "high" : "low" };
+}
+
+app.post("/api/ai/risk-flags", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { text, description } = req.body;
+    const result = detectRiskFlags(text, description);
+    res.json({ riskFlags: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/ai/auto-grade", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const { assessmentId, answers } = req.body;
+    if (!assessmentId || !answers) return res.status(400).json({ message: "assessmentId and answers required" });
+    const result = await AssessmentResult.findById(assessmentId);
+    if (!result) return res.status(404).json({ message: "Assessment not found" });
+    let correct = 0, total = answers.length;
+    for (const a of answers) {
+      const existing = result.answers.find(e => e.questionId === a.questionId);
+      if (existing) {
+        const isCorrect = existing.correctOption === a.chosenOption;
+        existing.chosenOption = a.chosenOption;
+        existing.isCorrect = isCorrect;
+        if (isCorrect) correct++;
+      }
+    }
+    result.correctAnswers = correct;
+    result.wrongAnswers = total - correct;
+    result.score = correct;
+    result.percentage = Math.round((correct / total) * 100);
+    result.grade = result.percentage >= 90 ? "A+" : result.percentage >= 80 ? "A" : result.percentage >= 70 ? "B+" : result.percentage >= 60 ? "B" : result.percentage >= 50 ? "C" : "F";
+    result.status = result.percentage >= 50 ? "passed" : "failed";
+    await result.save();
+    res.json({ graded: true, score: result.score, percentage: result.percentage, grade: result.grade, status: result.status });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const CHATBOT_RESPONSES = {
+  "attendance": "To mark attendance, go to Daily Attendance tab, select the date, and mark each child as Present/Absent.",
+  "lesson plan": "Lesson Plans are in the Training & Lessons tab. You can view upcoming plans and mark them as complete.",
+  "password": "To change your password, go to My Profile > Change Password.",
+  "certificate": "Certificates are available in the Certificates tab. You can download them after completing a course.",
+  "schedule": "Your schedule is in the Schedule tab. It shows all upcoming classes and activities.",
+  "feedback": "You can submit feedback in the Feedback tab. We appreciate your honest input!",
+  "course": "Your assigned courses are in the My Courses tab. Complete all activities to finish a course.",
+  "assessment": "Assessments are in the Assessments tab. Complete quizzes and exams to earn grades.",
+  "help": "I can help with: attendance, lesson plans, passwords, certificates, schedules, feedback, courses, and assessments. Ask me anything!",
+  "hello": "Hello! I'm your AI assistant. How can I help you today?",
+  "hi": "Hi there! What can I help you with?",
+  "thank": "You're welcome! Let me know if you need anything else.",
+  "bye": "Goodbye! Have a great day teaching!",
+};
+
+app.post("/api/teacher/chatbot/enhanced", requireAuth, requireRole("teacher"), async (req, res, next) => {
+  try {
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ message: "message required" });
+    const lower = message.toLowerCase().trim();
+    let bestMatch = null;
+    let bestScore = 0;
+    for (const [keyword, response] of Object.entries(CHATBOT_RESPONSES)) {
+      if (lower.includes(keyword)) {
+        const score = keyword.length / lower.length;
+        if (score > bestScore) { bestScore = score; bestMatch = response; }
+      }
+    }
+    if (!bestMatch) {
+      const words = lower.split(/\s+/);
+      for (const [keyword, response] of Object.entries(CHATBOT_RESPONSES)) {
+        for (const word of words) {
+          if (word.includes(keyword) || keyword.includes(word)) {
+            bestMatch = response;
+            break;
+          }
+        }
+        if (bestMatch) break;
+      }
+    }
+    if (!bestMatch) bestMatch = "I'm not sure I understand. Try asking about: attendance, lesson plans, passwords, certificates, schedules, feedback, courses, or assessments.";
+    res.json({ reply: bestMatch, timestamp: new Date().toISOString() });
   } catch (error) {
     next(error);
   }

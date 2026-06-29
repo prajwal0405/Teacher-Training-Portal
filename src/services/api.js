@@ -197,13 +197,6 @@ export function createTeacherChild(childData) {
   });
 }
 
-export function createChild(childData) {
-  return request("/api/admin/children", {
-    method: "POST",
-    body: JSON.stringify(childData)
-  });
-}
-
 export function updateChild(id, childData) {
   return request(`/api/admin/children/${id}`, {
     method: "PATCH",
@@ -573,6 +566,20 @@ export function reviewLessonReport(reportId, payload) {
   });
 }
 
+export function autoGenerateLessonPlan(data) {
+  return request("/api/lesson-plans/auto-generate", {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
+}
+
+export function autoPublishLessonPlan(data) {
+  return request("/api/lesson-plans/auto-publish", {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
+}
+
 // Activity APIs
 export function getActivities(params = {}) {
   const searchParams = new URLSearchParams(params);
@@ -843,4 +850,97 @@ export function updateTeacherNotificationPreference(channel) {
     method: "PATCH",
     body: JSON.stringify({ preferredNotificationChannel: channel }),
   });
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 1: User Management APIs
+// ═══════════════════════════════════════════════════
+
+export function importUsers(users) {
+  return request("/api/admin/users/import", { method: "POST", body: JSON.stringify({ users }) });
+}
+
+export function restoreUser(userId) {
+  return request(`/api/admin/users/${userId}/restore`, { method: "PATCH" });
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 1: Course Publishing APIs
+// ═══════════════════════════════════════════════════
+
+export function publishCourse(courseId) {
+  return request(`/api/courses/${courseId}/publish`, { method: "POST" });
+}
+
+export function archiveCourse(courseId) {
+  return request(`/api/courses/${courseId}/archive`, { method: "POST" });
+}
+
+export function reviewCourse(courseId) {
+  return request(`/api/courses/${courseId}/review`, { method: "POST" });
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 1: Schedule Conflict API
+// ═══════════════════════════════════════════════════
+
+export function checkScheduleConflicts(data) {
+  return request("/api/schedules/check-conflicts", { method: "POST", body: JSON.stringify(data) });
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 1: System Health & Admin Profile APIs
+// ═══════════════════════════════════════════════════
+
+export function getSystemHealth() {
+  return request("/api/admin/system-health");
+}
+
+export function getAdminProfile() {
+  return request("/api/admin/profile");
+}
+
+export function updateAdminProfile(data) {
+  return request("/api/admin/profile", { method: "PATCH", body: JSON.stringify(data) });
+}
+
+export function changeAdminPassword(data) {
+  return request("/api/admin/profile/change-password", { method: "POST", body: JSON.stringify(data) });
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 2: Notification Engine APIs
+// ═══════════════════════════════════════════════════
+
+export function getNotificationHistory(params = {}) {
+  const qs = new URLSearchParams(params).toString();
+  return request(`/api/admin/notifications/history${qs ? `?${qs}` : ""}`);
+}
+
+export function checkAutoTriggers() {
+  return request("/api/admin/notifications/auto-triggers/check", { method: "POST" });
+}
+
+export function getDeadlineReminders() {
+  return request("/api/teacher/deadline-reminders", { method: "POST" });
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 3: AI/ML APIs
+// ═══════════════════════════════════════════════════
+
+export function analyzeSentiment(text) {
+  return request("/api/ai/sentiment", { method: "POST", body: JSON.stringify({ text }) });
+}
+
+export function detectRiskFlags(text, description) {
+  return request("/api/ai/risk-flags", { method: "POST", body: JSON.stringify({ text, description }) });
+}
+
+export function autoGradeAssessment(assessmentId, answers) {
+  return request("/api/ai/auto-grade", { method: "POST", body: JSON.stringify({ assessmentId, answers }) });
+}
+
+export function askEnhancedChatbot(message) {
+  return request("/api/teacher/chatbot/enhanced", { method: "POST", body: JSON.stringify({ message }) });
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Modal, S, SearchBar, StatCard, StatusBadge, Toast } from "../components/Shared";
-import { getChildren, createChild, updateChild, deleteChild, getCenters, getClasses } from "../services/api";
+import { getChildren, updateChild, deleteChild, getCenters, getClasses } from "../services/api";
 
 const mapChildFromApi = (c) => ({
   id: c._id || c.id,
@@ -13,6 +13,7 @@ const mapChildFromApi = (c) => ({
   centerId: String(c.center?._id || c.center || ""),
   classId: String(c.class?._id || c.class || ""),
   status: c.status || "active",
+  addedBy: c.createdBy?.name || "",
   attendanceRate: "95%",
   activities: c.activities || [
     { date: "2026-06-15", activity: "Standard Classroom Play", status: "Present" }
@@ -50,7 +51,7 @@ const EMPTY_FORM = {
 };
 
 /* ── Add / Edit Modal ── */
-function ChildFormModal({ child, centers = [], classes = [], onSave, onClose, setToast }) {
+function ChildFormModal({ child, centers = [], classes = [], children: allChildren = [], onSave, onClose, setToast }) {
   const isEdit = !!child && !!child.id;
   const [form, setForm] = useState(() => {
     if (isEdit && child) {
@@ -74,6 +75,16 @@ function ChildFormModal({ child, centers = [], classes = [], onSave, onClose, se
       setToast({ msg: "Please fill all required fields including center and class.", type: "error" });
       return;
     }
+
+    // Capacity check
+    if (!isEdit && selectedClass && selectedClass.capacity > 0) {
+      const classChildren = allChildren.filter(c => String(c.classId || c.class) === String(form.classId) && c.status === "active");
+      if (classChildren.length >= selectedClass.capacity) {
+        setToast({ msg: `Class "${selectedClass.name}" is full (${classChildren.length}/${selectedClass.capacity}). Cannot add more children.`, type: "error" });
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       await onSave({ ...form, centerId: resolvedCenterId });
@@ -83,7 +94,7 @@ function ChildFormModal({ child, centers = [], classes = [], onSave, onClose, se
   };
 
   return (
-    <Modal title={isEdit ? "Edit Child Profile" : "Enroll New Child"} onClose={onClose}>
+    <Modal title={isEdit ? "Edit Child Profile" : "Child Profile"} onClose={onClose}>
       <form onSubmit={handleSubmit}>
         <label style={S.label}>Child's Full Name *</label>
         <input style={{ ...S.input, marginBottom: 12 }} value={form.name}
@@ -147,10 +158,12 @@ function ChildFormModal({ child, centers = [], classes = [], onSave, onClose, se
               <option value="">-- Select Class --</option>
               {classes.map(cls => {
                 const clsCenterId = String(cls.center?._id || cls.center?.id || cls.center || "");
-                const clsCenterName = centers.find(c => String(c._id || c.id) === clsCenterId)?.name || "Unknown Center";
+                const enrolled = allChildren.filter(c => String(c.classId || c.class) === String(cls._id || cls.id) && c.status === "active").length;
+                const cap = cls.capacity || 0;
+                const isFull = cap > 0 && enrolled >= cap;
                 return (
-                  <option key={cls._id || cls.id} value={cls._id || cls.id}>
-                    {cls.name} ({clsCenterName})
+                  <option key={cls._id || cls.id} value={cls._id || cls.id} disabled={isFull && !isEdit}>
+                    {cls.name}{cap > 0 ? ` (${enrolled}/${cap}${isFull ? " FULL" : ""})` : ` (${enrolled} enrolled)`}
                   </option>
                 );
               })}
@@ -196,7 +209,7 @@ function ChildFormModal({ child, centers = [], classes = [], onSave, onClose, se
         </select>
 
         <button type="submit" disabled={saving} style={{ ...S.primaryBtn, width: "100%", opacity: saving ? 0.7 : 1 }}>
-          {saving ? "Saving..." : isEdit ? "Update Profile" : "Enroll Child"}
+          {saving ? "Saving..." : isEdit ? "Update Profile" : "Save"}
         </button>
       </form>
     </Modal>
@@ -316,11 +329,6 @@ export default function ChildrenManagementTab({ setToast }) {
     setSelectedClassId(null); // reset class filter
   };
 
-  const openAdd = () => {
-    setEditChild(null);
-    setFormModal(true);
-  };
-
   const openEdit = (child) => {
     setEditChild(child);
     setFormModal(true);
@@ -334,17 +342,11 @@ export default function ChildrenManagementTab({ setToast }) {
         const updated = mapChildFromApi(res.child || res);
         setChildren(prev => prev.map(c => c.id === updated.id ? updated : c));
         showToast({ msg: "Child profile updated!", type: "success" });
-      } else {
-        const res = await createChild(payload);
-        const created = mapChildFromApi(res.child || res);
-        setChildren(prev => [created, ...prev]);
-        showToast({ msg: "Child enrolled successfully!", type: "success" });
       }
       setFormModal(false);
       setEditChild(null);
     } catch (err) {
       showToast({ msg: err.message || "Failed to save child.", type: "error" });
-      // Re-throw so the modal's saving state resets correctly
       throw err;
     }
   };
@@ -402,6 +404,7 @@ export default function ChildrenManagementTab({ setToast }) {
           child={editChild}
           centers={centers}
           classes={classes}
+          children={children}
           onSave={handleSaveChild}
           onClose={() => { setFormModal(false); setEditChild(null); }}
           setToast={showToast}
@@ -424,7 +427,9 @@ export default function ChildrenManagementTab({ setToast }) {
           <h1 style={S.pageTitle}>Children &amp; Class Management</h1>
           <p style={S.pageSub}>{active} active enrolled · {inactive} inactive · {children.length} total profiles</p>
         </div>
-        <button onClick={openAdd} style={S.primaryBtn}>+ Enroll Child</button>
+        <div style={{ padding: "8px 16px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, fontSize: 12, color: "#065f46", fontWeight: 600 }}>
+          👩‍🏫 Children are enrolled by Teachers from their dashboard
+        </div>
       </div>
 
       {/* KPI Display */}
@@ -582,6 +587,7 @@ export default function ChildrenManagementTab({ setToast }) {
                 <div style={{ fontSize: 12, color: "#374151", fontWeight: 600, marginBottom: 4 }}>🏢 {centerObj?.name || "None"}</div>
                 <div style={{ fontSize: 12, color: "#6b7280" }}>👤 Parent: {c.parentName}</div>
                 <div style={{ fontSize: 12, color: "#6b7280" }}>📱 Phone: {c.phone}</div>
+                {c.addedBy && <div style={{ fontSize: 11, color: "#8b5cf6", fontWeight: 600, marginTop: 2 }}>👩‍🏫 Added by: {c.addedBy}</div>}
               </div>
 
               {/* Action Layout */}
@@ -606,7 +612,7 @@ export default function ChildrenManagementTab({ setToast }) {
           <div style={{ fontSize: 48, marginBottom: 12 }}>👶</div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>No children found</div>
           <div style={{ fontSize: 12, marginTop: 4 }}>
-            {search ? "No child matches your search." : "Click \"+ Enroll Child\" to add a child."}
+            {search ? "No child matches your search." : "No children enrolled yet. Teachers add children from their dashboard."}
           </div>
         </div>
       )}

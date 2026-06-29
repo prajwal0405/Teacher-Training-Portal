@@ -22,7 +22,10 @@ import {
   updateTeacherLanguage,
   getTeacherCourseNotes,
   getTeacherCertificates,
-  getTeacherGrades
+  getTeacherGrades,
+  getTeacherChildren,
+  createTeacherChild,
+  getTeacherClasses
 } from "../services/api";
 
 /* Resolve a profile photo path to a full URL */
@@ -166,6 +169,59 @@ function OverviewTab({ user, setActiveTab, courses = [], assignments = [], lesso
         <StatCard icon="CE" label="Certificates" val={certificatesCount} color="#06b6d4" bg="#cffafe"/>
         <StatCard icon="TK" label="Pending Tasks" val={pendingTasksCount} color="#ef4444" bg="#fee2e2"/>
       </div>
+
+      {/* Today's Activities Widget */}
+      {(() => {
+        const today = new Date().toISOString().split("T")[0];
+        const todayLessons = lessons.filter(l => {
+          const d = l.lessonPlan?.scheduleDate ? new Date(l.lessonPlan.scheduleDate).toISOString().split("T")[0] : "";
+          return d === today;
+        });
+        const todayAssignments = assignments.filter(a => {
+          if (a.status === "completed" || a.status === "approved") return false;
+          return true;
+        }).slice(0, 5);
+        if (todayLessons.length === 0 && todayAssignments.length === 0) return null;
+        return (
+          <div style={{ background: "linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%)", borderRadius: 16, border: "1px solid #fcd34d", padding: 20, marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <span style={{ fontSize: 20 }}>📋</span>
+              <span style={{ fontSize: 16, fontWeight: 800, color: "#92400e" }}>Today's Activities</span>
+              <span style={{ fontSize: 12, color: "#b45309", fontWeight: 600 }}>{new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              {todayLessons.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", marginBottom: 8 }}>📚 Lessons Today ({todayLessons.length})</div>
+                  {todayLessons.map((l, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "white", borderRadius: 8, marginBottom: 6, border: "1px solid #fde68a" }}>
+                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: l.status === "completed" ? "#10b981" : "#f59e0b", flexShrink: 0 }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#1c1917" }}>{l.lessonPlan?.title || "Lesson"}</div>
+                      </div>
+                      <StatusBadge status={l.status} />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {todayAssignments.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", marginBottom: 8 }}>📝 Pending Tasks ({todayAssignments.length})</div>
+                  {todayAssignments.map((a, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "white", borderRadius: 8, marginBottom: 6, border: "1px solid #fde68a" }}>
+                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: a.status === "revision" ? "#ef4444" : "#f59e0b", flexShrink: 0 }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#1c1917" }}>{(a.title || a.course?.title || "Task").substring(0, 30)}</div>
+                      </div>
+                      <StatusBadge status={a.status} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
         <SectionCard title="My Attendance Summary">
@@ -1801,6 +1857,11 @@ export default function TeacherDashboard({ user, onLogout }) {
   const [assessmentResults, setAssessmentResults] = useState([]);
   const [certificates, setCertificates]   = useState([]);
   const [courseNotes, setCourseNotes]     = useState({});
+  const [teacherChildren, setTeacherChildren] = useState([]);
+  const [teacherClasses, setTeacherClasses]  = useState([]);
+  const [selectedChildClassId, setSelectedChildClassId] = useState("");
+  const [childForm, setChildForm]         = useState({ name: "", age: "", gender: "Male", parentName: "", phone: "", email: "", address: "" });
+  const [childSaving, setChildSaving]     = useState(false);
   const [loading, setLoading]            = useState(true);
   const [tabLoading, setTabLoading]      = useState(false);
 
@@ -1813,17 +1874,24 @@ export default function TeacherDashboard({ user, onLogout }) {
 
   const refreshCoreData = async () => {
     try {
-      const [progressRes, notificationsRes, teacherRes, certificatesRes] = await Promise.all([
+      const [progressRes, notificationsRes, teacherRes, certificatesRes, classesRes] = await Promise.all([
         getTeacherProgress(),
         getNotifications(),
         getTeacherMe(),
         getTeacherCertificates(),
+        getTeacherClasses(),
       ]);
       if (progressRes) {
         setCourses(progressRes.courses || []);
         setLessons(progressRes.lessons || []);
         setActivities(progressRes.activities || []);
         setSummary(progressRes.summary || {});
+      }
+      if (classesRes?.classes) {
+        setTeacherClasses(classesRes.classes);
+        if (!selectedChildClassId && classesRes.classes.length > 0) {
+          setSelectedChildClassId(classesRes.classes[0]._id || classesRes.classes[0].id);
+        }
       }
       if (notificationsRes?.notifications) {
         const mapped = notificationsRes.notifications.map(n => {
@@ -1876,6 +1944,14 @@ export default function TeacherDashboard({ user, onLogout }) {
   useEffect(() => {
     if (activeTab === "assessment") refreshAssessmentResults();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (selectedChildClassId) {
+      getTeacherChildren(selectedChildClassId)
+        .then(res => { if (res?.children) setTeacherChildren(res.children); })
+        .catch(err => console.error("Error loading children for class:", err));
+    }
+  }, [selectedChildClassId]);
 
   const handleTabSwitch = (tab) => {
     if (activeTab !== tab) setTabLoading(true);
@@ -1944,6 +2020,7 @@ export default function TeacherDashboard({ user, onLogout }) {
 
   const navItems = [
     { key: "overview",      label: "Teacher's Dashboard", icon: "📊" },
+    //{ key: "my_children",   label: "My Children",         icon: "👶" },
     { key: "children_att",  label: "Daily Attendance",    icon: "📋" },
     { key: "geotag",        label: "Geotag Attendance",   icon: "📍" },
     { key: "training",      label: "Training & Lessons",  icon: "🎓" },
@@ -1977,6 +2054,89 @@ export default function TeacherDashboard({ user, onLogout }) {
     }
     switch(activeTab) {
       case "overview":      return <OverviewTab user={enrichedUser} setActiveTab={handleTabSwitch} courses={courses} assignments={courses} lessons={lessons} activities={activities} summary={summary}/>;
+      /*case "my_children":   return (
+        <div style={{ padding: 24 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>My Children</h2>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              {teacherClasses.length > 1 && (
+                <select
+                  value={selectedChildClassId}
+                  onChange={e => setSelectedChildClassId(e.target.value)}
+                  style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, background: "white" }}
+                >
+                  {teacherClasses.map(c => (
+                    <option key={c._id || c.id} value={c._id || c.id}>{c.name}</option>
+                  ))}
+                </select>
+              )}
+              <button onClick={async()=>{
+                if (!childForm.name) return;
+                setChildSaving(true);
+                try {
+                  await createTeacherChild({ ...childForm, classId: selectedChildClassId });
+                  setChildForm({ name: "", age: "", gender: "Male", parentName: "", phone: "", email: "", address: "" });
+                  const res = await getTeacherChildren(selectedChildClassId);
+                  if (res?.children) setTeacherChildren(res.children);
+                  setToast({ msg: "Child added successfully!", type: "success" });
+                } catch(e) { setToast({ msg: e.message || "Failed to add child", type: "error" }); }
+                finally { setChildSaving(false); }
+              }} style={{ padding: "8px 18px", borderRadius: 10, background: "#2563eb", color: "white", border: "none", fontWeight: 700, fontSize: 13, cursor: childSaving ? "not-allowed" : "pointer", opacity: childSaving ? 0.6 : 1 }}>
+                {childSaving ? "Saving..." : "+ Add Child"}
+              </button>
+            </div>
+          </div>
+          <div style={{ background: "white", borderRadius: 14, padding: 20, border: "1px solid #e2e8f0", marginBottom: 20 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14, color: "#334155" }}>Add New Child</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
+              {[
+                { label: "Child Name *", field: "name", type: "text", placeholder: "Full name" },
+                { label: "Age", field: "age", type: "number", placeholder: "Age" },
+                { label: "Gender", field: "gender", type: "select", options: ["Male", "Female", "Other"] },
+                { label: "Parent/Guardian Name", field: "parentName", type: "text", placeholder: "Parent name" },
+                { label: "Parent Phone", field: "phone", type: "text", placeholder: "Phone number" },
+                { label: "Parent Email", field: "email", type: "text", placeholder: "Email (optional)" },
+                { label: "Address", field: "address", type: "text", placeholder: "Address" },
+              ].map(({ label, field, type, placeholder, options }) => (
+                <div key={field}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 4, display: "block" }}>{label}</label>
+                  {type === "select" ? (
+                    <select value={childForm[field]} onChange={e => setChildForm({...childForm, [field]: e.target.value})}
+                      style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, background: "white" }}>
+                      {options.map(o => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  ) : (
+                    <input type={type} value={childForm[field]} onChange={e => setChildForm({...childForm, [field]: e.target.value})} placeholder={placeholder}
+                      style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, boxSizing: "border-box" }} />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{ background: "white", borderRadius: 14, padding: 20, border: "1px solid #e2e8f0" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14, color: "#334155" }}>Children in My Class ({teacherChildren.length})</div>
+            {teacherChildren.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 30, color: "#94a3b8", fontSize: 13 }}>
+                No children added yet. Use the form above to add children to your class.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {teacherChildren.map((child, i) => (
+                  <div key={child._id || i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "#f8fafc", borderRadius: 10, border: "1px solid #e2e8f0" }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{child.name}</div>
+                      <div style={{ fontSize: 11, color: "#6b7280" }}>
+                        Age: {child.age || "N/A"} · Gender: {child.gender || "N/A"} · Parent: {child.parentName || "N/A"} {child.phone ? `· 📞 ${child.phone}` : ""}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 11, color: "#9ca3af" }}>{child.class?.name || child.class?.grade || ""}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );*/
       case "children_att":  return <AttendanceManager user={enrichedUser}/>;
       case "geotag":        return <GeotagAttendance user={enrichedUser}/>;
       case "training":      return <TrainingAndClassroomManager user={enrichedUser}/>;

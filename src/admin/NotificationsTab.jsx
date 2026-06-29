@@ -540,6 +540,39 @@ export default function NotificationsTab({ teachers = [], setToast }) {
           )}
         </div>
       </div>
+
+      {/* Auto-Triggered Notifications Summary */}
+      <div style={{ background: "white", borderRadius: 16, border: "1px solid #e5e7eb", padding: 20, marginTop: 20 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 6 }}>⚡ Auto-Triggered Notifications</div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16 }}>System-generated notifications sent automatically on key events.</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
+          {[
+            { icon: "👤", title: "New Teacher Registration", desc: "Sent to Admin when a teacher registers", color: "#3b82f6", bg: "#dbeafe" },
+            { icon: "⏰", title: "Activity Overdue (>24h)", desc: "Sent to Admin + Teacher", color: "#ef4444", bg: "#fee2e2" },
+            { icon: "✅", title: "Submission Approved", desc: "Sent to Teacher on admin approval", color: "#10b981", bg: "#d1fae5" },
+            { icon: "🔄", title: "Revision Requested", desc: "Sent to Teacher with admin comment", color: "#f59e0b", bg: "#fef3c7" },
+            { icon: "🚨", title: "Child Absent 3+ Days", desc: "Sent to Admin for consecutive absences", color: "#dc2626", bg: "#fee2e2" },
+            { icon: "📋", title: "Lesson Plan Published", desc: "Sent to Teacher when plan is assigned", color: "#8b5cf6", bg: "#ede9fe" },
+            { icon: "📚", title: "Training Scheduled", desc: "Sent to assigned Teachers", color: "#06b6d4", bg: "#cffafe" },
+            { icon: "📝", title: "Attendance Not Submitted", desc: "Sent to Teacher if not marked by 10:30 AM", color: "#f97316", bg: "#ffedd5" },
+          ].map((item, i) => {
+            const autoCount = notifications.filter(n => {
+              const t = (n.title || n.subject || "").toLowerCase();
+              return t.includes(item.title.toLowerCase().split(" ")[0].toLowerCase());
+            }).length;
+            return (
+              <div key={i} style={{ padding: 14, borderRadius: 12, background: item.bg, border: `1px solid ${item.color}30` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 18 }}>{item.icon}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: item.color }}>{item.title}</span>
+                </div>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 8 }}>{item.desc}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: item.color }}>Sent: {autoCount} times</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

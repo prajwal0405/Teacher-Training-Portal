@@ -7,6 +7,7 @@ const classSchema = new mongoose.Schema(
     ageGroup: String,
     curriculumLevel: String,
     schedule: String,
+    capacity: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
