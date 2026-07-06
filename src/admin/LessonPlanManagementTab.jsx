@@ -7,6 +7,96 @@ import {
   getAdminLessonReports, reviewLessonReport,
   autoGenerateLessonPlan, autoPublishLessonPlan
 } from "../services/api";
+import ACTIVITY_BANK from "../data/activityBank";
+
+/* ── Activity Bank helpers (dataset-driven topics) ── */
+const getActivityTypes = () => [...new Set(ACTIVITY_BANK.map(a => a.type))].sort();
+
+const getActivityLevels = (type) =>
+  [...new Set(ACTIVITY_BANK.filter(a => !type || a.type === type).map(a => a.level))]
+    .sort((a, b) => parseInt(a.replace(/\D/g, "")) - parseInt(b.replace(/\D/g, "")));
+
+const getActivityTopics = (type, level) => {
+  const seen = new Set();
+  const topics = [];
+  ACTIVITY_BANK.forEach(a => {
+    if (type && a.type !== type) return;
+    if (level && a.level !== level) return;
+    if (!seen.has(a.activity)) {
+      seen.add(a.activity);
+      topics.push(a.activity);
+    }
+  });
+  return topics.sort();
+};
+
+const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/* Builds a preview.schedule (same shape the UI/backend already expect)
+   entirely from the activity bank dataset — no backend call needed. */
+const generateScheduleFromDataset = ({ type, level, topic, startDate, durationWeeks, maxActivitiesPerDay }) => {
+  const pool = ACTIVITY_BANK.filter(a => a.type === type && a.level === level);
+  if (pool.length === 0) return null;
+
+  // Put the chosen topic's activity/activities first, then the rest of the
+  // matching pool (deduped by activity name) so the schedule stays varied
+  // instead of repeating one activity every day.
+  const chosen = pool.filter(a => a.activity === topic);
+  const restSeen = new Set(chosen.map(a => a.activity));
+  const rest = [];
+  pool.forEach(a => {
+    if (!restSeen.has(a.activity)) { restSeen.add(a.activity); rest.push(a); }
+  });
+  const orderedPool = [...chosen, ...rest];
+
+  const days = [];
+  const cur = new Date(startDate);
+  const totalWorkingDays = durationWeeks * 5;
+  while (days.length < totalWorkingDays) {
+    const dow = cur.getDay();
+    if (dow !== 0 && dow !== 6) { // skip Sat/Sun
+      days.push(new Date(cur));
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+
+  let cursor = 0;
+  const schedule = days.map(d => {
+    const activities = [];
+    for (let i = 0; i < maxActivitiesPerDay; i++) {
+      const a = orderedPool[cursor % orderedPool.length];
+      cursor++;
+      activities.push({
+        order: i + 1,
+        contentTitle: a.activity,
+        moduleTitle: `${a.type} · ${a.level}`,
+        contentType: a.duration,
+        durationMinutes: a.durationMinutes,
+        // Extra dataset detail kept for the admin preview / richer teacher
+        // instructions. Safe to ignore if the backend schema doesn't use it.
+        materials: a.materials,
+        purpose: a.purpose,
+        howToConduct: a.howToConduct,
+        facilitatorRole: a.facilitatorRole,
+        expectedOutcomes: a.expectedOutcomes,
+      });
+    }
+    return {
+      date: d.toISOString().split("T")[0],
+      dayOfWeek: WEEKDAY_NAMES[d.getDay()],
+      activities,
+    };
+  });
+
+  const totalActivities = schedule.reduce((sum, d) => sum + d.activities.length, 0);
+  return {
+    course: { title: topic }, // kept as `course` so existing render code needs no other changes
+    totalActivities,
+    totalDays: schedule.length,
+    durationWeeks,
+    schedule,
+  };
+};
 
 const mapTeacherFromApi = (t) => ({
   id: t._id || t.id,
@@ -290,7 +380,8 @@ function PlanDetailModal({ plan, centers = [], classes = [], teachers = [], onOv
 function AutoGenerateWizard({ centers, classes, courses, teachers, onPublish, onClose, setToast }) {
   const [step, setStep] = useState(1);
   const [config, setConfig] = useState({
-    courseId: "", classId: "", centerId: "",
+    type: "", level: "", topic: "",
+    classId: "", centerId: "",
     startDate: new Date().toISOString().split("T")[0],
     durationWeeks: 4, maxActivitiesPerDay: 2,
     title: "",
@@ -300,12 +391,22 @@ function AutoGenerateWizard({ centers, classes, courses, teachers, onPublish, on
   const [publishing, setPublishing] = useState(false);
   const [dragIdx, setDragIdx] = useState(null);
 
+  const availableLevels = getActivityLevels(config.type);
+  const availableTopics = getActivityTopics(config.type, config.level);
+
   const handleGenerate = async () => {
-    if (!config.courseId) { setToast({ msg: "Please select a course.", type: "error" }); return; }
+    if (!config.type || !config.level || !config.topic) {
+      setToast({ msg: "Please select a developmental type, level, and topic.", type: "error" });
+      return;
+    }
     setGenerating(true);
     try {
-      const res = await autoGenerateLessonPlan(config);
-      setPreview(res);
+      const result = generateScheduleFromDataset(config);
+      if (!result) {
+        setToast({ msg: "No activities found for that type/level combination.", type: "error" });
+        return;
+      }
+      setPreview(result);
       setStep(2);
     } catch (err) {
       setToast({ msg: err.message || "Failed to generate plan.", type: "error" });
@@ -318,7 +419,6 @@ function AutoGenerateWizard({ centers, classes, courses, teachers, onPublish, on
     setPublishing(true);
     try {
       const res = await autoPublishLessonPlan({
-        courseId: config.courseId,
         classId: config.classId,
         centerId: config.centerId,
         title: config.title || `${preview.course.title} Plan`,
@@ -376,10 +476,36 @@ function AutoGenerateWizard({ centers, classes, courses, teachers, onPublish, on
             ))}
           </div>
 
-          <label style={S.label}>Course * (source of activities)</label>
-          <select style={S.input} value={config.courseId} onChange={e => setConfig({ ...config, courseId: e.target.value })}>
-            <option value="">Select a course...</option>
-            {courses.map(c => <option key={c._id || c.id} value={c._id || c.id}>{c.title} ({(c.modules || []).length} modules)</option>)}
+          <label style={S.label}>Developmental Type *</label>
+          <select
+            style={S.input}
+            value={config.type}
+            onChange={e => setConfig({ ...config, type: e.target.value, level: "", topic: "" })}
+          >
+            <option value="">Select a type...</option>
+            {getActivityTypes().map(ty => <option key={ty} value={ty}>{ty}</option>)}
+          </select>
+
+          <label style={{ ...S.label, marginTop: 12 }}>Level *</label>
+          <select
+            style={S.input}
+            value={config.level}
+            disabled={!config.type}
+            onChange={e => setConfig({ ...config, level: e.target.value, topic: "" })}
+          >
+            <option value="">{config.type ? "Select a level..." : "Select a type first"}</option>
+            {availableLevels.map(lv => <option key={lv} value={lv}>{lv}</option>)}
+          </select>
+
+          <label style={{ ...S.label, marginTop: 12 }}>Topic * (from activity bank)</label>
+          <select
+            style={S.input}
+            value={config.topic}
+            disabled={!config.level}
+            onChange={e => setConfig({ ...config, topic: e.target.value })}
+          >
+            <option value="">{config.level ? `Select a topic... (${availableTopics.length} available)` : "Select a level first"}</option>
+            {availableTopics.map(tp => <option key={tp} value={tp}>{tp}</option>)}
           </select>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
