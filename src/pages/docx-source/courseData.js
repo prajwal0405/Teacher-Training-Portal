@@ -1,0 +1,391 @@
+// courseData.js
+// SINGLE SOURCE OF TRUTH for the 10 Pre-Primary Teacher Development courses.
+// This same data is used to (a) generate the .docx deliverable and
+// (b) generate courseLibrary.json, which the backend/frontend consume.
+// If you edit course content, edit it HERE, then re-run generate_docx.js
+// and generate_json.js so the .docx and the JSON stay in sync.
+
+const courses = [
+  {
+    id: "cse-001",
+    title: "Foundations of Early Childhood Care and Education (ECCE)",
+    category: "Foundations of ECE",
+    level: "Beginner",
+    duration: "3 Weeks",
+    description:
+      "An introduction to the philosophy, history, and guiding principles of early childhood care and education, and why the pre-primary years shape a child's lifelong learning trajectory.",
+    objectives:
+      "Understand ECCE philosophy, key theorists, developmentally appropriate practice, and the teacher's role as a facilitator of early learning.",
+    topics: [
+      {
+        title: "What is ECCE and Why the Early Years Matter",
+        notes:
+          "Early Childhood Care and Education (ECCE) refers to the holistic development of children from birth to eight years, with the pre-primary phase (3-6 years) being the most intensive period of brain development. During these years, over 90% of a child's brain architecture is formed through everyday experiences, relationships, and play. Neuroscience shows that responsive, stimulating environments in these years build the cognitive, social, emotional, and physical foundations on which all later learning depends. Teachers in this phase are not simply caregivers; they are the architects of a child's first formal learning experiences. A pre-primary teacher's warmth, consistency, and intentional planning directly influence a child's school readiness, self-regulation, and love of learning. Quality ECCE reduces later learning gaps, improves language and numeracy outcomes, and supports better social-emotional adjustment. This is why national frameworks such as India's NEP 2020 place strong emphasis on Foundational Stage education (ages 3-8) as the bedrock of the entire education system, and why teacher preparation for this age group must be treated with the same rigor as any other stage of schooling.",
+      },
+      {
+        title: "Key Theorists and Their Contributions",
+        notes:
+          "Several foundational theorists shape modern ECCE practice. Friedrich Froebel, the founder of the kindergarten movement, introduced the idea of learning through structured play and 'gifts' (manipulative materials), viewing the child as an active gardener of their own growth. Maria Montessori emphasized a prepared environment, child-led exploration, and sensorial materials that allow children to self-correct and build independence at their own pace. Jean Piaget's theory of cognitive development described four stages, with the pre-primary child mostly in the Preoperational Stage (2-7 years), characterized by symbolic thinking, egocentrism, and the emergence of language, but not yet logical reasoning. Lev Vygotsky introduced the Zone of Proximal Development (ZPD) and the concept of scaffolding, arguing that children learn best with guided support from a more knowledgeable adult or peer, slightly beyond what they can do alone. Erik Erikson's psychosocial stages describe 'Initiative vs Guilt' (ages 3-5) as central to this period, where children who are encouraged to plan and attempt tasks develop confidence, while excessive criticism breeds guilt and hesitation. A skilled pre-primary teacher blends insights from all these theorists: providing a prepared, playful environment (Froebel/Montessori), scaffolding tasks just above the child's current ability (Vygotsky), respecting the child's stage of thinking (Piaget), and nurturing initiative through encouragement (Erikson).",
+      },
+      {
+        title: "Developmentally Appropriate Practice (DAP)",
+        notes:
+          "Developmentally Appropriate Practice means making decisions about curriculum and teaching based on three types of knowledge: what is known about child development and learning generally (age-appropriateness), what is known about each individual child (individual-appropriateness), and what is known about the social and cultural context in which children live (cultural-appropriateness). In practice, DAP means offering open-ended materials rather than worksheets for three-year-olds, allowing choice and movement rather than long periods of seated instruction, and pacing expectations to match a child's current developmental level rather than a fixed calendar age. A DAP classroom balances child-initiated and teacher-guided activities, uses observation rather than formal testing to understand progress, and treats mistakes as a normal part of learning rather than something to be corrected harshly. Teachers practicing DAP resist the pressure to turn pre-primary classrooms into miniature primary school; instead they build the underlying skills (attention, language, fine motor control, emotional regulation, curiosity) that make later academic learning possible and enjoyable.",
+      },
+      {
+        title: "The Role of the Pre-Primary Teacher",
+        notes:
+          "The pre-primary teacher wears many hats: facilitator, observer, environment designer, emotional anchor, and communicator with families. As a facilitator, the teacher poses open-ended questions ('What do you think will happen if...?') rather than only giving instructions, encouraging children to think and explore. As an observer, the teacher continuously watches how children play, interact, and solve problems, using these observations to plan the next day's activities and to identify children who may need additional support. As an environment designer, the teacher arranges the classroom into purposeful zones (art, blocks, reading, science, dramatic play) that invite exploration without constant adult direction. As an emotional anchor, the teacher provides a secure base from which children can explore, offering comfort during separation anxiety and modeling calm problem-solving during conflicts. Finally, as a communicator, the teacher builds a genuine partnership with families, sharing observations, celebrating milestones, and inviting parents into the learning process, since consistency between home and school greatly accelerates a child's development.",
+      },
+      {
+        title: "Ethics, Safety, and Professionalism in ECCE",
+        notes:
+          "Working with young children carries a special duty of care. Ethical practice begins with treating every child with dignity regardless of background, ability, or behavior, and avoiding comparison, labeling, or shaming. Confidentiality matters: information about a child's family situation, developmental concerns, or behavior should only be shared with those who need it for the child's wellbeing. Physical safety is non-negotiable — classrooms must have secured furniture, no small choking hazards for younger groups, visible and unobstructed emergency exits, and constant supervision, since young children cannot yet assess risk themselves. Professionalism also means continuous self-reflection: keeping a simple daily or weekly journal of what worked, what did not, and why, is one of the most powerful tools a new teacher can use to improve. Finally, professional pre-primary teachers commit to lifelong learning, staying updated on child development research, attending training, and collaborating with colleagues rather than working in isolation.",
+      },
+    ],
+  },
+  {
+    id: "cse-002",
+    title: "Child Growth and Development (0-6 Years)",
+    category: "Foundations of ECE",
+    level: "Beginner",
+    duration: "3 Weeks",
+    description:
+      "A practical study of physical, cognitive, language, social, and emotional milestones from birth to six years, and how teachers can use milestone knowledge to plan age-appropriate activities.",
+    objectives:
+      "Identify typical developmental milestones across domains and design activities that match each stage of growth.",
+    topics: [
+      {
+        title: "Domains of Development",
+        notes:
+          "Child development is generally described across five interconnected domains: physical (gross and fine motor skills), cognitive (thinking, memory, problem-solving), language (receptive and expressive communication), social (relating to others, sharing, cooperation), and emotional (recognizing and regulating feelings). These domains do not develop in isolation; a delay or strength in one area often influences the others. For example, a child with strong fine motor control finds drawing and self-feeding easier, which builds confidence that supports emotional and social development. Teachers should observe all five domains rather than focusing narrowly on 'academic' skills, since a well-rounded picture of a child's growth is essential to planning meaningful activities and identifying children who may need extra support in a specific area.",
+      },
+      {
+        title: "Milestones: 3 to 4 Years",
+        notes:
+          "By age three to four, most children can run, jump with both feet, and pedal a tricycle (gross motor); hold a crayon with an emerging pincer grip and build a tower of six or more blocks (fine motor); use three-to-four word sentences and ask frequent 'why' questions (language); engage in parallel and early cooperative play, and begin to take turns with adult support (social); and start to name basic emotions like happy, sad, and angry, though self-regulation is still developing and tantrums remain common (emotional). Cognitively, children at this stage engage in symbolic/pretend play (using a block as a phone), sort objects by one attribute such as color, and have a short attention span of roughly 5-10 minutes for a single activity. Teachers should plan short, varied activities with lots of movement, hands-on materials, and simple choices ('Do you want the red or blue crayon?') to match this stage.",
+      },
+      {
+        title: "Milestones: 4 to 5 Years",
+        notes:
+          "Between four and five years, gross motor skills become more coordinated — children can hop on one foot, catch a ball, and climb confidently. Fine motor control improves enough to cut along a line with scissors, copy simple shapes like a cross or square, and begin forming some recognizable letters. Language expands rapidly: sentences of five or more words, correct use of plurals and past tense (with some charming overgeneralizations like 'goed'), and the ability to retell a simple story in sequence. Socially, children engage in more sustained cooperative play, can follow two-to-three step instructions, and begin to understand rules in simple games, though fairness disputes are common. Emotionally, children start to use words instead of only physical reactions to express frustration, though they still need adult coaching through conflicts. Cognitively, they can sort by two attributes, count small sets of objects with understanding (not just rote counting), and show growing curiosity about cause and effect. Activities should now include slightly longer group tasks (10-15 minutes), simple pre-writing practice, and structured turn-taking games.",
+      },
+      {
+        title: "Milestones: 5 to 6 Years",
+        notes:
+          "By five to six years — typically the final pre-primary year before formal schooling — children display more refined gross motor skills such as skipping and balancing, and fine motor skills sufficient for writing their name and drawing detailed pictures with multiple elements. Language becomes more complex, with the use of connectors ('because', 'and then'), an expanding vocabulary of several thousand words, and the ability to engage in real conversations and describe past and future events. Socially, children can play cooperatively in small groups for extended periods, negotiate simple conflicts with reduced adult intervention, and show empathy by comforting a distressed peer. Emotionally, self-regulation strengthens considerably, though children still benefit from calming strategies during stress. Cognitively, children grasp early number concepts such as one-to-one correspondence and simple addition/subtraction with objects, begin to understand letter-sound relationships (phonemic awareness), and can sustain attention on a chosen task for 15-20 minutes. This is the ideal stage to introduce structured pre-literacy and pre-numeracy activities that remain playful and concrete rather than abstract or worksheet-heavy.",
+      },
+      {
+        title: "Using Milestones Without Labeling Children",
+        notes:
+          "Milestones are guides, not strict deadlines — every child develops at their own pace, and a range of a few months' variation is entirely normal. Teachers should use milestone charts as a lens to plan activities and notice patterns, not as a checklist to grade or rank children. When a child consistently falls behind multiple milestones across domains, or shows a marked regression, this is a signal to observe more closely, document specific examples, and discuss with parents and, where appropriate, a specialist — not to label the child prematurely. It is equally important to recognize giftedness and advanced development, ensuring these children are not held back by a one-size-fits-all pace. The golden rule is: assess to understand and support, never to compare children against each other.",
+      },
+    ],
+  },
+  {
+    id: "cse-003",
+    title: "Play-Based Learning and Pedagogy",
+    category: "Instructional Strategies",
+    level: "Intermediate",
+    duration: "4 Weeks",
+    description:
+      "Deep dive into why and how play is the primary vehicle for learning in the early years, covering types of play, play-based lesson design, and the teacher's role during play.",
+    objectives:
+      "Design and facilitate structured and unstructured play experiences that build academic, social, and emotional skills.",
+    topics: [
+      {
+        title: "Why Play is Learning",
+        notes:
+          "Play is not a break from learning in the pre-primary years — it is the primary mechanism through which learning happens. During play, children practice language (narrating their actions, negotiating roles), mathematics (comparing sizes, counting blocks, recognizing patterns), problem-solving (figuring out how to build a stable tower), social skills (sharing, turn-taking, resolving disagreements), and emotional regulation (managing frustration when a tower falls). Play allows children to safely rehearse real-world scenarios (through dramatic play), test hypotheses (through exploratory play with sand, water, or blocks), and build sustained attention and self-direction (through activities they choose themselves). Research consistently shows that children in high-quality play-based programs perform as well or better academically in later years compared to children in highly didactic, worksheet-heavy programs, while also showing stronger social-emotional outcomes. The teacher's task is not to replace play with instruction, but to enrich play with intentional resources, language, and gentle guidance.",
+      },
+      {
+        title: "Types of Play",
+        notes:
+          "Understanding different categories of play helps teachers plan a balanced classroom. Sensory/exploratory play (sand, water, playdough, textured materials) builds curiosity and fine motor skills. Constructive play (blocks, puzzles, building sets) develops spatial reasoning, planning, and persistence. Dramatic/pretend play (role play corners, dress-up, puppet shows) builds language, empathy, and social scripts for real-life situations. Physical/gross motor play (running, climbing, obstacle courses) supports body control, spatial awareness, and healthy development. Games-with-rules (simple board games, group games like 'Simon Says') introduce the idea of following shared rules and turn-taking, typically emerging more fully around age five. Parten's stages of social play — solitary, parallel, associative, and cooperative — describe how a child's play becomes progressively more socially connected with age, and teachers should not force cooperative play on a two-year-old still in the solitary/parallel stage, but should gently scaffold the transition as children approach four years.",
+      },
+      {
+        title: "Designing a Play-Based Lesson",
+        notes:
+          "A well-designed play-based lesson begins with a clear learning objective disguised inside an inviting activity — for example, a 'grocery shop' dramatic play corner that teaches counting, categorization, and vocabulary while looking like pure imaginative fun. The lesson should include: a short circle-time introduction (5-10 minutes) to spark interest and introduce key vocabulary or a guiding question; a main activity block (20-30 minutes) with multiple stations so children can choose based on interest while all stations reinforce the same underlying skill; embedded teacher interactions during play, using open-ended questions rather than direct instruction ('What do you notice about these two piles?' instead of 'This pile has more'); and a closing circle (5-10 minutes) where children share what they made or discovered, reinforcing vocabulary and giving the teacher a quick, informal assessment of understanding. Materials should be real and varied wherever possible (real fruit, real utensils, natural objects) since concrete, authentic materials are far more engaging and meaningful to young children than abstract worksheets.",
+      },
+      {
+        title: "The Teacher's Role During Play",
+        notes:
+          "During play, the teacher moves fluidly between four roles. As an observer, the teacher steps back and watches without interrupting, gathering rich information about a child's language, social skills, and problem-solving strategies. As a co-player, the teacher occasionally joins the play at the child's invitation, following the child's lead rather than taking over ('You be the doctor, I'll be the patient who has a tummy ache'). As a scaffolder, the teacher offers just enough support to help a child move slightly beyond their current ability — for instance, suggesting a wider base when a tower keeps falling, without building it for the child. As an extender, the teacher introduces new vocabulary, questions, or materials to deepen an already-engaged play scenario, turning a simple pretend kitchen into an opportunity to talk about hot/cold, more/less, and healthy/unhealthy foods. The key skill is restraint: knowing when to step in and when to let the child struggle productively, since over-directing play removes its core benefits.",
+      },
+      {
+        title: "Balancing Free Play and Guided Play",
+        notes:
+          "Effective pre-primary programs use a mix of free play (child-initiated, child-directed, with minimal adult involvement) and guided play (adult-initiated setup with a learning goal, but child-directed exploration within it). Free play is essential for building autonomy, creativity, and self-regulation, and should occupy a significant portion of the daily schedule, especially for younger pre-primary children. Guided play is powerful for building specific target skills (like early letter sounds or number sense) while preserving the motivational and exploratory benefits of play, and research shows it can be even more effective than either pure free play or direct instruction for certain academic skills. A well-balanced weekly schedule includes daily blocks of both, along with outdoor free play, since outdoor time supports gross motor development, sensory regulation, and often triggers the richest cooperative and dramatic play of the day.",
+      },
+    ],
+  },
+  {
+    id: "cse-004",
+    title: "Curriculum Planning and Lesson Design for Pre-Primary",
+    category: "Curriculum Planning",
+    level: "Intermediate",
+    duration: "4 Weeks",
+    description:
+      "How to build a coherent, theme-based pre-primary curriculum, write daily lesson plans, and align activities to learning goals across the year.",
+    objectives:
+      "Create a thematic yearly curriculum map and write detailed, developmentally appropriate daily lesson plans.",
+    topics: [
+      {
+        title: "Principles of Early Years Curriculum Design",
+        notes:
+          "A good pre-primary curriculum is integrated rather than subject-siloed: a single theme (for example, 'Our Community Helpers') naturally weaves in language (new vocabulary, story time), mathematics (counting community workers, sorting uniforms by color), art (drawing a firefighter), and social studies (understanding different jobs) within the same week. Curriculum should be spiral, not linear — core concepts like counting, letter sounds, and social skills are revisited repeatedly throughout the year with increasing complexity, echoing Bruner's Spiral Curriculum, rather than being taught once and considered 'done'. Curriculum should also be responsive: while a yearly theme map provides structure, teachers should be ready to follow genuine child interest (a sudden fascination with insects after finding one on the playground) even if it means adjusting the planned theme, since intrinsic motivation dramatically increases learning. Finally, curriculum should be balanced across all five developmental domains every single week, not just cognitive/academic goals.",
+      },
+      {
+        title: "Backward Design for Early Years",
+        notes:
+          "Backward Design, adapted from Wiggins and McTighe, is highly effective even for very young learners. The process starts with identifying desired results: what should children understand or be able to do by the end of this unit (for example, 'recognize and name five basic shapes' or 'take turns during a group activity')? The second step is determining acceptable evidence: how will the teacher know children have learned this — through observation checklists, a simple show-and-tell, or a play-based demonstration, rather than a formal test? The third step is planning learning experiences: only once the goal and evidence are clear does the teacher design the actual activities, ensuring every activity in the unit genuinely serves the stated goal rather than being included just because it is fun or familiar. This approach prevents the common trap of planning appealing activities first and only loosely connecting them to any real learning objective.",
+      },
+      {
+        title: "Writing a Daily Lesson Plan",
+        notes:
+          "A strong pre-primary daily lesson plan includes: a clear, single-sentence learning objective stated in child-friendly, observable terms ('Children will sort objects by color'); a hook or introduction (5-10 minutes) that captures attention through a story, song, puppet, or real object; the main activity (15-20 minutes) with step-by-step teacher actions and anticipated child responses, including questions the teacher will ask to extend thinking; materials needed, listed specifically enough that a substitute teacher could prepare the lesson from the plan alone; differentiation notes for children who may need more support or more challenge; and a closing/review section where children recap what they did, reinforcing vocabulary and giving the teacher a quick read on understanding. Transitions between activities should also be planned explicitly (a transition song or a countdown routine), since poorly managed transitions are one of the most common sources of classroom disruption in pre-primary settings.",
+      },
+      {
+        title: "Theme-Based and Project-Based Approaches",
+        notes:
+          "Theme-based teaching organizes a week or two of activities around a single unifying topic (seasons, animals, family, transport), giving children repeated, varied exposure to the same vocabulary and concepts, which strongly supports retention. A yearly theme map should balance familiar, concrete themes early in the year (self and family, my body, my classroom) with more abstract or distant themes later (community helpers, transportation, our environment) as children's comprehension and attention span grow. The project approach, associated with the Reggio Emilia philosophy, takes this further: rather than a teacher-predetermined theme, an extended investigation emerges from genuine child curiosity (for example, an ongoing project on 'How do plants grow?' sparked by planting seeds), with children posing questions, predicting, documenting findings through drawings, and revisiting the project over several weeks. Both approaches value depth over breadth — a handful of well-explored themes across the year build stronger understanding than a rapid, shallow tour of many disconnected topics.",
+      },
+      {
+        title: "Aligning Curriculum Across the Year",
+        notes:
+          "A yearly curriculum map lays out themes term by term, but should be cross-checked against a skills progression chart to ensure nothing is missed: language and literacy goals (vocabulary growth, phonemic awareness, pre-writing), numeracy goals (counting, shapes, patterns, early operations), social-emotional goals (sharing, self-regulation, empathy), physical development goals (fine and gross motor benchmarks), and creative/aesthetic goals (art, music, movement) should each appear across multiple themes throughout the year, with a gentle increase in complexity each term. Teachers should build in regular review weeks (roughly every 6-8 weeks) with lighter, revision-focused activities that consolidate recent learning before moving to new themes, since young children need more repetition than older learners to firmly retain new concepts.",
+      },
+    ],
+  },
+  {
+    id: "cse-005",
+    title: "Classroom Management and Positive Discipline",
+    category: "Classroom Management",
+    level: "Intermediate",
+    duration: "3 Weeks",
+    description:
+      "Practical strategies for organizing the physical classroom, establishing routines, and guiding behavior positively without punishment or shame.",
+    objectives:
+      "Set up a child-friendly, safe physical environment and apply positive discipline techniques to guide behavior.",
+    topics: [
+      {
+        title: "Designing the Physical Classroom",
+        notes:
+          "A well-organized pre-primary classroom is divided into clearly defined zones — a reading corner with soft seating and accessible books, a construction zone with blocks and puzzles, an art and craft zone with washable surfaces, a dramatic play area with dress-up and role-play props, and a science/discovery table with sensory or nature materials. Shelves and materials should be low and open, allowing children to independently select and return items, which builds responsibility and reduces reliance on adult permission for every action. Pathways between zones should be wide enough to prevent bottlenecks and collisions, and quiet zones (reading corner) should be placed away from noisy zones (construction, dramatic play) to reduce sensory overload. Natural light should be maximized wherever possible, since it supports mood, alertness, and general wellbeing. Heavy furniture must be secured to walls, sharp corners padded, cleaning chemicals and other hazards kept completely out of reach, and emergency exits kept clear and unlocked at all times — safety review of the physical space should be a routine, not a one-time task.",
+      },
+      {
+        title: "Building Predictable Routines",
+        notes:
+          "Young children thrive on predictability because it reduces anxiety and frees mental energy for learning rather than worrying about 'what happens next'. A visible daily schedule — using pictures alongside words for pre-readers — should be posted at child eye level and referred to throughout the day ('First circle time, then centers, then snack'). Circle time typically includes a greeting ritual (a name song or 'good morning' routine), a review of the calendar/weather, and a story or discussion — this predictable opening signals the start of the learning day and builds a sense of community. Transitions (moving from one activity to another) are a major source of chaos if unplanned; using a consistent signal (a bell, a clean-up song, dimming lights) prepares children mentally before an abrupt change is demanded of them. Consistent daily routines — arrival, circle time, centers, outdoor play, snack, story time, departure — should repeat in largely the same order and approximate timing every day, since consistency, not rigidity, is what builds security.",
+      },
+      {
+        title: "Positive Discipline Principles",
+        notes:
+          "Positive discipline is grounded in the idea that behavior is communication, not defiance to be crushed. Rather than punishment (which teaches fear and often stops only the visible behavior, not the underlying need), positive discipline focuses on teaching the skill the child is missing — self-regulation, communication, or problem-solving. Core techniques include: stating expectations positively ('Walking feet inside' rather than 'No running'); offering limited choices to give children a sense of control within safe boundaries ('Do you want to clean up the blocks or the puzzles first?'); using natural and logical consequences connected directly to the behavior (a child who throws sand must leave the sand table for a short, clearly explained period, rather than losing an unrelated privilege); and consistently connecting before correcting — getting down to the child's eye level, acknowledging their feeling ('You're really frustrated that Aanya took your toy'), before addressing the behavior. Praise should focus on effort and specific actions ('You worked so hard to build that tall tower') rather than vague or outcome-only praise ('Good job'), since effort-based praise builds resilience and a growth mindset.",
+      },
+      {
+        title: "Managing Tantrums and Separation Anxiety",
+        notes:
+          "Tantrums are a normal, developmentally expected response to overwhelming emotion in children who do not yet have the neural maturity for full self-regulation, especially between ages two and four. During a tantrum, the teacher's first job is safety (removing the child from anything hazardous), followed by staying calm and nearby without excessive talking, since a dysregulated child cannot process complex language in the moment. Once the child begins to calm, a brief, warm acknowledgment of the feeling ('That was really hard for you') helps the child feel understood, followed later by a simple, age-appropriate conversation about what happened, once the child is fully calm — never during the peak of the tantrum. Separation anxiety, common especially at the start of the year or after a break, is best managed through a consistent, brief, and confident goodbye routine (a hug, a wave, a specific phrase) rather than prolonged goodbyes, which tend to heighten anxiety. A transition object from home, a photo of the family in the child's cubby, or a special welcome routine from the teacher can significantly ease this adjustment over the first one to two weeks.",
+      },
+      {
+        title: "Preventing Behavior Challenges Through Engagement",
+        notes:
+          "Most behavior challenges in pre-primary classrooms stem from unmet needs — boredom, fatigue, hunger, overstimulation, or a lack of clear expectations — rather than intentional defiance. Prevention starts with engaging activities matched to the developmental level and interests of the group, since children who are genuinely absorbed in meaningful play rarely act out. Building in movement breaks between seated activities respects the short attention span and high energy needs of this age group. Giving advance notice before transitions ('In five more minutes we will clean up') reduces resistance compared to abrupt demands. Consistent, clearly and positively stated classroom agreements, co-created with children where possible and reviewed regularly, help children internalize expectations rather than simply comply out of fear. Finally, a peer buddy system, where children are paired to support one another during transitions or challenging moments, builds both independence and a caring classroom community while reducing the teacher's need for constant individual intervention.",
+      },
+    ],
+  },
+  {
+    id: "cse-006",
+    title: "Language and Early Literacy Development",
+    category: "Instructional Strategies",
+    level: "Intermediate",
+    duration: "4 Weeks",
+    description:
+      "Strategies for building vocabulary, phonological awareness, and pre-writing skills through storytelling, songs, and print-rich environments.",
+    objectives:
+      "Plan daily language-rich activities and pre-literacy routines that build the foundation for reading and writing.",
+    topics: [
+      {
+        title: "The Building Blocks of Early Literacy",
+        notes:
+          "Early literacy rests on several interconnected building blocks that develop well before a child reads a single word. Oral language and vocabulary form the foundation — children who hear rich, varied language and engage in back-and-forth conversation develop stronger vocabularies, which strongly predicts later reading comprehension. Phonological awareness — the ability to hear and play with the sounds of language (rhyming, clapping syllables, identifying the first sound in a word) — is one of the strongest predictors of future reading success and can be built entirely through oral games, with no print required. Print awareness (understanding that print carries meaning, that we read left to right, that a book has a front and back) develops through shared reading experiences. Alphabet knowledge (recognizing and naming letters) and emergent writing (scribbling, then letter-like forms, then real letters) round out the picture. A common misconception is that literacy begins with letter drilling; in fact, oral language and phonological awareness in the pre-primary years are far more predictive of later reading success than early letter recognition alone.",
+      },
+      {
+        title: "Read-Alouds and Storytelling",
+        notes:
+          "Daily read-alouds are one of the single most powerful literacy practices available to a pre-primary teacher. Effective read-alouds are interactive rather than passive: the teacher pauses to ask predictive questions ('What do you think will happen next?'), points to and tracks print occasionally to build print awareness, uses expressive voices for different characters to model fluency and engagement, and revisits the same beloved book multiple times, since repeated readings deepen vocabulary retention and comprehension far more than a constant stream of new titles. Storytelling without a book — using a felt board, puppets, or simply the teacher's voice and gestures — builds narrative sequencing skills (beginning, middle, end) and encourages children's own oral storytelling, which is a direct precursor to writing. After a story, open-ended discussion questions ('How do you think the character felt?') build comprehension and empathy simultaneously, far more effectively than simple recall questions alone.",
+      },
+      {
+        title: "Building Vocabulary Intentionally",
+        notes:
+          "Vocabulary growth in the pre-primary years is dramatic — from roughly 1,000 words at age three to over 5,000 words by age six — and this growth rate is heavily influenced by the richness of language children are exposed to. Teachers can intentionally build vocabulary by pre-selecting 2-3 'target words' per theme or story and explicitly introducing, defining in child-friendly terms, and repeatedly using these words across the week in different contexts (during play, at snack time, during transitions). Using rich, precise language rather than simplified language ('enormous' instead of just 'big', 'drizzling' instead of just 'raining') during everyday interactions exposes children to a wider vocabulary than they would encounter through simplified 'baby talk'. Real objects, pictures, and hands-on experiences should accompany new vocabulary wherever possible, since abstract words taught only verbally are far harder for young children to retain than words linked to a concrete experience or object.",
+      },
+      {
+        title: "Phonological Awareness Activities",
+        notes:
+          "Phonological awareness develops through a predictable sequence, moving from larger, easier units to smaller, harder ones: first, awareness of whole words and sentences (clapping the words in a sentence); then syllables (clapping the syllables in a name, 'Ra-vi' has two claps); then rhyme (identifying and generating rhyming words through songs and games); then onset and initial sounds (identifying that 'sun' and 'sand' start with the same sound); and finally, toward the end of pre-primary, blending and segmenting individual phonemes (hearing that 'cat' is made of three sounds, c-a-t) — this final skill is typically the last to develop and connects most directly to future decoding. All of these should be taught orally, through games, songs, and clapping, with no print or writing required, since phonological awareness is fundamentally a listening and speaking skill. Common activities include rhyming games during transitions, 'I Spy' with beginning sounds, syllable clapping to names during attendance, and simple sound-matching games with picture cards.",
+      },
+      {
+        title: "Emergent Writing and Fine Motor Preparation",
+        notes:
+          "Writing readiness begins long before a child forms correct letters. Fine motor strength and control — built through activities like playdough manipulation, using tongs or tweezers to transfer small objects, threading beads, and using child-safe scissors — must develop before a child can comfortably hold and control a writing tool. Emergent writing progresses through recognizable stages: scribbling, then mock letters or letter-like forms, then strings of real letters (often including letters from the child's own name), and eventually conventional spelling attempts. Teachers should encourage and celebrate every stage of this progression rather than correcting a three-year-old's scribble as 'wrong', since forcing formal letter formation too early, before fine motor and cognitive readiness, can create frustration and even improper pencil grip habits that are hard to correct later. A print-rich environment — labels on classroom objects, a writing center with varied tools (crayons, chalk, whiteboard markers), and opportunities for children to 'write' their own name on artwork or a sign-in sheet — normalizes writing as a meaningful, everyday activity rather than an isolated drill.",
+      },
+    ],
+  },
+  {
+    id: "cse-007",
+    title: "Numeracy and Early Mathematical Thinking",
+    category: "Instructional Strategies",
+    level: "Intermediate",
+    duration: "4 Weeks",
+    description:
+      "Building number sense, patterns, shapes, measurement, and early problem-solving through concrete, playful mathematics experiences.",
+    objectives:
+      "Sequence early numeracy concepts appropriately and design hands-on math activities that build genuine number sense.",
+    topics: [
+      {
+        title: "What is Number Sense?",
+        notes:
+          "Number sense is a flexible, intuitive understanding of quantity, relationships between numbers, and how numbers can be composed and decomposed — it is much deeper than the ability to recite numbers in order (rote counting). A child can rote count to twenty perfectly while having no real understanding that 'five' represents a specific quantity; true number sense requires one-to-one correspondence (touching and counting each object exactly once), cardinality (understanding that the last number counted represents the total quantity of the set), and subitizing (instantly recognizing small quantities, like two or three dots, without counting one by one). Building genuine number sense requires extensive hands-on experience with real, countable objects — buttons, blocks, snacks, fingers — rather than memorization of number symbols in isolation. Teachers should resist the temptation to move quickly to worksheets and abstract numerals before children have had extensive concrete experience, since premature abstraction without a concrete foundation leads to fragile, easily-forgotten math skills.",
+      },
+      {
+        title: "Counting and Cardinality Progression",
+        notes:
+          "Counting skills develop in a predictable sequence. First, children learn the rote number sequence (reciting '1, 2, 3...') without necessarily connecting it to quantity. Next comes one-to-one correspondence — touching or moving one object per number word, a skill that requires significant coordination and is often uneven at first (a child might skip an object or count one twice). Cardinality follows — understanding that when counting a set of five objects, the final number said ('five') represents the total quantity, not just the label of the last object touched; this is often assessed by asking 'how many are there altogether?' immediately after counting. Beyond this, children develop the ability to count on from a given number rather than always starting from one, compare two sets to determine 'more', 'less', or 'equal', and eventually connect written numerals to the quantities they represent. Daily opportunities for authentic counting — counting children present for attendance, counting steps while walking, counting out snack items — embed this skill meaningfully into the daily routine rather than isolating it into a single 'math time'.",
+      },
+      {
+        title: "Patterns, Shapes, and Spatial Reasoning",
+        notes:
+          "Pattern recognition is a core mathematical skill that underlies algebraic thinking later in schooling. Pre-primary children begin with simple repeating patterns (red-blue-red-blue) using real objects like beads, blocks, or even body movements (clap-stomp-clap-stomp), gradually progressing to more complex patterns (AAB, ABC) as their cognitive capacity grows. Shape knowledge should go beyond simply naming a circle or square; children should explore shape properties through building, sorting, and comparing (a triangle has three straight sides, a circle has none), and should encounter shapes in many orientations and contexts, not only as flat, upright cutouts, since children who only see a 'standard' triangle orientation often fail to recognize a rotated or unusually-shaped triangle. Spatial reasoning — understanding position words (above, below, next to, between), navigating and building with blocks, and completing puzzles — is a strong predictor of later mathematical ability and should be built daily through block play, obstacle courses, and simple positional-language games ('Put the teddy bear under the table').",
+      },
+      {
+        title: "Measurement and Comparison",
+        notes:
+          "Early measurement concepts begin with direct, non-numerical comparison — identifying which of two objects is longer, heavier, taller, or holds more, using everyday classroom objects and simple balance scales. Children should have extensive experience with non-standard units before moving to standard units — measuring the length of a table using blocks or hand-spans builds an intuitive understanding of what 'measuring' actually means, before introducing the abstraction of centimeters or inches. Ordering three or more objects by size (from shortest to tallest) is an important intermediate skill, requiring children to hold multiple comparisons in mind simultaneously. Water and sand play are excellent, naturally engaging contexts for building early volume and capacity concepts ('Which container holds more water?'), while cooking or baking activities introduce measurement in a meaningful, real-world context that also builds sequencing and following-instructions skills.",
+      },
+      {
+        title: "Early Problem-Solving and Mathematical Thinking",
+        notes:
+          "Beyond specific content knowledge, pre-primary mathematics should build a disposition toward problem-solving — curiosity, persistence, and the willingness to try different strategies when a first approach does not work. Teachers can foster this by presenting genuine, open-ended problems rather than only closed drill questions: 'We have twelve children and only ten chairs, what should we do?' invites real mathematical thinking, discussion, and multiple valid solution paths. Encouraging children to explain their thinking, even informally ('How did you know there were more red blocks?'), builds mathematical reasoning and language simultaneously, and often reveals valuable information about a child's actual understanding that a simple correct/incorrect answer would not show. Mistakes should be treated as valuable information rather than failures — a wrong count is an opportunity to recount together and discover where the counting broke down, building both resilience and a genuine understanding of the counting process rather than rote correction.",
+      },
+    ],
+  },
+  {
+    id: "cse-008",
+    title: "Health, Nutrition, Safety and Hygiene in ECCE",
+    category: "Health, Safety & Nutrition",
+    level: "Beginner",
+    duration: "2 Weeks",
+    description:
+      "Essential knowledge on child nutrition, hygiene routines, common illnesses, and safety protocols every pre-primary teacher must know.",
+    objectives:
+      "Apply health, hygiene, nutrition, and safety best practices to protect and promote the wellbeing of young children.",
+    topics: [
+      {
+        title: "Nutrition Basics for Pre-Primary Children",
+        notes:
+          "Young children have small stomachs but high energy and nutrient needs relative to their body size, which is why frequent, smaller meals and healthy snacks work better than three large meals alone. A balanced daily intake for this age group generally includes grains, pulses/proteins, dairy, fruits, and vegetables, with an emphasis on whole, minimally processed foods and limited added sugar and salt. Teachers should be alert to common deficiencies in many settings, particularly iron (linked to fatigue and reduced attention) and vitamin D, and should encourage a varied diet through positive modeling rather than pressure or bribery around food, since forcing or over-praising eating can create unhealthy relationships with food later. Snack and meal times are also valuable learning opportunities — for language (naming foods), fine motor skills (self-serving, using utensils), social skills (sharing, waiting turns), and basic nutrition awareness (talking simply about foods that 'help us grow strong'). Teachers must always be aware of and strictly respect any food allergies or dietary restrictions on file for each child, treating this information with the same seriousness as any other safety protocol.",
+      },
+      {
+        title: "Hygiene Routines",
+        notes:
+          "Consistent hygiene routines protect both individual and classroom health and, when taught as an interesting daily ritual rather than a chore, also build lifelong habits. Handwashing should be taught step by step (wet, soap, scrub for at least twenty seconds — often set to a short song, rinse, dry) and practiced at key transition points: on arrival, before eating, after using the toilet, and after outdoor or messy play. Teachers should model correct handwashing themselves consistently, since young children learn far more from what they observe adults doing than from verbal instruction alone. Other hygiene routines include covering coughs and sneezes with an elbow rather than a hand, appropriate toilet training support with privacy and patience for children still in this process, regular cleaning and disinfection of shared toys and surfaces (particularly mouthed items for younger groups), and gentle daily health checks (looking for fever, rash, or signs of illness) as children arrive, which helps catch contagious conditions early and protects the wider group.",
+      },
+      {
+        title: "Recognizing and Responding to Common Illnesses",
+        notes:
+          "Pre-primary teachers should be able to recognize signs of common childhood illnesses and know the appropriate response for each. Fever (above the normal range for the specific thermometer/method used), persistent coughing, vomiting, diarrhea, unusual rashes, or visible discomfort/lethargy generally warrant isolating the child comfortably, informing the school nurse or designated first-aid person, and contacting the family for pickup, following the specific protocol of the institution. Minor injuries (small cuts, bumps, scrapes) should be handled calmly using basic first aid (clean the wound, apply a plaster if needed, comfort the child), while any head injury, deep cut, breathing difficulty, allergic reaction, or loss of consciousness is a medical emergency requiring immediate escalation to trained medical support and the family, following the institution's emergency protocol without delay. Teachers should always know where the first-aid kit is located, which children have known allergies or medical conditions on file, and the exact steps of their institution's emergency response plan before an incident occurs, not learned for the first time during one.",
+      },
+      {
+        title: "Physical Safety in the Classroom and Outdoors",
+        notes:
+          "Physical safety requires ongoing vigilance rather than a one-time setup. Indoors, this means securing heavy furniture and shelving to walls, keeping cleaning chemicals and sharp objects completely inaccessible, ensuring small parts and choking hazards are excluded from materials used with younger age groups, keeping electrical outlets covered, and maintaining clear, unlocked emergency exits at all times. Outdoors, this means checking play equipment regularly for damage or hazards, ensuring soft, impact-absorbing surfacing beneath climbing equipment, maintaining constant, active supervision (not passive presence while distracted) with a clear line of sight to all children at all times, and enforcing sun safety (shade, hats, sunscreen where policy allows) during outdoor play. Every pre-primary classroom should conduct regular fire and emergency evacuation drills adapted to be non-frightening for young children, using simple, calm language and practiced routines so children know exactly what to do without panic if a real emergency occurs.",
+      },
+      {
+        title: "Building Health and Safety Awareness in Children",
+        notes:
+          "Beyond protecting children, part of a pre-primary teacher's role is to begin building children's own health and safety awareness in age-appropriate ways. This includes simple body safety concepts (which parts of the body are private, that a child can say 'no' and tell a trusted adult if uncomfortable), taught in a calm, matter-of-fact, non-frightening tone appropriate to a young child's understanding. Basic safety rules — not touching hot surfaces, staying with the group, using walking feet indoors, road safety basics like holding an adult's hand near roads — should be taught through repetition, modeling, and simple stories or songs rather than one-off lectures, since young children learn safety habits through consistent practice far more effectively than through verbal warnings alone. Health awareness can also be built playfully — through pretend-doctor dramatic play, simple stories about germs and handwashing, and involving children in classroom hygiene routines like wiping down tables after snack — turning health education into an engaging, everyday part of classroom culture rather than a separate, occasional topic.",
+      },
+    ],
+  },
+  {
+    id: "cse-009",
+    title: "Inclusive Education and Special Needs in Early Years",
+    category: "Curriculum Planning",
+    level: "Advanced",
+    duration: "3 Weeks",
+    description:
+      "Understanding developmental delays, common conditions like autism and ADHD, and practical inclusive classroom strategies for supporting every learner.",
+    objectives:
+      "Recognize early signs of developmental differences and apply inclusive, individualized strategies within a mainstream pre-primary classroom.",
+    topics: [
+      {
+        title: "Principles of Inclusive Education",
+        notes:
+          "Inclusive education means adapting the environment, curriculum, and teaching approach to meet the needs of every child, rather than expecting every child to fit an unchanging, one-size-fits-all classroom. This is a fundamental shift from older 'special education' models that separated children with differences into entirely separate settings; inclusive practice instead asks: what adjustments allow this child to participate meaningfully alongside their peers? Inclusive education benefits not only children with identified developmental differences but the entire classroom — exposure to diverse peers builds empathy, flexibility, and a genuine understanding that people learn and communicate in different ways from an early age. Successful inclusion requires collaboration between the classroom teacher, special educators or therapists where involved, and families, with consistent communication and shared strategies across home and school, rather than the classroom teacher working in isolation.",
+      },
+      {
+        title: "Recognizing Developmental Delay",
+        notes:
+          "Developmental delay refers to a child achieving milestones at a notably slower pace than typical for their age, in one or more domains (physical, cognitive, language, social, or emotional) — it does not imply a permanent disability, and many children with early delays go on to develop typically with appropriate support, especially with early intervention. Teachers, who observe children daily across many activities, are often the first to notice patterns that warrant closer attention — such as a persistent lack of eye contact and social engagement, very limited or absent language by an age where peers are speaking in sentences, significant motor delays, or a marked, sustained regression in previously acquired skills. It is essential to observe over time and across multiple contexts rather than reacting to a single moment, to document specific, concrete examples (what the child did or did not do, not vague impressions), and to raise concerns with parents sensitively, factually, and collaboratively, always framing the conversation around support rather than diagnosis, since teachers are not qualified to diagnose conditions — only to observe, document, and refer to appropriate professionals.",
+      },
+      {
+        title: "Understanding Autism Spectrum Differences and ADHD",
+        notes:
+          "Autism Spectrum differences involve variations in social communication, sensory processing, and patterns of behavior or interest, and present very differently across individuals — some children may have significant language delays while others have advanced vocabulary but struggle with social reciprocity; some may be highly sensitive to sensory input (sound, touch, light) while others seek out intense sensory experiences. Common classroom supports include predictable visual schedules, advance warning before transitions, a calm, low-stimulation space the child can retreat to when overwhelmed, and clear, literal language rather than idioms or sarcasm which can be confusing. Attention-Deficit/Hyperactivity Disorder (ADHD) involves difficulty with sustained attention, impulse control, and/or high activity levels beyond what is typical for the age group; effective supports include structured routines, frequent movement breaks built into the schedule rather than demanded as a reward, short, clearly-sequenced instructions given one at a time, and positive, immediate feedback for on-task behavior rather than only correction of off-task behavior. Both conditions exist on a spectrum of presentation and severity, and support strategies should always be individualized to the specific child rather than applied as a generic template based on a label alone.",
+      },
+      {
+        title: "Language and Learning Differences",
+        notes:
+          "Dyslexia primarily affects reading and writing — specifically the ability to connect sounds with letters and to decode words fluently — though its earliest signs in the pre-primary years often appear as difficulty with rhyming, remembering the names of letters, or following multi-step verbal instructions, well before formal reading instruction even begins. Other language-based differences may show as significantly delayed expressive language (difficulty forming sentences) or receptive language (difficulty understanding what is said), and these are important to distinguish, since a child may understand far more than they can express, or vice versa, requiring different support strategies. For any suspected language or learning difference, pre-primary teachers should focus on rich, low-pressure language exposure (reading aloud, real conversation, songs), avoid comparing the child to peers, and partner with speech-language professionals where available, since early language intervention in the pre-primary years has a disproportionately large positive impact compared to intervention started later in schooling.",
+      },
+      {
+        title: "Practical Inclusive Classroom Strategies",
+        notes:
+          "Practical inclusion begins with universal design — features that help all children and are especially critical for some, such as visual schedules (helpful for every young child, essential for many with autism or language delays), consistent routines, and clear, simple language. A peer buddy system pairs a child needing extra support with a classroom peer for specific activities or transitions, building both independence for the supported child and empathy for the buddy, without singling anyone out negatively. Flexible seating arrangements accommodate different sensory and attention needs — some children focus better on the floor, others at a low table, others with a wobble cushion — and should be offered as an option rather than a rigid assignment. Differentiated instruction means offering the same core activity at multiple levels of challenge simultaneously (a sorting activity with two categories for one child and four for another) so that every child can participate meaningfully in the same overall lesson rather than being pulled into a completely separate activity. Above all, inclusive teachers focus on each child's strengths and interests as an entry point for building new skills, rather than defining the child solely by their area of difficulty.",
+      },
+    ],
+  },
+  {
+    id: "cse-010",
+    title: "Assessment, Observation and Parent-Teacher Communication",
+    category: "Assessment & Evaluation",
+    level: "Intermediate",
+    duration: "3 Weeks",
+    description:
+      "How to observe and document young children's progress without formal testing, and how to communicate that progress meaningfully to families.",
+    objectives:
+      "Use observation-based assessment tools effectively and communicate children's progress to parents constructively and confidently.",
+    topics: [
+      {
+        title: "Why Formal Testing Doesn't Work for Young Children",
+        notes:
+          "Standardized, formal testing is developmentally inappropriate and often invalid for pre-primary children, whose attention span, test-taking ability, language, and comfort with unfamiliar adults vary enormously and unpredictably from day to day. A three-year-old's 'test performance' is far more likely to reflect their mood, hunger, familiarity with the tester, or comfort in a formal setting than their actual knowledge or ability. Instead, authentic assessment for this age group relies on observing children in natural, everyday contexts — during play, routines, and real interactions — where children reveal their genuine abilities without the pressure and artificiality of a test setting. This approach is not only more valid but also far less stressful for young children, protecting their early relationship with learning from unnecessary anxiety or a premature sense of failure.",
+      },
+      {
+        title: "Observation as an Assessment Tool",
+        notes:
+          "Systematic observation involves deliberately watching and recording specific aspects of a child's behavior, skills, and interactions during regular classroom activities, rather than relying on general, end-of-day impressions alone. Effective observation notes are objective and specific (describing exactly what the child said and did) rather than subjective and vague ('Ravi built a five-block tower and said \"look, tall!\"' rather than 'Ravi did well today'), since specific, factual notes are far more useful for planning and for later reference than general impressions, and avoid unintentional bias. Teachers can use running records (detailed narrative notes during a specific activity), checklists (quick tick-marks against a milestone list, efficient for tracking many children), or anecdotal notes (brief, dated observations jotted throughout the day) — different tools suit different purposes and time constraints, and most teachers use a combination depending on what is being assessed. Consistency matters more than volume: brief, focused observations taken regularly and systematically across the term build a far more accurate picture of a child's development than occasional lengthy notes taken only when a teacher happens to have spare time.",
+      },
+      {
+        title: "Portfolio Assessment",
+        notes:
+          "A portfolio is a purposeful collection of a child's work samples, photographs, and teacher observations gathered over time, specifically selected to show growth and development rather than simply archiving everything a child produces. A strong portfolio might include dated samples of a child's drawing or emergent writing at different points in the year (showing progression from scribbles to letter-like forms to real words), photographs of block constructions or dramatic play scenarios with a brief teacher caption explaining the skills demonstrated, and short observation notes tied to specific developmental milestones. Portfolios are powerful because they make growth visible and concrete, both for parent-teacher conversations and for the teacher's own reflection, and because they center the child's own work and voice rather than only an adult's summary judgment. Involving children in selecting a few pieces themselves ('Which drawing do you want to put in your special folder?') also builds early self-reflection and ownership of their own learning journey.",
+      },
+      {
+        title: "Interpreting and Using Assessment Data",
+        notes:
+          "Collected observations and portfolio evidence are only valuable if they are actually used to inform teaching, not simply filed away. Teachers should periodically (for example, every few weeks) review accumulated observations for each child against a developmental milestone framework, looking for genuine patterns rather than isolated incidents — a single instance of a child struggling with scissors is not concerning, but a consistent pattern across many observations over several weeks may indicate a fine motor delay worth discussing with the family. This same review process should directly shape planning: if observations reveal that several children are showing strong interest in and readiness for early letter-sound activities, the upcoming week's plan should include more of these opportunities; if observations reveal several children still struggling with basic turn-taking, more structured cooperative games should be added rather than assumed to resolve on their own. Assessment in the pre-primary years should always function as a feedback loop into planning, never as a final grade or a ranking of children against one another.",
+      },
+      {
+        title: "Communicating Progress to Parents",
+        notes:
+          "Parent-teacher communication should be frequent, specific, and two-directional rather than limited to a single formal report at the end of a term. Regular informal updates — a quick note home, a shared photo with a caption, a brief conversation at pickup — keep families genuinely connected to their child's daily experience and build trust well before any formal conference. When discussing a developmental concern, teachers should lead with genuine strengths, use specific, factual, non-judgmental language ('I've noticed Aarav has difficulty sitting through longer group activities and often needs movement breaks' rather than 'Aarav can't focus'), avoid clinical labels or diagnoses which are outside a teacher's scope, and frame the conversation collaboratively around next steps rather than delivering a verdict. Teachers should also actively invite parent input and observations from home, since parents often notice patterns or context the teacher cannot see, and should treat the family as an equal partner in supporting the child's development rather than the sole expert delivering conclusions. Celebrating growth and small wins in every conversation, not only addressing concerns, keeps the parent-teacher relationship positive, trusting, and genuinely collaborative over the long term.",
+      },
+    ],
+  },
+];
+
+module.exports = { courses };

@@ -992,3 +992,43 @@ export const updateTaskStatus = async (assignmentId, taskId, status) => {
   });
   return res.json();
 };
+// ── Course Library (parsed from the .docx source of truth) ──
+export function getCourseLibrary() {
+  return request("/api/course-library");
+}
+
+export function getCourseLibraryDetail(libraryId) {
+  return request(`/api/course-library/${libraryId}`);
+}
+
+// Admin: create an actual Course document from a library template (no video —
+// modules/topics + notes are copied straight from the docx-derived library entry)
+export function createCourseFromLibrary(libraryId) {
+  return request("/api/courses/from-library", {
+    method: "POST",
+    body: JSON.stringify({ libraryId }),
+  });
+}
+
+// ── Assessment bank + result persistence ──
+export function getAssessmentBank(libraryId) {
+  return request(`/api/assessment-bank/${libraryId}`);
+}
+
+// Teacher: submit a completed assessment attempt (persists to DB so admin can see it)
+export function submitAssessmentResult(payload) {
+  return request("/api/assessments", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+// Teacher: fetch own past assessment results
+export function getMyAssessmentResults() {
+  return request("/api/assessments/mine");
+}
+
+// Admin: fetch every teacher's assessment results
+export function getAdminAssessmentResults() {
+  return request("/api/admin/assessments");
+}

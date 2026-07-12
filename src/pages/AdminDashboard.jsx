@@ -5,7 +5,8 @@ import OverviewTab from "../admin/OverviewTab";
 import CenterManagementTab from "../admin/CenterManagementTab";
 import TeacherManagementTab from "../admin/TeacherManagementTab";
 import LessonPlanManagementTab from "../admin/LessonPlanManagementTab";
-import CurriculumTrainingTab from "../admin/CurriculumTrainingTab";
+import CurriculumTrainingTab from "../pages/CurriculumTrainingTab"; // already imported — just confirm it points at the new file
+import AssessmentResultsTab from "../pages/AssessmentResultsTab";  // NEW
 import ActivityMonitoringTab from "../admin/ActivityMonitoringTab";
 import ChildrenManagementTab from "../admin/ChildrenManagement";
 import TrainerManagementTab from "../admin/TrainerManagementTab";
@@ -92,6 +93,7 @@ export default function AdminDashboard({ user, onLogout }) {
     { key:"centers",      label:"Center Management", icon:"\uD83C\uDFEB" },
     { key:"teachers",     label:"Teacher Management",icon:"\uD83D\uDC69\u200D\uD83C\uDFEB", badge:pending.length },
     { key: "curriculum", label: "Course Management", icon: "\uD83D\uDCDA" },
+    { key: "assessments", label: "Assessment Results", icon: "\uD83D\uDCDD" },
     { key: "activities", label: "Activity Monitoring", icon: "\uD83D\uDCF8" },
     { key: "lessonplans", label: "Lesson Plans", icon: "\uD83D\uDCCB" },
     { key: "children", label: "Children & Classes", icon: "\uD83D\uDC76" },
@@ -129,6 +131,7 @@ export default function AdminDashboard({ user, onLogout }) {
       case "centers": return <CenterManagementTab allTeachers={teachers} setToast={setToast}/>;
       case "teachers": return <TeacherManagementTab teachers={teachers} setTeachers={persistTeachers} setToast={setToast}/>;
       case "curriculum": return <CurriculumTrainingTab setToast={setToast}/>;
+      case "assessments": return <AssessmentResultsTab setToast={setToast}/>;
       case "activities": return <ActivityMonitoringTab setToast={setToast}/>;
       case "lessonplans": return <LessonPlanManagementTab setToast={setToast} />;
       case "children": return <ChildrenManagementTab setToast={setToast}/>;
