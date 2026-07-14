@@ -13,6 +13,8 @@ const mapCenterFromApi = (c) => ({
   email: c.email || "",
   contactPerson: c.contactPerson || "",
   status: c.status || "active",
+  mentor: c.mentor?._id || c.mentor?.id || c.mentor || "",
+  mentorDetails: c.mentor || null,
   teachers: c.teachers || [],
   children: c.children || 0,
   classes: c.classes || 0,
@@ -26,6 +28,7 @@ const mapCenterToApi = (c) => ({
   phone: c.phone,
   email: c.email,
   contactPerson: c.contactPerson,
+  mentor: c.mentor || undefined,
   status: c.status,
   teachers: c.teachers,
   classes: c.classes || [],
@@ -33,12 +36,12 @@ const mapCenterToApi = (c) => ({
 
 const EMPTY_FORM = {
   name: "", location: "", city: "", pincode: "",
-  phone: "", email: "", contactPerson: "",
+  phone: "", email: "", contactPerson: "", mentor: "",
   status: "active", teachers: [], children: 0, classes: 0,
 };
 
 /* ── Add / Edit Modal ── */
-function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }) {
+function CenterFormModal({ center, allTeachers = [], mentors = [], onSave, onClose, setToast }) {
   const isEdit = !!center;
   const [form, setForm] = useState(center ? { ...center } : { ...EMPTY_FORM });
   const [saving, setSaving] = useState(false);
@@ -51,6 +54,7 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
     ageGroup: "",
     curriculumLevel: "",
     schedule: "",
+    capacity: 0,
     teacherId: "",
   });
 
@@ -70,6 +74,7 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
         ageGroup: c.ageGroup || "",
         curriculumLevel: c.curriculumLevel || "",
         schedule: c.schedule || "",
+        capacity: c.capacity || 0,
         teacherId: "", // Will be populated from assignments
       }));
       
@@ -101,49 +106,28 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
       return;
     }
     
-    // Validate one-teacher-per-class (1 teacher = 1 class only)
-    const teacherClassMap = {};
-    for (const cls of classesList) {
-      if (cls.teacherId) {
-        if (!teacherClassMap[cls.teacherId]) {
-          teacherClassMap[cls.teacherId] = [];
-        }
-        teacherClassMap[cls.teacherId].push(cls.name);
-      }
-    }
-    
-    // Check if any teacher is assigned to multiple classes
-    for (const [teacherId, classNames] of Object.entries(teacherClassMap)) {
-      if (classNames.length > 1) {
-        const teacher = approvedTeachers.find(t => (t._id || t.id) === teacherId);
-        setToast({ 
-          msg: `Error: Teacher "${teacher?.name || teacherId}" is assigned to ${classNames.length} classes (${classNames.join(", ")}). 1 teacher can only be assigned to 1 class.`, 
-          type: "error" 
-        });
-        return;
-      }
-    }
-    
-    // Also check if any teacher already has a class assigned in another center
+    // Check for cross-center assignments and show non-blocking warnings
+    const crossCenterWarnings = [];
     for (const cls of classesList) {
       if (cls.teacherId) {
         const teacher = approvedTeachers.find(t => (t._id || t.id) === cls.teacherId);
-        const existingClasses = teacher?.teacherProfile?.classes || [];
-        if (existingClasses.length > 0) {
-          // Check if any of the existing classes are not in this center's classes list
-          const existingClassIds = existingClasses.map(c => c._id || c.id);
-          const currentClassIds = classesList.filter(c => c.id).map(c => c.id);
-          const hasExternalAssignment = existingClassIds.some(id => !currentClassIds.includes(id));
-          
-          if (hasExternalAssignment) {
-            setToast({ 
-              msg: `Error: Teacher "${teacher.name}" is already assigned to another class in a different center. 1 teacher can only be assigned to 1 class.`, 
-              type: "error" 
-            });
-            return;
+        if (teacher) {
+          const teacherCenterId = teacher.teacherProfile?.center?._id || teacher.teacherProfile?.center;
+          if (teacherCenterId && currentCenterId && String(teacherCenterId) !== String(currentCenterId)) {
+            const centerName = teacher.teacherProfile?.center?.name || "another center";
+            crossCenterWarnings.push(`Teacher "${teacher.name}" is already assigned to ${centerName}. Please verify schedule conflicts and travel feasibility.`);
           }
         }
       }
+    }
+    
+    if (crossCenterWarnings.length > 0) {
+      const confirmed = window.confirm(
+        "Cross-Center Assignment Warning:\n\n" +
+        crossCenterWarnings.join("\n\n") +
+        "\n\nDo you want to proceed?"
+      );
+      if (!confirmed) return;
     }
     
     setSaving(true);
@@ -157,6 +141,7 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
           ageGroup: cls.ageGroup,
           curriculumLevel: cls.curriculumLevel,
           schedule: cls.schedule,
+          capacity: cls.capacity || 0,
           teacherId: cls.teacherId || undefined,
         })),
       };
@@ -188,7 +173,7 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
     }
     
     setClassesList(prev => [...prev, { ...newClass, id: null }]);
-    setNewClass({ name: "", ageGroup: "", curriculumLevel: "", schedule: "", teacherId: "" });
+    setNewClass({ name: "", ageGroup: "", curriculumLevel: "", schedule: "", capacity: 0, teacherId: "" });
     setShowClassForm(false);
     setToast({ msg: "Class added. Save the center to create it.", type: "success" });
   };
@@ -206,31 +191,21 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
   const approvedTeachers = allTeachers.filter(t => t.status === "approved" || t.status === "pending");
   
   const currentCenterId = form.id || center?.id;
-  const isNewCenter = !currentCenterId;
 
   // Get teacher availability status with assignment info
   const getTeacherAvailability = () => {
     return approvedTeachers.map(t => {
       const teacherClasses = t.teacherProfile?.classes || [];
+      const teacherCenterId = t.teacherProfile?.center?._id || t.teacherProfile?.center;
+      const teacherCenterName = t.teacherProfile?.center?.name || "";
       
       // No classes = fully available
       if (teacherClasses.length === 0) {
         return { ...t, available: true, reason: "" };
       }
       
-      // For NEW center: show as available with info about existing assignment
-      if (isNewCenter) {
-        const classNames = teacherClasses.map(c => c?.name).filter(Boolean);
-        return { 
-          ...t, 
-          available: true, 
-          reason: classNames.length > 0 ? `Currently: ${classNames.join(", ")}` : "" 
-        };
-      }
-      
-      // For EDITING: available if belongs to this center
-      const teacherCenterId = t.teacherProfile?.center?._id || t.teacherProfile?.center;
-      if (teacherCenterId && String(teacherCenterId) === String(currentCenterId)) {
+      // Teacher belongs to this center
+      if (teacherCenterId && currentCenterId && String(teacherCenterId) === String(currentCenterId)) {
         const classNames = teacherClasses.map(c => c?.name).filter(Boolean);
         return { 
           ...t, 
@@ -239,32 +214,33 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
         };
       }
       
-      // Assigned to ANOTHER center = not available, show where
+      // Teacher belongs to another center — show as available with cross-center warning
+      if (teacherCenterId && teacherCenterId !== String(currentCenterId || "")) {
+        const classNames = teacherClasses.map(c => c?.name).filter(Boolean);
+        return { 
+          ...t, 
+          available: true, 
+          reason: `Also at: ${teacherCenterName}${classNames.length > 0 ? ` (${classNames.join(", ")})` : ""}`,
+          crossCenter: true,
+        };
+      }
+      
+      // Teacher has classes but no center set
       const classNames = teacherClasses.map(c => c?.name).filter(Boolean);
-      const centerName = t.teacherProfile?.center?.name || "Another center";
       return { 
         ...t, 
-        available: false, 
-        reason: `Assigned to: ${classNames.join(", ")} (${centerName})` 
+        available: true, 
+        reason: classNames.length > 0 ? `Assigned: ${classNames.join(", ")}` : "" 
       };
     });
   };
 
   const teacherAvailability = getTeacherAvailability();
   const availableTeachers = teacherAvailability.filter(t => t.available);
-  const unavailableTeachers = teacherAvailability.filter(t => !t.available);
 
-  // Get available teachers for a specific class (used in select dropdowns)
+  // Get available teachers for a specific class (all approved teachers are selectable)
   const getAvailableTeachersForClass = (currentIndex) => {
-    const assignedInForm = classesList
-      .filter((_, i) => i !== currentIndex)
-      .map(c => c.teacherId)
-      .filter(Boolean);
-
-    return teacherAvailability.filter(t => {
-      if (assignedInForm.includes(t._id || t.id)) return false;
-      return t.available;
-    });
+    return teacherAvailability.filter(t => t.available);
   };
 
   return (
@@ -312,12 +288,26 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
           onChange={e => setForm({ ...form, contactPerson: e.target.value })}
           placeholder="e.g. Mrs. Rekha Iyer" />
 
-        <label style={S.label}>Status</label>
-        <select style={{ ...S.input, marginBottom: 16 }} value={form.status}
-          onChange={e => setForm({ ...form, status: e.target.value })}>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-        </select>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div>
+            <label style={S.label}>Assigned Mentor</label>
+            <select style={S.input} value={form.mentor || ""}
+              onChange={e => setForm({ ...form, mentor: e.target.value })}>
+              <option value="">-- No Mentor Assigned --</option>
+              {mentors.filter(m => m.status === "approved" || m.status === "pending").map(m => (
+                <option key={m.id || m._id} value={m.id || m._id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={S.label}>Status</label>
+            <select style={S.input} value={form.status}
+              onChange={e => setForm({ ...form, status: e.target.value })}>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+        </div>
 
         {/* ── Classes Section ── */}
         <div style={{
@@ -330,7 +320,7 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
                 🏛️ Classes for this Center
               </label>
               <div style={{ fontSize: 11, color: "#059669", marginTop: 2 }}>
-                Create classes and assign one teacher per class
+                Create classes and assign teachers (multiple teachers per class allowed)
               </div>
             </div>
             <button type="button" onClick={() => setShowClassForm(true)}
@@ -390,8 +380,19 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
                 </div>
               </div>
               <div style={{ marginBottom: 10 }}>
+                <label style={{ ...S.label, fontSize: 11 }}>Capacity (max students)</label>
+                <input
+                  style={{ ...S.input, fontSize: 12 }}
+                  type="number"
+                  min="0"
+                  value={newClass.capacity}
+                  onChange={e => setNewClass({ ...newClass, capacity: parseInt(e.target.value) || 0 })}
+                  placeholder="e.g. 30"
+                />
+              </div>
+              <div style={{ marginBottom: 10 }}>
                 <label style={{ ...S.label, fontSize: 11 }}>
-                  Assign Teacher (1 teacher = 1 class only)
+                  Assign Teacher
                 </label>
                 <select
                   style={{ ...S.input, fontSize: 12 }}
@@ -399,37 +400,15 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
                   onChange={e => setNewClass({ ...newClass, teacherId: e.target.value })}
                 >
                   <option value="">No teacher assigned</option>
-                  {(() => {
-                    const assignedInForm = classesList.map(c => c.teacherId).filter(Boolean);
-                    const formAvailable = availableTeachers.filter(t => !assignedInForm.includes(t._id || t.id));
-                    const formUnavailable = unavailableTeachers.filter(t => !assignedInForm.includes(t._id || t.id));
-                    return (
-                      <>
-                        {formAvailable.length > 0 && (
-                          <optgroup label="Available">
-                            {formAvailable.map(t => (
-                              <option key={t._id || t.id} value={t._id || t.id}>
-                                {t.name} {t.reason ? `(${t.reason})` : ""}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {formUnavailable.length > 0 && (
-                          <optgroup label="Already Assigned (unavailable)">
-                            {formUnavailable.map(t => (
-                              <option key={t._id || t.id} value="" disabled>
-                                {t.name} - {t.reason}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                      </>
-                    );
-                  })()}
+                  {teacherAvailability.filter(t => t.available).map(t => (
+                    <option key={t._id || t.id} value={t._id || t.id}>
+                      {t.name} {t.reason ? `(${t.reason})` : ""} {t.crossCenter ? "⚠️" : ""}
+                    </option>
+                  ))}
                 </select>
-                {availableTeachers.filter(t => !classesList.map(c => c.teacherId).filter(Boolean).includes(t._id || t.id)).length === 0 && (
+                {availableTeachers.length === 0 && (
                   <div style={{ fontSize: 10, color: "#dc2626", marginTop: 4 }}>
-                    No available teachers. All teachers are already assigned to other classes.
+                    No teachers available. Please create teachers first.
                   </div>
                 )}
               </div>
@@ -474,6 +453,7 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
                           {cls.ageGroup && <span>👶 {cls.ageGroup}</span>}
                           {cls.ageGroup && cls.curriculumLevel && <span> · </span>}
                           {cls.curriculumLevel && <span>📚 {cls.curriculumLevel}</span>}
+                          {cls.capacity > 0 && <span> · 👥 {cls.capacity}</span>}
                           {cls.schedule && <div style={{ marginTop: 2 }}>⏰ {cls.schedule}</div>}
                         </div>
                       </div>
@@ -499,28 +479,11 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
                         onChange={e => updateClassTeacher(index, e.target.value)}
                       >
                         <option value="">No teacher</option>
-                        {(() => {
-                          const assignedToOther = classesList
-                            .filter((_, i) => i !== index)
-                            .map(c => c.teacherId)
-                            .filter(Boolean);
-                          const classAvailable = teacherAvailability.filter(t => t.available && !assignedToOther.includes(t._id || t.id));
-                          const classUnavailable = teacherAvailability.filter(t => !t.available && !assignedToOther.includes(t._id || t.id));
-                          return (
-                            <>
-                              {classAvailable.map(t => (
-                                <option key={t._id || t.id} value={t._id || t.id}>
-                                  {t.name} {t.reason ? `(${t.reason})` : ""}
-                                </option>
-                              ))}
-                              {classUnavailable.map(t => (
-                                <option key={t._id || t.id} value="" disabled>
-                                  {t.name} - {t.reason}
-                                </option>
-                              ))}
-                            </>
-                          );
-                        })()}
+                        {teacherAvailability.filter(t => t.available).map(t => (
+                          <option key={t._id || t.id} value={t._id || t.id}>
+                            {t.name} {t.reason ? `(${t.reason})` : ""} {t.crossCenter ? "⚠️" : ""}
+                          </option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -543,7 +506,7 @@ function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }
             }}>
               📊 <b>{classesList.length} class(es)</b> will be created. 
               {classesList.filter(c => c.teacherId).length > 0 && (
-                <span> <b>{classesList.filter(c => c.teacherId).length}</b> teacher(s) will be assigned (1 teacher = 1 class only).</span>
+                <span> <b>{classesList.filter(c => c.teacherId).length}</b> teacher(s) will be assigned.</span>
               )}
             </div>
           )}
@@ -717,11 +680,11 @@ function CenterDetailModal({ center, allTeachers = [], onClose, setToast }) {
               }}>
                 <div style={{
                   width: 32, height: 32, borderRadius: 8,
-                  background: assignment.teacher ? "#d1fae5" : "#f3f4f6",
+                  background: assignment.teachers?.length > 0 ? "#d1fae5" : "#f3f4f6",
                   display: "flex", alignItems: "center", justifyContent: "center",
                   fontSize: 14, flexShrink: 0
                 }}>
-                  {assignment.teacher ? "👩‍🏫" : "📋"}
+                  {assignment.teachers?.length > 0 ? "👩‍🏫" : "📋"}
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: "#1c1917" }}>
@@ -733,15 +696,17 @@ function CenterDetailModal({ center, allTeachers = [], onClose, setToast }) {
                   </div>
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  {assignment.teacher ? (
-                    <>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: "#065f46" }}>
-                        {assignment.teacher.name}
+                  {assignment.teachers && assignment.teachers.length > 0 ? (
+                    assignment.teachers.map((t, ti) => (
+                      <div key={ti} style={{ marginBottom: ti < assignment.teachers.length - 1 ? 4 : 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: "#065f46" }}>
+                          {t.name}
+                        </div>
+                        <div style={{ fontSize: 9, color: "#9ca3af" }}>
+                          {t.email}
+                        </div>
                       </div>
-                      <div style={{ fontSize: 9, color: "#9ca3af" }}>
-                        {assignment.teacher.email}
-                      </div>
-                    </>
+                    ))
                   ) : (
                     <div style={{ fontSize: 11, color: "#dc2626", fontWeight: 600 }}>
                       No teacher assigned
@@ -751,10 +716,10 @@ function CenterDetailModal({ center, allTeachers = [], onClose, setToast }) {
                 {assignment.hasMultipleTeachers && (
                   <div style={{
                     padding: "2px 6px", borderRadius: 4,
-                    background: "#fef3c7", color: "#92400e",
+                    background: "#dbeafe", color: "#1d4ed8",
                     fontSize: 9, fontWeight: 700
                   }}>
-                    ⚠️ Multiple
+                    {assignment.teachers.length} Teachers
                   </div>
                 )}
               </div>
@@ -778,9 +743,9 @@ function CenterDetailModal({ center, allTeachers = [], onClose, setToast }) {
         {assignedTeachers.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {assignedTeachers.map((t, i) => {
-              // Find which class this teacher is assigned to
-              const assignedClass = assignments.find(a => 
-                a.teacher && (a.teacher._id === t._id || a.teacher.id === t.id)
+              // Find which classes this teacher is assigned to
+              const assignedClasses = assignments.filter(a => 
+                a.teachers && a.teachers.some(at => at._id === t._id || at.id === t.id)
               );
               
               return (
@@ -796,9 +761,9 @@ function CenterDetailModal({ center, allTeachers = [], onClose, setToast }) {
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1917" }}>{t.name}</div>
                     <div style={{ fontSize: 11, color: "#9ca3af" }}>{t.email}</div>
-                    {assignedClass && (
+                    {assignedClasses.length > 0 && (
                       <div style={{ fontSize: 10, color: "#10b981", fontWeight: 600, marginTop: 2 }}>
-                        📚 Assigned to: {assignedClass.class?.name || "Unknown Class"}
+                        📚 Assigned to: {assignedClasses.map(a => a.class?.name).filter(Boolean).join(", ")}
                       </div>
                     )}
                   </div>
@@ -831,6 +796,7 @@ function AddClassModal({ centers, onSave, onClose, setToast }) {
     ageGroup: "",
     curriculumLevel: "",
     schedule: "",
+    capacity: 0,
     center: "",
   });
   const [saving, setSaving] = useState(false);
@@ -907,10 +873,20 @@ function AddClassModal({ centers, onSave, onClose, setToast }) {
 
         <label style={S.label}>Schedule</label>
         <input
-          style={{ ...S.input, marginBottom: 20 }}
+          style={{ ...S.input, marginBottom: 12 }}
           value={form.schedule}
           onChange={e => setForm({ ...form, schedule: e.target.value })}
           placeholder="e.g. Mon-Fri 9:00 AM to 12:00 PM"
+        />
+
+        <label style={S.label}>Capacity (max students)</label>
+        <input
+          style={{ ...S.input, marginBottom: 20 }}
+          type="number"
+          min="0"
+          value={form.capacity}
+          onChange={e => setForm({ ...form, capacity: parseInt(e.target.value) || 0 })}
+          placeholder="e.g. 30"
         />
 
         <button
@@ -937,7 +913,7 @@ function ClassManagementModal({ centerId, centerName, classes, onSave, onClose, 
   const [showLogsModal, setShowLogsModal] = useState(false);
   const [editClass, setEditClass] = useState(null);
   const [classLogs, setClassLogs] = useState([]);
-  const [formData, setFormData] = useState({ name: "", ageGroup: "", curriculumLevel: "", schedule: "" });
+  const [formData, setFormData] = useState({ name: "", ageGroup: "", curriculumLevel: "", schedule: "", capacity: 0 });
 
   const filteredClasses = classes.filter(c => String(c.center) === String(centerId) || String(c.center?._id) === String(centerId));
 
@@ -955,7 +931,7 @@ function ClassManagementModal({ centerId, centerName, classes, onSave, onClose, 
       await createClass({ ...formData, center: centerId });
       setToast({ msg: "Class added successfully!", type: "success" });
       setShowAddForm(false);
-      setFormData({ name: "", ageGroup: "", curriculumLevel: "", schedule: "" });
+      setFormData({ name: "", ageGroup: "", curriculumLevel: "", schedule: "", capacity: 0 });
       onSave();
     } catch (err) {
       setToast({ msg: "Failed to add class: " + err.message, type: "error" });
@@ -1006,6 +982,7 @@ function ClassManagementModal({ centerId, centerName, classes, onSave, onClose, 
       ageGroup: cls.ageGroup || "",
       curriculumLevel: cls.curriculumLevel || "",
       schedule: cls.schedule || "",
+      capacity: cls.capacity || 0,
     });
     setShowAddForm(true);
   };
@@ -1064,9 +1041,20 @@ function ClassManagementModal({ centerId, centerName, classes, onSave, onClose, 
                 />
               </div>
             </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={S.label}>Capacity (max students)</label>
+              <input
+                style={S.input}
+                type="number"
+                min="0"
+                value={formData.capacity}
+                onChange={e => setFormData({ ...formData, capacity: parseInt(e.target.value) || 0 })}
+                placeholder="e.g. 30"
+              />
+            </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button type="submit" style={S.primaryBtn}>Save</button>
-              <button type="button" onClick={() => { setShowAddForm(false); setEditClass(null); setFormData({ name: "", ageGroup: "", curriculumLevel: "", schedule: "" }); }} style={S.tblBtn}>
+              <button type="button" onClick={() => { setShowAddForm(false); setEditClass(null); setFormData({ name: "", ageGroup: "", curriculumLevel: "", schedule: "", capacity: 0 }); }} style={S.tblBtn}>
                 Cancel
               </button>
             </div>
@@ -1082,6 +1070,7 @@ function ClassManagementModal({ centerId, centerName, classes, onSave, onClose, 
               <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>Age Group</th>
               <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>Curriculum Level</th>
               <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>Schedule</th>
+              <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>Capacity</th>
               <th style={{ padding: "12px 16px", textAlign: "center", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>Actions</th>
             </tr>
           </thead>
@@ -1093,6 +1082,7 @@ function ClassManagementModal({ centerId, centerName, classes, onSave, onClose, 
                   <td style={{ padding: "12px 16px", color: "#6b7280" }}>{cls.ageGroup || "—"}</td>
                   <td style={{ padding: "12px 16px", color: "#6b7280" }}>{cls.curriculumLevel || "—"}</td>
                   <td style={{ padding: "12px 16px", color: "#6b7280" }}>{cls.schedule || "—"}</td>
+                  <td style={{ padding: "12px 16px", color: "#6b7280" }}>{cls.capacity || 0}</td>
                   <td style={{ padding: "12px 16px", textAlign: "center", whiteSpace: "nowrap" }}>
                     <button onClick={() => openEditForm(cls)} style={{ ...S.tblBtn, padding: "6px 12px", fontSize: 12, marginRight: 6 }}>✏️ Edit</button>
                     <button onClick={() => handleDeleteClass(cls._id || cls.id)} style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5", padding: "6px 12px", fontSize: 12 }}>🗑️ Delete</button>
@@ -1101,7 +1091,7 @@ function ClassManagementModal({ centerId, centerName, classes, onSave, onClose, 
               ))
             ) : (
               <tr>
-                <td colSpan={5} style={{ padding: "32px 16px", textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
+                <td colSpan={6} style={{ padding: "32px 16px", textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
                   No classes added yet. Click "Add New Class" to create one.
                 </td>
               </tr>
@@ -1170,7 +1160,7 @@ function ClassLogsModal({ logs = [], onClose }) {
 /* ══════════════════════════════════════════
    MAIN CENTER MANAGEMENT TAB
    ══════════════════════════════════════════ */
-export default function CenterManagementTab({ setToast }) {
+export default function CenterManagementTab({ mentors = [], setToast }) {
   const [centers, setCenters]         = useState([]);
   const [allTeachers, setAllTeachers] = useState([]);
   const [search, setSearch]           = useState("");
@@ -1201,6 +1191,7 @@ export default function CenterManagementTab({ setToast }) {
         ageGroup: c.ageGroup || "",
         curriculumLevel: c.curriculumLevel || "",
         schedule: c.schedule || "",
+        capacity: c.capacity || 0,
       })));
       
       // Load teacher assignments for each center
@@ -1316,6 +1307,7 @@ export default function CenterManagementTab({ setToast }) {
         ageGroup: c.ageGroup || "",
         curriculumLevel: c.curriculumLevel || "",
         schedule: c.schedule || "",
+        capacity: c.capacity || 0,
       })));
     } catch (err) {
       showToast({ msg: "Failed to load classes: " + err.message, type: "error" });
@@ -1349,6 +1341,7 @@ export default function CenterManagementTab({ setToast }) {
         <CenterFormModal
           center={editCenter}
           allTeachers={allTeachers}
+          mentors={mentors}
           onSave={handleSave}
           onClose={() => { setFormModal(false); setEditCenter(null); }}
           setToast={showToast}
@@ -1455,6 +1448,7 @@ export default function CenterManagementTab({ setToast }) {
               <div style={{ fontSize: 12, color: "#6b7280" }}>📱 {c.phone}</div>
               {c.email && <div style={{ fontSize: 12, color: "#6b7280" }}>📧 {c.email}</div>}
               {c.contactPerson && <div style={{ fontSize: 12, color: "#6b7280" }}>👤 {c.contactPerson}</div>}
+              {c.mentorDetails && <div style={{ fontSize: 12, color: "#6b7280" }}>👨‍🏫 Mentor: <span style={{ fontWeight: 600 }}>{c.mentorDetails.name}</span></div>}
               <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>📍 {c.location}</div>
             </div>
 
@@ -1489,8 +1483,10 @@ export default function CenterManagementTab({ setToast }) {
                     <span style={{ fontSize: 10, color: "#059669", flex: 1 }}>
                       📚 {assignment.class?.name || "Class"}
                     </span>
-                    <span style={{ fontSize: 10, color: assignment.teacher ? "#065f46" : "#dc2626", fontWeight: 600 }}>
-                      {assignment.teacher ? `👩‍🏫 ${assignment.teacher.name}` : "⚠️ No teacher"}
+                    <span style={{ fontSize: 10, color: assignment.teachers?.length > 0 ? "#065f46" : "#dc2626", fontWeight: 600 }}>
+                      {assignment.teachers?.length > 0 
+                        ? `👩‍🏫 ${assignment.teachers.map(t => t.name).join(", ")}`
+                        : "⚠️ No teacher"}
                     </span>
                   </div>
                 ))}
@@ -1541,6 +1537,7 @@ export default function CenterManagementTab({ setToast }) {
                 <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>Assigned Teacher</th>
                 <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>Age Group</th>
                 <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>Curriculum Level</th>
+                <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>Capacity</th>
                 <th style={{ padding: "12px 16px", textAlign: "left", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>Schedule</th>
                 <th style={{ padding: "12px 16px", textAlign: "center", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>Actions</th>
               </tr>
@@ -1549,25 +1546,29 @@ export default function CenterManagementTab({ setToast }) {
               {classes.length > 0 ? (
                 classes.map(cls => {
                   const center = centers.find(c => c.id === (cls.center || cls.center?._id));
-                  // Find assigned teacher for this class
+                  // Find all assigned teachers for this class
                   const centerAssign = centerAssignments[cls.center] || [];
                   const classAssignment = centerAssign.find(a => 
                     (a.class?._id || a.class?.id) === cls.id
                   );
-                  const assignedTeacher = classAssignment?.teacher;
+                  const assignedTeachers = classAssignment?.teachers || (classAssignment?.teacher ? [classAssignment.teacher] : []);
                   
                   return (
                     <tr key={cls.id} style={{ borderBottom: "1px solid #f1f5f9", transition: "background 0.15s" }}>
                       <td style={{ padding: "12px 16px", fontWeight: 600, color: "#1c1917" }}>{cls.name}</td>
                       <td style={{ padding: "12px 16px", color: "#6b7280" }}>{center ? center.name : "—"}</td>
                       <td style={{ padding: "12px 16px" }}>
-                        {assignedTeacher ? (
-                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <img
-                              src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(assignedTeacher.name)}`}
-                              alt="" style={{ width: 20, height: 20, borderRadius: "50%", border: "1px solid #e5e7eb" }}
-                            />
-                            <span style={{ fontSize: 12, fontWeight: 600, color: "#065f46" }}>{assignedTeacher.name}</span>
+                        {assignedTeachers.length > 0 ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            {assignedTeachers.map((t, ti) => (
+                              <div key={ti} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <img
+                                  src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(t.name)}`}
+                                  alt="" style={{ width: 20, height: 20, borderRadius: "50%", border: "1px solid #e5e7eb" }}
+                                />
+                                <span style={{ fontSize: 12, fontWeight: 600, color: "#065f46" }}>{t.name}</span>
+                              </div>
+                            ))}
                           </div>
                         ) : (
                           <span style={{ fontSize: 12, color: "#dc2626", fontWeight: 600 }}>No teacher</span>
@@ -1575,6 +1576,7 @@ export default function CenterManagementTab({ setToast }) {
                       </td>
                       <td style={{ padding: "12px 16px", color: "#6b7280" }}>{cls.ageGroup || "—"}</td>
                       <td style={{ padding: "12px 16px", color: "#6b7280" }}>{cls.curriculumLevel || "—"}</td>
+                      <td style={{ padding: "12px 16px", color: "#6b7280" }}>{cls.capacity || 0}</td>
                       <td style={{ padding: "12px 16px", color: "#6b7280" }}>{cls.schedule || "—"}</td>
                       <td style={{ padding: "12px 16px", textAlign: "center", whiteSpace: "nowrap" }}>
                         <button onClick={() => { setManageCenterId(cls.center || cls.center?._id); setClassesModal(true); }} style={{ ...S.tblBtn, padding: "6px 12px", fontSize: 12, marginRight: 6 }}>👁 Manage</button>
@@ -1585,7 +1587,7 @@ export default function CenterManagementTab({ setToast }) {
                 })
               ) : (
                 <tr>
-                  <td colSpan={7} style={{ padding: "32px 16px", textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
+                  <td colSpan={8} style={{ padding: "32px 16px", textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
                     No classes found. Click "+ Add Class" to create your first class.
                   </td>
                 </tr>

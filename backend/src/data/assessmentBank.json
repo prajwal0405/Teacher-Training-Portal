@@ -1,0 +1,1222 @@
+{
+  "cse-001": [
+    {
+      "id": "q1",
+      "topic": "What is ECCE and Why the Early Years Matter",
+      "q": "Roughly what share of a child's brain architecture forms during the ECCE years?",
+      "opts": [
+        "Under 25%",
+        "About 50%",
+        "Over 90%",
+        "It is fixed at birth"
+      ],
+      "ans": 2
+    },
+    {
+      "id": "q2",
+      "topic": "Key Theorists",
+      "q": "Who introduced the concept of the Zone of Proximal Development and scaffolding?",
+      "opts": [
+        "Jean Piaget",
+        "Lev Vygotsky",
+        "Maria Montessori",
+        "Erik Erikson"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q3",
+      "topic": "Key Theorists",
+      "q": "Which stage of Piaget's theory does most of the pre-primary age group fall into?",
+      "opts": [
+        "Sensorimotor",
+        "Preoperational",
+        "Concrete Operational",
+        "Formal Operational"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q4",
+      "topic": "Key Theorists",
+      "q": "Erikson's 'Initiative vs Guilt' stage roughly corresponds to which age range?",
+      "opts": [
+        "0-18 months",
+        "18 months-3 years",
+        "3-5 years",
+        "6-12 years"
+      ],
+      "ans": 2
+    },
+    {
+      "id": "q5",
+      "topic": "Developmentally Appropriate Practice (DAP)",
+      "q": "DAP decisions should be based on knowledge of:",
+      "opts": [
+        "Age only",
+        "Age, the individual child, and social/cultural context",
+        "Test scores only",
+        "National curriculum only"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q6",
+      "topic": "Developmentally Appropriate Practice (DAP)",
+      "q": "A classroom practicing DAP is most likely to:",
+      "opts": [
+        "Use long seated worksheet sessions for 3-year-olds",
+        "Offer open-ended materials and child choice",
+        "Grade children against each other",
+        "Follow a fixed calendar-age curriculum strictly"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q7",
+      "topic": "The Role of the Pre-Primary Teacher",
+      "q": "Acting as an 'environment designer', the teacher primarily:",
+      "opts": [
+        "Lectures at the front of the room",
+        "Arranges purposeful zones that invite exploration",
+        "Removes all materials to reduce distraction",
+        "Assigns seating by test scores"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q8",
+      "topic": "The Role of the Pre-Primary Teacher",
+      "q": "Continuous observation of children during play mainly helps the teacher to:",
+      "opts": [
+        "Fill administrative forms",
+        "Plan next activities and spot children needing support",
+        "Rank children by ability",
+        "Reduce parent communication"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q9",
+      "topic": "Ethics, Safety, and Professionalism",
+      "q": "According to ethical ECCE practice, information about a child's family situation should be:",
+      "opts": [
+        "Shared openly with all staff",
+        "Shared only with those who need it for the child's wellbeing",
+        "Posted on a notice board",
+        "Discussed with other parents"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q10",
+      "topic": "Ethics, Safety, and Professionalism",
+      "q": "A powerful, low-cost tool for continuous teacher self-improvement mentioned in this course is:",
+      "opts": [
+        "Annual external audits only",
+        "A simple daily/weekly reflective journal",
+        "Ignoring what doesn't work",
+        "Waiting for formal appraisal"
+      ],
+      "ans": 1
+    }
+  ],
+  "cse-002": [
+    {
+      "id": "q1",
+      "topic": "Domains of Development",
+      "q": "How many major domains of development are described in this course?",
+      "opts": [
+        "Three",
+        "Four",
+        "Five",
+        "Seven"
+      ],
+      "ans": 2
+    },
+    {
+      "id": "q2",
+      "topic": "Domains of Development",
+      "q": "Why should teachers observe all developmental domains, not just cognitive/academic ones?",
+      "opts": [
+        "It is required by law only",
+        "Domains are interconnected and influence each other",
+        "Only cognitive domain matters for school readiness",
+        "Other domains develop automatically"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q3",
+      "topic": "Milestones: 3 to 4 Years",
+      "q": "At 3-4 years, attention span for a single activity is typically around:",
+      "opts": [
+        "1-2 minutes",
+        "5-10 minutes",
+        "30 minutes",
+        "60 minutes"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q4",
+      "topic": "Milestones: 3 to 4 Years",
+      "q": "A 3-4 year old using a block as a pretend phone demonstrates:",
+      "opts": [
+        "Symbolic/pretend play",
+        "Cooperative play only",
+        "Formal operational thinking",
+        "A developmental delay"
+      ],
+      "ans": 0
+    },
+    {
+      "id": "q5",
+      "topic": "Milestones: 4 to 5 Years",
+      "q": "By age 4-5, children can typically follow instructions of about:",
+      "opts": [
+        "A single word",
+        "2-3 step instructions",
+        "10-step instructions",
+        "No instructions"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q6",
+      "topic": "Milestones: 5 to 6 Years",
+      "q": "By 5-6 years, a key emerging pre-literacy skill is:",
+      "opts": [
+        "Formal operational reasoning",
+        "Phonemic awareness / letter-sound relationships",
+        "Abstract algebra",
+        "Cursive handwriting"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q7",
+      "topic": "Milestones: 5 to 6 Years",
+      "q": "Sustained attention on a chosen task at 5-6 years is typically around:",
+      "opts": [
+        "1-2 minutes",
+        "5 minutes",
+        "15-20 minutes",
+        "2 hours"
+      ],
+      "ans": 2
+    },
+    {
+      "id": "q8",
+      "topic": "Using Milestones Without Labeling Children",
+      "q": "Milestone charts should primarily be used to:",
+      "opts": [
+        "Rank children publicly",
+        "Guide planning and noticing patterns, not to label children",
+        "Decide which children to exclude from class",
+        "Replace all teacher observation"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q9",
+      "topic": "Using Milestones Without Labeling Children",
+      "q": "A single missed milestone in one domain should generally be treated as:",
+      "opts": [
+        "An emergency requiring immediate referral",
+        "Likely normal variation, to be watched over time",
+        "Proof of a permanent disability",
+        "A reason to hold the child back a year automatically"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q10",
+      "topic": "Domains of Development",
+      "q": "Which of these is NOT one of the five developmental domains discussed?",
+      "opts": [
+        "Physical",
+        "Language",
+        "Financial",
+        "Emotional"
+      ],
+      "ans": 2
+    }
+  ],
+  "cse-003": [
+    {
+      "id": "q1",
+      "topic": "Why Play is Learning",
+      "q": "According to this course, play in the pre-primary years is best described as:",
+      "opts": [
+        "A break from learning",
+        "The primary mechanism through which learning happens",
+        "Only useful for physical development",
+        "Something to minimize to fit more instruction"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q2",
+      "topic": "Types of Play",
+      "q": "Parten's stages of social play move in which general order?",
+      "opts": [
+        "Cooperative → Solitary → Parallel → Associative",
+        "Solitary → Parallel → Associative → Cooperative",
+        "Associative → Cooperative → Solitary → Parallel",
+        "Parallel → Cooperative → Solitary → Associative"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q3",
+      "topic": "Types of Play",
+      "q": "Building with blocks and puzzles is an example of which type of play?",
+      "opts": [
+        "Dramatic play",
+        "Constructive play",
+        "Games-with-rules",
+        "Sensory play only"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q4",
+      "topic": "Designing a Play-Based Lesson",
+      "q": "In a play-based lesson plan, the closing circle mainly serves to:",
+      "opts": [
+        "Assign homework",
+        "Let children share and reinforce vocabulary/understanding informally",
+        "Administer a formal test",
+        "End the day early"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q5",
+      "topic": "The Teacher's Role During Play",
+      "q": "When a child's tower keeps falling, an example of appropriate 'scaffolding' is to:",
+      "opts": [
+        "Build the tower for the child",
+        "Suggest a wider base and let the child try again",
+        "Tell the child to stop playing with blocks",
+        "Ignore the child completely"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q6",
+      "topic": "The Teacher's Role During Play",
+      "q": "As a 'co-player', the teacher should primarily:",
+      "opts": [
+        "Take over and direct the play",
+        "Follow the child's lead when invited into play",
+        "Avoid ever joining play",
+        "Correct the child's imagination"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q7",
+      "topic": "Balancing Free Play and Guided Play",
+      "q": "Guided play differs from free play mainly in that guided play:",
+      "opts": [
+        "Has zero adult involvement",
+        "Has adult-set-up learning goals but child-directed exploration",
+        "Is entirely teacher-scripted with no child choice",
+        "Only happens outdoors"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q8",
+      "topic": "Balancing Free Play and Guided Play",
+      "q": "Outdoor free play is specifically noted to support:",
+      "opts": [
+        "Only academic worksheets",
+        "Gross motor development and rich cooperative/dramatic play",
+        "Reduced social interaction",
+        "Formal testing readiness"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q9",
+      "topic": "Why Play is Learning",
+      "q": "Research comparing high-quality play-based programs to highly didactic ones generally shows:",
+      "opts": [
+        "Play-based programs perform worse academically",
+        "Play-based programs perform as well or better, with stronger social-emotional outcomes",
+        "No developmental benefit from play",
+        "Worksheet-heavy programs are always superior"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q10",
+      "topic": "Designing a Play-Based Lesson",
+      "q": "Using real objects (real fruit, real utensils) rather than abstract worksheets is recommended because:",
+      "opts": [
+        "It is cheaper",
+        "Concrete, authentic materials are more engaging and meaningful to young children",
+        "It reduces the need for supervision",
+        "Worksheets are prohibited"
+      ],
+      "ans": 1
+    }
+  ],
+  "cse-004": [
+    {
+      "id": "q1",
+      "topic": "Principles of Early Years Curriculum Design",
+      "q": "An 'integrated' curriculum approach means:",
+      "opts": [
+        "Teaching each subject in a separate isolated period",
+        "Weaving language, math, art, etc. into a single theme",
+        "Only teaching one subject per term",
+        "Avoiding themes entirely"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q2",
+      "topic": "Principles of Early Years Curriculum Design",
+      "q": "A 'spiral' curriculum, as described by Bruner, means core concepts are:",
+      "opts": [
+        "Taught once and never revisited",
+        "Revisited repeatedly with increasing complexity",
+        "Only taught in the final term",
+        "Removed after first exposure"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q3",
+      "topic": "Backward Design for Early Years",
+      "q": "In Backward Design, what is identified FIRST?",
+      "opts": [
+        "The activities",
+        "The desired results/learning goals",
+        "The classroom decorations",
+        "The assessment rubric only"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q4",
+      "topic": "Backward Design for Early Years",
+      "q": "The second step of Backward Design is:",
+      "opts": [
+        "Planning learning experiences",
+        "Determining acceptable evidence of learning",
+        "Buying materials",
+        "Writing report cards"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q5",
+      "topic": "Writing a Daily Lesson Plan",
+      "q": "A strong daily lesson plan should state the learning objective in terms that are:",
+      "opts": [
+        "Vague and general",
+        "Child-friendly and observable",
+        "Written only for the principal",
+        "Optional"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q6",
+      "topic": "Writing a Daily Lesson Plan",
+      "q": "Poorly managed transitions between activities are noted as a common source of:",
+      "opts": [
+        "Improved focus",
+        "Classroom disruption",
+        "Faster learning",
+        "Better attendance"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q7",
+      "topic": "Theme-Based and Project-Based Approaches",
+      "q": "The project approach, associated with Reggio Emilia, is characterized by:",
+      "opts": [
+        "A rigid teacher-only agenda",
+        "Extended investigation emerging from genuine child curiosity",
+        "No documentation of children's work",
+        "Ignoring child questions"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q8",
+      "topic": "Theme-Based and Project-Based Approaches",
+      "q": "Early in the year, yearly theme maps should generally favor themes that are:",
+      "opts": [
+        "Abstract and distant",
+        "Familiar and concrete (self, family, body)",
+        "Only about transportation",
+        "Randomly ordered with no logic"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q9",
+      "topic": "Aligning Curriculum Across the Year",
+      "q": "Regular review weeks (roughly every 6-8 weeks) are recommended mainly because:",
+      "opts": [
+        "Young children need more repetition to retain concepts",
+        "They save the teacher paperwork",
+        "They replace all other planning",
+        "They are required only once a year"
+      ],
+      "ans": 0
+    },
+    {
+      "id": "q10",
+      "topic": "Aligning Curriculum Across the Year",
+      "q": "A yearly curriculum map should be cross-checked against a skills progression chart covering:",
+      "opts": [
+        "Only literacy goals",
+        "Language, numeracy, social-emotional, physical, and creative goals",
+        "Only assessment dates",
+        "Only teacher preferences"
+      ],
+      "ans": 1
+    }
+  ],
+  "cse-005": [
+    {
+      "id": "q1",
+      "topic": "Designing the Physical Classroom",
+      "q": "Shelves and materials in a child-friendly classroom should generally be:",
+      "opts": [
+        "High to prevent access",
+        "Low and open for child independence",
+        "Locked at all times",
+        "Placed only in the teacher's area"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q2",
+      "topic": "Designing the Physical Classroom",
+      "q": "Which safety practice is emphasized as non-negotiable?",
+      "opts": [
+        "Leaving heavy furniture unsecured",
+        "Securing heavy furniture to walls and keeping exits clear",
+        "Keeping cleaning chemicals accessible for convenience",
+        "Locking emergency exits during class"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q3",
+      "topic": "Building Predictable Routines",
+      "q": "A visible daily schedule for pre-readers should ideally use:",
+      "opts": [
+        "Only text, no pictures",
+        "Pictures alongside words",
+        "No schedule at all",
+        "A schedule only the teacher can see"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q4",
+      "topic": "Building Predictable Routines",
+      "q": "Consistent daily routines primarily help children by:",
+      "opts": [
+        "Increasing anxiety",
+        "Reducing anxiety and freeing mental energy for learning",
+        "Making the day less predictable",
+        "Replacing the need for supervision"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q5",
+      "topic": "Positive Discipline Principles",
+      "q": "Positive discipline is grounded in viewing behavior as:",
+      "opts": [
+        "Defiance to be crushed with punishment",
+        "Communication of an unmet need or missing skill",
+        "Something to ignore completely",
+        "Irrelevant to teaching"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q6",
+      "topic": "Positive Discipline Principles",
+      "q": "Effective praise should focus on:",
+      "opts": [
+        "Outcome only",
+        "Effort and specific actions",
+        "Comparing the child to peers",
+        "Being vague ('good job')"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q7",
+      "topic": "Positive Discipline Principles",
+      "q": "Stating expectations positively means saying:",
+      "opts": [
+        "'No running!'",
+        "'Walking feet inside'",
+        "Nothing at all",
+        "'Stop that now'"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q8",
+      "topic": "Managing Tantrums and Separation Anxiety",
+      "q": "During a tantrum, the teacher's first priority is:",
+      "opts": [
+        "Lecturing the child",
+        "Ensuring safety and staying calm nearby",
+        "Ignoring the child completely and walking away",
+        "Immediately discussing consequences"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q9",
+      "topic": "Managing Tantrums and Separation Anxiety",
+      "q": "For separation anxiety, the recommended approach to goodbyes is:",
+      "opts": [
+        "Prolonged, drawn-out goodbyes",
+        "A consistent, brief, confident goodbye routine",
+        "Sneaking away without saying goodbye",
+        "Avoiding drop-off entirely"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q10",
+      "topic": "Preventing Behavior Challenges Through Engagement",
+      "q": "Most behavior challenges in pre-primary classrooms are said to stem from:",
+      "opts": [
+        "Intentional defiance",
+        "Unmet needs like boredom, fatigue, or overstimulation",
+        "Genetics alone",
+        "Poor teacher training only"
+      ],
+      "ans": 1
+    }
+  ],
+  "cse-006": [
+    {
+      "id": "q1",
+      "topic": "The Building Blocks of Early Literacy",
+      "q": "Which of these is the strongest predictor of later reading success according to this course?",
+      "opts": [
+        "Letter drilling alone",
+        "Phonological awareness built through oral games",
+        "Formal handwriting practice",
+        "Memorizing the alphabet song only"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q2",
+      "topic": "The Building Blocks of Early Literacy",
+      "q": "Print awareness includes understanding that:",
+      "opts": [
+        "Books have no fixed reading direction",
+        "We read left to right and print carries meaning",
+        "Pictures are more important than print",
+        "Print awareness is unrelated to reading"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q3",
+      "topic": "Read-Alouds and Storytelling",
+      "q": "Interactive read-alouds are effective partly because they:",
+      "opts": [
+        "Are read silently with no pauses",
+        "Include predictive questions and expressive voices",
+        "Avoid repeating the same book ever",
+        "Skip discussion after the story"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q4",
+      "topic": "Read-Alouds and Storytelling",
+      "q": "Repeated readings of the same beloved book:",
+      "opts": [
+        "Waste classroom time",
+        "Deepen vocabulary retention and comprehension",
+        "Bore children and should be avoided",
+        "Have no measurable benefit"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q5",
+      "topic": "Building Vocabulary Intentionally",
+      "q": "By approximately what age does vocabulary reach over 5,000 words in this course's description?",
+      "opts": [
+        "Age 2",
+        "Age 3",
+        "Age 6",
+        "Age 10"
+      ],
+      "ans": 2
+    },
+    {
+      "id": "q6",
+      "topic": "Building Vocabulary Intentionally",
+      "q": "Teaching target vocabulary words works best when paired with:",
+      "opts": [
+        "Abstract explanation only",
+        "Real objects, pictures, and hands-on experiences",
+        "No repetition across the week",
+        "Simplified 'baby talk' only"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q7",
+      "topic": "Phonological Awareness Activities",
+      "q": "Phonological awareness activities typically progress from:",
+      "opts": [
+        "Phonemes to syllables to words",
+        "Whole words/sentences to syllables to rhyme to phonemes",
+        "Random order with no sequence",
+        "Writing to speaking"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q8",
+      "topic": "Phonological Awareness Activities",
+      "q": "Blending and segmenting individual phonemes (e.g., c-a-t) is typically:",
+      "opts": [
+        "The first skill children develop",
+        "One of the last phonological skills to develop",
+        "Unrelated to reading",
+        "Taught before rhyme"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q9",
+      "topic": "Emergent Writing and Fine Motor Preparation",
+      "q": "Which activity is recommended to build fine motor strength before writing?",
+      "opts": [
+        "Long worksheet drills",
+        "Playdough manipulation and using tongs/tweezers",
+        "Cursive handwriting practice for 3-year-olds",
+        "Typing on a keyboard only"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q10",
+      "topic": "Emergent Writing and Fine Motor Preparation",
+      "q": "Forcing formal letter formation before a child is fine-motor ready can lead to:",
+      "opts": [
+        "Faster literacy development",
+        "Frustration and improper pencil grip habits",
+        "No effect at all",
+        "Immediate reading fluency"
+      ],
+      "ans": 1
+    }
+  ],
+  "cse-007": [
+    {
+      "id": "q1",
+      "topic": "What is Number Sense?",
+      "q": "True number sense is described as requiring more than:",
+      "opts": [
+        "One-to-one correspondence",
+        "Rote counting alone",
+        "Cardinality",
+        "Subitizing"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q2",
+      "topic": "What is Number Sense?",
+      "q": "'Subitizing' refers to:",
+      "opts": [
+        "Counting slowly one by one",
+        "Instantly recognizing small quantities without counting",
+        "Writing numerals",
+        "Measuring length"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q3",
+      "topic": "Counting and Cardinality Progression",
+      "q": "Cardinality means understanding that:",
+      "opts": [
+        "The first number said is the total",
+        "The last number counted represents the total quantity",
+        "Counting order doesn't matter",
+        "Objects can be counted twice"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q4",
+      "topic": "Counting and Cardinality Progression",
+      "q": "An authentic, embedded way to practice counting daily is:",
+      "opts": [
+        "Only during a single isolated 'math time'",
+        "Counting children present for attendance",
+        "Avoiding counting until formal school",
+        "Worksheets only"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q5",
+      "topic": "Patterns, Shapes, and Spatial Reasoning",
+      "q": "A repeating pattern like red-blue-red-blue is an example of:",
+      "opts": [
+        "An AB pattern",
+        "Cardinality",
+        "Subitizing",
+        "Measurement"
+      ],
+      "ans": 0
+    },
+    {
+      "id": "q6",
+      "topic": "Patterns, Shapes, and Spatial Reasoning",
+      "q": "Children should encounter shapes:",
+      "opts": [
+        "Only as flat, upright cutouts",
+        "In many orientations and contexts",
+        "Only once per year",
+        "Without any hands-on building"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q7",
+      "topic": "Measurement and Comparison",
+      "q": "Early measurement should begin with:",
+      "opts": [
+        "Standard units like centimeters",
+        "Direct, non-numerical comparison and non-standard units",
+        "Complex formulas",
+        "Digital measuring tools only"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q8",
+      "topic": "Measurement and Comparison",
+      "q": "Water and sand play are highlighted as useful for building early concepts of:",
+      "opts": [
+        "Volume and capacity",
+        "Algebra",
+        "Formal geometry proofs",
+        "Handwriting"
+      ],
+      "ans": 0
+    },
+    {
+      "id": "q9",
+      "topic": "Early Problem-Solving and Mathematical Thinking",
+      "q": "When a child gives a wrong count, the recommended teacher response is to:",
+      "opts": [
+        "Simply mark it wrong and move on",
+        "Recount together to discover where the counting broke down",
+        "Punish the mistake",
+        "Avoid counting activities in future"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q10",
+      "topic": "Early Problem-Solving and Mathematical Thinking",
+      "q": "Asking 'How did you know there were more red blocks?' primarily builds:",
+      "opts": [
+        "Mathematical reasoning and language together",
+        "Only fine motor skills",
+        "Nothing measurable",
+        "Rote memorization only"
+      ],
+      "ans": 0
+    }
+  ],
+  "cse-008": [
+    {
+      "id": "q1",
+      "topic": "Nutrition Basics for Pre-Primary Children",
+      "q": "Because young children have small stomachs but high nutrient needs, the recommended approach is:",
+      "opts": [
+        "Three large meals only",
+        "Frequent, smaller meals and healthy snacks",
+        "Skipping meals often",
+        "Only sugary snacks"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q2",
+      "topic": "Nutrition Basics for Pre-Primary Children",
+      "q": "Regarding food allergies, teachers should:",
+      "opts": [
+        "Treat allergy information casually",
+        "Strictly respect and be aware of every child's allergy information",
+        "Ignore allergy lists if inconvenient",
+        "Only check allergies occasionally"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q3",
+      "topic": "Hygiene Routines",
+      "q": "Handwashing should be practiced at which of these key points?",
+      "opts": [
+        "Only once a week",
+        "On arrival, before eating, and after toileting",
+        "Never during the school day",
+        "Only if visibly dirty"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q4",
+      "topic": "Hygiene Routines",
+      "q": "Children learn correct handwashing best when:",
+      "opts": [
+        "Only told verbally, never shown",
+        "Teachers consistently model it themselves",
+        "It is never demonstrated",
+        "It is optional for staff"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q5",
+      "topic": "Recognizing and Responding to Common Illnesses",
+      "q": "A head injury, breathing difficulty, or loss of consciousness should be treated as:",
+      "opts": [
+        "A routine matter needing no urgency",
+        "A medical emergency requiring immediate escalation",
+        "Something to monitor for a week first",
+        "Not the teacher's concern"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q6",
+      "topic": "Recognizing and Responding to Common Illnesses",
+      "q": "Before any incident occurs, a teacher should already know:",
+      "opts": [
+        "Nothing in advance",
+        "Where the first-aid kit is and the emergency protocol",
+        "Only the school's phone number",
+        "The class timetable only"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q7",
+      "topic": "Physical Safety in the Classroom and Outdoors",
+      "q": "Outdoor play equipment should have which type of surfacing beneath it?",
+      "opts": [
+        "Hard concrete",
+        "Soft, impact-absorbing surfacing",
+        "No surfacing required",
+        "Loose gravel only"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q8",
+      "topic": "Physical Safety in the Classroom and Outdoors",
+      "q": "Active supervision outdoors means:",
+      "opts": [
+        "Passive presence while distracted",
+        "Constant supervision with a clear line of sight to all children",
+        "Supervising only some children",
+        "Supervision only indoors"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q9",
+      "topic": "Building Health and Safety Awareness in Children",
+      "q": "Body safety concepts for young children should be taught in a tone that is:",
+      "opts": [
+        "Frightening and dramatic",
+        "Calm, matter-of-fact, and age-appropriate",
+        "Avoided entirely",
+        "Only discussed once a year"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q10",
+      "topic": "Building Health and Safety Awareness in Children",
+      "q": "Pretend-doctor dramatic play is suggested as a way to:",
+      "opts": [
+        "Frighten children about hospitals",
+        "Make health education engaging and everyday",
+        "Replace all first-aid training",
+        "Avoid discussing hygiene"
+      ],
+      "ans": 1
+    }
+  ],
+  "cse-009": [
+    {
+      "id": "q1",
+      "topic": "Principles of Inclusive Education",
+      "q": "Inclusive education primarily means:",
+      "opts": [
+        "Separating children with differences into other settings",
+        "Adapting environment/curriculum to meet every child's needs",
+        "Expecting every child to fit an unchanging classroom",
+        "Excluding children who learn differently"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q2",
+      "topic": "Principles of Inclusive Education",
+      "q": "Successful inclusion requires collaboration between:",
+      "opts": [
+        "The classroom teacher only, working in isolation",
+        "Teacher, specialists/therapists where involved, and families",
+        "Only the school principal",
+        "No communication with families"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q3",
+      "topic": "Recognizing Developmental Delay",
+      "q": "A developmental delay means a child is:",
+      "opts": [
+        "Permanently disabled with no possibility of change",
+        "Achieving milestones at a slower pace than typical",
+        "Always ahead of peers",
+        "Not a valid educational concept"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q4",
+      "topic": "Recognizing Developmental Delay",
+      "q": "When raising a developmental concern with parents, teachers should:",
+      "opts": [
+        "Diagnose the child directly",
+        "Share specific, documented observations and refer to professionals",
+        "Avoid mentioning it at all",
+        "Label the child publicly"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q5",
+      "topic": "Understanding Autism Spectrum Differences and ADHD",
+      "q": "A helpful classroom support for many children with autism spectrum differences is:",
+      "opts": [
+        "Frequent unannounced changes",
+        "Predictable visual schedules and advance warning before transitions",
+        "Constant loud group activities",
+        "Idioms and sarcasm used often"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q6",
+      "topic": "Understanding Autism Spectrum Differences and ADHD",
+      "q": "An effective support for children with ADHD-type attention differences includes:",
+      "opts": [
+        "Long, unstructured lecture periods",
+        "Structured routines and frequent movement breaks",
+        "Removing all feedback",
+        "One very long, multi-step instruction at once"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q7",
+      "topic": "Language and Learning Differences",
+      "q": "Early pre-primary signs sometimes associated with dyslexia risk include:",
+      "opts": [
+        "Advanced early reading fluency",
+        "Difficulty with rhyming or remembering letter names",
+        "No relevant early signs exist",
+        "Only appears after age 12"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q8",
+      "topic": "Language and Learning Differences",
+      "q": "Early language intervention in the pre-primary years, compared to later intervention, tends to have:",
+      "opts": [
+        "No measurable impact",
+        "A disproportionately large positive impact",
+        "Only negative effects",
+        "The same effect regardless of timing"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q9",
+      "topic": "Practical Inclusive Classroom Strategies",
+      "q": "A 'peer buddy system' is intended to:",
+      "opts": [
+        "Replace teachers entirely",
+        "Support a child while building empathy in the buddy",
+        "Punish misbehavior",
+        "Single out struggling children negatively"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q10",
+      "topic": "Practical Inclusive Classroom Strategies",
+      "q": "Differentiated instruction typically means:",
+      "opts": [
+        "The same activity offered at multiple levels of challenge",
+        "Every child does an unrelated separate activity",
+        "Only advanced children participate",
+        "One fixed difficulty level for all"
+      ],
+      "ans": 0
+    }
+  ],
+  "cse-010": [
+    {
+      "id": "q1",
+      "topic": "Why Formal Testing Doesn't Work for Young Children",
+      "q": "Formal standardized testing is described as problematic for young children mainly because:",
+      "opts": [
+        "It is too cheap to administer",
+        "Performance is heavily affected by mood, hunger, and comfort with the tester",
+        "It is always perfectly accurate",
+        "Young children love formal tests"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q2",
+      "topic": "Observation as an Assessment Tool",
+      "q": "Effective observation notes should be:",
+      "opts": [
+        "Vague general impressions",
+        "Objective and specific about what was said/done",
+        "Written only at the end of term",
+        "Based on assumptions"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q3",
+      "topic": "Observation as an Assessment Tool",
+      "q": "A 'running record' is:",
+      "opts": [
+        "A checklist of milestones only",
+        "A detailed narrative note during a specific activity",
+        "A formal exam score",
+        "A parent's home diary"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q4",
+      "topic": "Portfolio Assessment",
+      "q": "A good portfolio is best described as:",
+      "opts": [
+        "Every single piece of work a child ever produces",
+        "A purposeful collection showing growth over time",
+        "A single test score",
+        "A collection with no dates or context"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q5",
+      "topic": "Portfolio Assessment",
+      "q": "Involving children in selecting pieces for their own portfolio helps build:",
+      "opts": [
+        "Confusion",
+        "Early self-reflection and ownership of learning",
+        "Dependence on adults",
+        "Nothing significant"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q6",
+      "topic": "Interpreting and Using Assessment Data",
+      "q": "Observation data should mainly be used to:",
+      "opts": [
+        "File away and never revisit",
+        "Directly inform and adjust upcoming planning",
+        "Rank children publicly",
+        "Replace parent communication"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q7",
+      "topic": "Interpreting and Using Assessment Data",
+      "q": "A single isolated incident (e.g., one struggle with scissors) should generally be treated as:",
+      "opts": [
+        "Proof of a serious delay",
+        "Not very concerning on its own; patterns matter more",
+        "A reason for immediate referral",
+        "Grounds for excluding the child from art"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q8",
+      "topic": "Communicating Progress to Parents",
+      "q": "When discussing a concern with parents, teachers should:",
+      "opts": [
+        "Use clinical diagnostic labels",
+        "Use specific, factual, non-judgmental language and lead with strengths",
+        "Avoid ever mentioning strengths",
+        "Deliver only a verdict with no collaboration"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q9",
+      "topic": "Communicating Progress to Parents",
+      "q": "Effective parent-teacher communication should be:",
+      "opts": [
+        "Limited to one formal report per year",
+        "Frequent, specific, and two-directional",
+        "One-directional from teacher to parent only",
+        "Avoided unless there is a problem"
+      ],
+      "ans": 1
+    },
+    {
+      "id": "q10",
+      "topic": "Why Formal Testing Doesn't Work for Young Children",
+      "q": "The recommended alternative to formal testing for this age group is:",
+      "opts": [
+        "No assessment at all",
+        "Authentic, observation-based assessment in natural contexts",
+        "Standardized national exams at age 3",
+        "Timed written tests"
+      ],
+      "ans": 1
+    }
+  ]
+}

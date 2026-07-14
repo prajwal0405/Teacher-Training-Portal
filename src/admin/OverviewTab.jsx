@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { BarChart, S, SectionCard, StatCard, StatusBadge } from "../components/Shared";
-import { getAdminDashboard, getAdminTeachers, getCenters, getCourseAssignments } from "../services/api";
+import { getAdminDashboard, getAdminTeachers, getAdminMentors, getCenters, getCourseAssignments } from "../services/api";
 import { t } from "../services/i18n";
 
 function buildMonthlyRegistrations(teachers) {
@@ -53,6 +53,7 @@ function ActivityItem({ icon, text, time, color }) {
 export default function OverviewTab() {
   const [stats, setStats]         = useState(null);
   const [teachers, setTeachers]   = useState([]);
+  const [mentors, setMentors]     = useState([]);
   const [centers, setCenters]     = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -63,11 +64,12 @@ export default function OverviewTab() {
     let isInitialLoad = true;
 
     const fetchOverviewData = () => {
-      Promise.all([getAdminDashboard(), getAdminTeachers(), getCenters(), getCourseAssignments()])
-        .then(([dash, teachersData, centersData, assignData]) => {
+      Promise.all([getAdminDashboard(), getAdminTeachers(), getAdminMentors(), getCenters(), getCourseAssignments()])
+        .then(([dash, teachersData, mentorsData, centersData, assignData]) => {
           if (ignore) return;
           setStats(dash || {});
           setTeachers(teachersData?.teachers || []);
+          setMentors(mentorsData?.mentors || []);
           setCenters(centersData?.centers || []);
           setAssignments(assignData?.assignments || []);
         })
@@ -95,6 +97,10 @@ export default function OverviewTab() {
   const approvedTeachers = teachers.filter(t => t.status === "approved");
   const pendingTeachers  = teachers.filter(t => t.status === "pending");
   const rejectedTeachers = teachers.filter(t => t.status === "rejected");
+
+  const totalMentors = mentors.length;
+  const approvedMentors = mentors.filter(m => m.status === "approved").length;
+  const pendingMentors  = mentors.filter(m => m.status === "pending").length;
 
   const monthlyReg    = useMemo(() => buildMonthlyRegistrations(teachers), [teachers]);
   const addedThisMonth = monthlyReg[monthlyReg.length - 1]?.val || 0;
@@ -165,12 +171,22 @@ export default function OverviewTab() {
               {pendingTeachers.length > 0 && (
                 <div style={{ background: "rgba(239,68,68,0.25)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 12, padding: "10px 16px", textAlign: "center" }}>
                   <div style={{ fontSize: 22, fontWeight: 900, color: "#fee2e2" }}>{pendingTeachers.length}</div>
-                  <div style={{ fontSize: 10, color: "#fee2e2", fontWeight: 700 }}>Pending Approval</div>
+                  <div style={{ fontSize: 10, color: "#fee2e2", fontWeight: 700 }}>Pending Teachers</div>
                 </div>
               )}
               <div style={{ background: "rgba(255,255,255,0.18)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 12, padding: "10px 16px", textAlign: "center" }}>
                 <div style={{ fontSize: 22, fontWeight: 900, color: "white" }}>{approvedTeachers.length}</div>
                 <div style={{ fontSize: 10, color: "white", fontWeight: 700 }}>Active Teachers</div>
+              </div>
+              {pendingMentors > 0 && (
+                <div style={{ background: "rgba(239,68,68,0.25)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 12, padding: "10px 16px", textAlign: "center" }}>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: "#fee2e2" }}>{pendingMentors}</div>
+                  <div style={{ fontSize: 10, color: "#fee2e2", fontWeight: 700 }}>Pending Mentors</div>
+                </div>
+              )}
+              <div style={{ background: "rgba(255,255,255,0.18)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 12, padding: "10px 16px", textAlign: "center" }}>
+                <div style={{ fontSize: 22, fontWeight: 900, color: "white" }}>{approvedMentors}</div>
+                <div style={{ fontSize: 10, color: "white", fontWeight: 700 }}>Active Mentors</div>
               </div>
             </div>
           </div>

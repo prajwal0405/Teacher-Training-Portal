@@ -5,20 +5,24 @@ import OverviewTab from "../admin/OverviewTab";
 import CenterManagementTab from "../admin/CenterManagementTab";
 import TeacherManagementTab from "../admin/TeacherManagementTab";
 import LessonPlanManagementTab from "../admin/LessonPlanManagementTab";
-import CurriculumTrainingTab from "../admin/CurriculumTrainingTab";
+import CurriculumTrainingTab from "../admin/CurriculumTrainingTab"; // already imported — just confirm it points at the new file
+//import AssessmentResultsTab from "../pages/AssessmentResultsTab";  // NEW
 import ActivityMonitoringTab from "../admin/ActivityMonitoringTab";
 import ChildrenManagementTab from "../admin/ChildrenManagement";
 import TrainerManagementTab from "../admin/TrainerManagementTab";
-import AssignmentReviewTab from "../admin/AssignmentReviewTab";
+//import AssignmentReviewTab from "../admin/AssignmentReviewTab";
 import AttendanceTab from "../admin/AttendanceTab";
 import ReportsTab from "../admin/ReportsTab";
 import NotificationsTab from "../admin/NotificationsTab";
 import SettingsTab from "../admin/SettingsTab";
 import FeedbackManagementTab from "../admin/FeedbackManagementTab";
-import ScheduleManagementTab from "../admin/ScheduleManagementTab";
-import CertificateManagementTab from "../admin/CertificateManagementTab";
-import AutomationTab from "../admin/AutomationTab";
-import { getAdminTeachers, getCourseAssignments, getCourses, updateTeacherStatus } from "../services/api";
+//import ScheduleManagementTab from "../admin/ScheduleManagementTab";
+//import CertificateManagementTab from "../admin/CertificateManagementTab";
+//import AutomationTab from "../admin/AutomationTab";
+import SystemHealthTab from "../admin/SystemHealthTab";
+import AdminProfileTab from "../admin/AdminProfileTab";
+import HelpFAQTab from "../admin/HelpFAQTab";
+import { getAdminTeachers, getAdminMentors, getCourseAssignments, getCourses, updateTeacherStatus } from "../services/api";
 //import CourseManagementTab from "../admin/CourseManagementTab";
 //import BatchManagementTab from "../admin/BatchManagementTab";
 //import AssessmentManagementTab from "../admin/AssessmentManagementTab";
@@ -39,6 +43,7 @@ import { getAdminTeachers, getCourseAssignments, getCourses, updateTeacherStatus
 export default function AdminDashboard({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState("overview");
   const [teachers,  setTeachers]  = useState([]);
+  const [mentors, setMentors] = useState([]);
   const [courses, setCourses] = useState([]);
   const [assignments,setAssignments] = useState([]);
   const [toast, setToast] = useState({msg:"",type:""});
@@ -87,22 +92,23 @@ export default function AdminDashboard({ user, onLogout }) {
   const navItems = [
     { key:"overview",     label:"Admin Dashboard",          icon:"\uD83D\uDCCA" },
     { key:"centers",      label:"Center Management", icon:"\uD83C\uDFEB" },
-    { key:"teachers",     label:"Teacher Management",icon:"\uD83D\uDC69\u200D\uD83C\uDFEB", badge:pending.length },
+    { key:"teachers",     label:"User Management",icon:"\uD83D\uDC69\u200D\uD83C\uDFEB", badge:pending.length },
     { key: "curriculum", label: "Course Management", icon: "\uD83D\uDCDA" },
+    //{ key: "assessments", label: "Assessment Results", icon: "\uD83D\uDCDD" },
     { key: "activities", label: "Activity Monitoring", icon: "\uD83D\uDCF8" },
     { key: "lessonplans", label: "Lesson Plans", icon: "\uD83D\uDCCB" },
     { key: "children", label: "Children & Classes", icon: "\uD83D\uDC76" },
     { key:"trainers",     label:"Trainer Management",icon:"\uD83C\uDF93" },
-    { key:"assignments",  label:"Assignment Review", icon:"\uD83D\uDCDD", badge:assignments.filter(a=>a.status==="pending").length },
+    //{ key:"assignments",  label:"Assignment Review", icon:"\uD83D\uDCDD", badge:assignments.filter(a=>a.status==="pending").length },
     { key:"attendance",   label:"Attendance",        icon:"\uD83D\uDCC5" },
    
     { key:"reports",      label:"Reports & Analytics",icon:"\uD83D\uDCC8" },
     { key:"notifications",label:"Notifications",     icon:"\uD83D\uDD14" },
-    { key:"settings",     label:"Settings & Roles",  icon:"\u2699\uFE0F" },
-    { key:"schedules",    label:"Schedule Management", icon:"\uD83D\uDCC5" },
-    { key:"certificates", label:"Certificates",        icon:"\uD83C\uDFC6" },
+    { key:"settings",     label:"Settings & Roles",  icon:"⚙️" },
+    //{ key:"schedules",    label:"Schedule Management", icon:"\uD83D\uDCC5" },
+    //{ key:"certificates", label:"Certificates",        icon:"\uD83C\uDFC6" },
     { key:"feedback",     label:"Feedback",              icon:"\uD83D\uDCAC" },
-    { key:"automation",   label:"Automation Center",     icon:"\u2699\uFE0F" },
+    //{ key:"automation",   label:"Automation Center",     icon:"\u2699\uFE0F" },
   ];
   const persistTeachers = (updater) => {
   setTeachers(prev => {
@@ -122,10 +128,11 @@ export default function AdminDashboard({ user, onLogout }) {
 
   const renderContent = () => {
     switch(activeTab) {
-      case "overview":     return <OverviewTab teachers={teachers} courses={courses} batches={[]} sessions={[]}/>;
-      case "centers": return <CenterManagementTab allTeachers={teachers} setToast={setToast}/>;
+      case "overview":     return <OverviewTab teachers={teachers} mentors={mentors} courses={courses} batches={[]} sessions={[]}/>;
+      case "centers": return <CenterManagementTab allTeachers={teachers} mentors={mentors} setToast={setToast}/>;
       case "teachers": return <TeacherManagementTab teachers={teachers} setTeachers={persistTeachers} setToast={setToast}/>;
       case "curriculum": return <CurriculumTrainingTab setToast={setToast}/>;
+      case "assessments": return <AssessmentResultsTab setToast={setToast}/>;
       case "activities": return <ActivityMonitoringTab setToast={setToast}/>;
       case "lessonplans": return <LessonPlanManagementTab setToast={setToast} />;
       case "children": return <ChildrenManagementTab setToast={setToast}/>;
@@ -147,10 +154,11 @@ export default function AdminDashboard({ user, onLogout }) {
     let isInitialLoad = true;
 
     const fetchDashboardData = () => {
-      Promise.all([getAdminTeachers(), getCourses(), getCourseAssignments()])
-        .then(([teacherRes, courseRes, assignmentRes]) => {
+      Promise.all([getAdminTeachers(), getAdminMentors(), getCourses(), getCourseAssignments()])
+        .then(([teacherRes, mentorRes, courseRes, assignmentRes]) => {
           if (ignore) return;
           setTeachers(teacherRes.teachers || []);
+          setMentors(mentorRes.mentors || []);
           setCourses(courseRes.courses || []);
           setAssignments((assignmentRes.assignments || []).map(mapCourseAssignmentForReview));
           isInitialLoad = false;

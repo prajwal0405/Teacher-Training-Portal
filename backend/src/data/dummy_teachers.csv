@@ -1,0 +1,21 @@
+teacherId,name,email,phone,className,ageGroup,level,preferredLevel,registeredStatus,availabilityStatus,breakStatus,maxActivitiesPerDay,currentActivitiesToday,experienceLevel
+T001,Anjali Sharma,anjali.sharma@test.com,9876500001,PTP,1-2 years,Level 1,Level 1,Registered,Available,No,4,0,Beginner
+T002,Rahul Verma,rahul.verma@test.com,9876500002,PTP,1-2 years,Level 2,Level 2,Registered,Available,No,4,0,Intermediate
+T003,Priya Singh,priya.singh@test.com,9876500003,Primary,2-3 years,Level 3,Level 3,Registered,Available,No,4,0,Intermediate
+T004,Amit Kumar,amit.kumar@test.com,9876500004,Primary,2-3 years,Level 4,Level 4,Registered,Available,No,4,0,Experienced
+T005,Neha Patil,neha.patil@test.com,9876500005,Nursery,3-4 years,Level 5,Level 5,Registered,Available,No,4,0,Experienced
+T006,Sneha Gupta,sneha.gupta@test.com,9876500006,Nursery,3-4 years,Level 6,Level 6,Registered,Available,No,4,0,Intermediate
+T007,Kiran Yadav,kiran.yadav@test.com,9876500007,PTP,1-2 years,Level 1,Any,Registered,Available,No,4,0,Beginner
+T008,Meena Joshi,meena.joshi@test.com,9876500008,PTP,1-2 years,Level 2,Any,Registered,Available,No,4,0,Intermediate
+T009,Rohan Das,rohan.das@test.com,9876500009,Primary,2-3 years,Level 3,Any,Registered,Available,No,4,0,Intermediate
+T010,Kavita Rao,kavita.rao@test.com,9876500010,Primary,2-3 years,Level 4,Any,Registered,Available,No,4,0,Experienced
+T011,Pooja Mehta,pooja.mehta@test.com,9876500011,Nursery,3-4 years,Level 5,Any,Registered,Available,No,4,0,Experienced
+T012,Suresh More,suresh.more@test.com,9876500012,Nursery,3-4 years,Level 6,Any,Registered,Available,No,4,0,Intermediate
+T013,Divya Nair,divya.nair@test.com,9876500013,PTP,1-2 years,Level 1,Level 1,Registered,On Break,Yes,4,0,Beginner
+T014,Manish Jain,manish.jain@test.com,9876500014,Primary,2-3 years,Level 3,Level 3,Registered,Busy,No,4,2,Intermediate
+T015,Ritu Malhotra,ritu.malhotra@test.com,9876500015,Nursery,3-4 years,Level 5,Level 5,Registered,Absent,No,4,0,Experienced
+T016,Arjun Pawar,arjun.pawar@test.com,9876500016,PTP,1-2 years,Level 2,Any,Registered,Available,No,4,0,Intermediate
+T017,Simran Kaur,simran.kaur@test.com,9876500017,Primary,2-3 years,Level 4,Any,Registered,Available,No,4,0,Experienced
+T018,Deepak Mishra,deepak.mishra@test.com,9876500018,Nursery,3-4 years,Level 6,Any,Registered,Available,No,4,0,Intermediate
+T019,Nisha Khan,nisha.khan@test.com,9876500019,PTP,1-2 years,Level 1,Level 1,Not Registered,Available,No,4,0,Beginner
+T020,Varun Saxena,varun.saxena@test.com,9876500020,Primary,2-3 years,Level 3,Any,Registered,Available,No,4,0,Intermediate

@@ -1396,7 +1396,12 @@ app.patch("/api/admin/courses/assignments/:id", requireAuth, requireRole("admin"
 
 app.patch("/api/teacher/courses/assignments/:id", requireAuth, requireRole("teacher"), async (req, res, next) => {
   try {
-    const { progressPercent, completedContent, status, title, feedback, submissionFiles } = req.body;
+    const { 
+      progressPercent, completedContent, status, title, feedback, submissionFiles,
+      assessmentScore, assessmentTotal, assessmentPercentage, assessmentGrade,
+      assessmentForced, assessmentWarnings, assessmentCompletedAt
+    } = req.body;
+    
     const update = {};
     if (progressPercent !== undefined) update.progressPercent = progressPercent;
     if (completedContent) update.completedContent = completedContent.map(String);
@@ -1404,6 +1409,21 @@ app.patch("/api/teacher/courses/assignments/:id", requireAuth, requireRole("teac
     if (title !== undefined) update.title = title;
     if (feedback !== undefined) update.feedback = feedback;
     if (submissionFiles !== undefined) update.submissionFiles = submissionFiles;
+    
+    if (assessmentScore !== undefined) {
+      update.assessmentScore = assessmentScore;
+      update.score = assessmentScore; // sync to main score for certificate
+    }
+    if (assessmentTotal !== undefined) update.assessmentTotal = assessmentTotal;
+    if (assessmentPercentage !== undefined) update.assessmentPercentage = assessmentPercentage;
+    if (assessmentGrade !== undefined) {
+      update.assessmentGrade = assessmentGrade;
+      update.grade = assessmentGrade; // sync to main grade for certificate
+    }
+    if (assessmentForced !== undefined) update.assessmentForced = assessmentForced;
+    if (assessmentWarnings !== undefined) update.assessmentWarnings = assessmentWarnings;
+    if (assessmentCompletedAt !== undefined) update.assessmentCompletedAt = assessmentCompletedAt;
+    
     if (status === "submitted") update.submittedAt = new Date();
     if (progressPercent === 100) {
       update.completedAt = new Date();

@@ -38,6 +38,13 @@ export function registerTeacher(payload) {
   });
 }
 
+export function registerMentor(payload) {
+  return request("/api/auth/register-mentor", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function requestPasswordReset(email) {
   return request("/api/auth/forgot-password", {
     method: "POST",
@@ -134,6 +141,10 @@ export function deleteCenter(id) {
   });
 }
 
+export function getMyCenter() {
+  return request("/api/mentor/center");
+}
+
 export function getCenterTeacherAssignments(centerId) {
   return request(`/api/centers/${centerId}/teacher-assignments`);
 }
@@ -192,13 +203,6 @@ export function getTeacherClasses() {
 
 export function createTeacherChild(childData) {
   return request("/api/teacher/children", {
-    method: "POST",
-    body: JSON.stringify(childData)
-  });
-}
-
-export function createChild(childData) {
-  return request("/api/admin/children", {
     method: "POST",
     body: JSON.stringify(childData)
   });
@@ -282,6 +286,50 @@ export function deleteTeacher(id) {
   });
 }
 
+// Mentor Management APIs
+export function getAdminMentors() {
+  return request("/api/admin/mentors");
+}
+
+export function updateMentorProfile(id, mentorData) {
+  return request(`/api/admin/mentors/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(mentorData)
+  });
+}
+
+export function updateMentorStatus(id, status) {
+  return request(`/api/admin/mentors/${id}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function deleteMentor(id) {
+  return request(`/api/admin/mentors/${id}`, {
+    method: "DELETE"
+  });
+}
+
+export function blockMentor(id) {
+  return request(`/api/admin/mentors/${id}/block`, {
+    method: "PATCH"
+  });
+}
+
+export function unblockMentor(id) {
+  return request(`/api/admin/mentors/${id}/unblock`, {
+    method: "PATCH"
+  });
+}
+
+export function sendDirectMessageToMentor(id, payload) {
+  return request(`/api/admin/mentors/${id}/message`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function blockTeacher(id) {
   return request(`/api/admin/teachers/${id}/block`, {
     method: "PATCH"
@@ -298,10 +346,28 @@ export function getTeacherMe() {
   return request("/api/teacher/me");
 }
 
-export function updateTeacherMe(profileData) {
+export function updateTeacherMe(payload) {
   return request("/api/teacher/me", {
     method: "PATCH",
-    body: JSON.stringify(profileData)
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getMentorMe() {
+  return request("/api/mentor/me");
+}
+
+export function updateMentorMe(payload) {
+  return request("/api/mentor/me", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function changeMentorPassword(currentPassword, newPassword) {
+  return request("/api/mentor/change-password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword })
   });
 }
 
@@ -570,6 +636,20 @@ export function reviewLessonReport(reportId, payload) {
   return request(`/api/admin/lesson-plans/reports/${reportId}`, {
     method: "PATCH",
     body: JSON.stringify(payload)
+  });
+}
+
+export function autoGenerateLessonPlan(data) {
+  return request("/api/lesson-plans/auto-generate", {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
+}
+
+export function autoPublishLessonPlan(data) {
+  return request("/api/lesson-plans/auto-publish", {
+    method: "POST",
+    body: JSON.stringify(data)
   });
 }
 
@@ -843,4 +923,228 @@ export function updateTeacherNotificationPreference(channel) {
     method: "PATCH",
     body: JSON.stringify({ preferredNotificationChannel: channel }),
   });
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 1: User Management APIs
+// ═══════════════════════════════════════════════════
+
+export function importUsers(users) {
+  return request("/api/admin/users/import", { method: "POST", body: JSON.stringify({ users }) });
+}
+
+export function restoreUser(userId) {
+  return request(`/api/admin/users/${userId}/restore`, { method: "PATCH" });
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 1: Course Publishing APIs
+// ═══════════════════════════════════════════════════
+
+export function publishCourse(courseId) {
+  return request(`/api/courses/${courseId}/publish`, { method: "POST" });
+}
+
+export function archiveCourse(courseId) {
+  return request(`/api/courses/${courseId}/archive`, { method: "POST" });
+}
+
+export function reviewCourse(courseId) {
+  return request(`/api/courses/${courseId}/review`, { method: "POST" });
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 1: Schedule Conflict API
+// ═══════════════════════════════════════════════════
+
+export function checkScheduleConflicts(data) {
+  return request("/api/schedules/check-conflicts", { method: "POST", body: JSON.stringify(data) });
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 1: System Health & Admin Profile APIs
+// ═══════════════════════════════════════════════════
+
+export function getSystemHealth() {
+  return request("/api/admin/system-health");
+}
+
+export function getAdminProfile() {
+  return request("/api/admin/profile");
+}
+
+export function updateAdminProfile(data) {
+  return request("/api/admin/profile", { method: "PATCH", body: JSON.stringify(data) });
+}
+
+export function changeAdminPassword(data) {
+  return request("/api/admin/profile/change-password", { method: "POST", body: JSON.stringify(data) });
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 2: Notification Engine APIs
+// ═══════════════════════════════════════════════════
+
+export function getNotificationHistory(params = {}) {
+  const qs = new URLSearchParams(params).toString();
+  return request(`/api/admin/notifications/history${qs ? `?${qs}` : ""}`);
+}
+
+export function checkAutoTriggers() {
+  return request("/api/admin/notifications/auto-triggers/check", { method: "POST" });
+}
+
+export function getDeadlineReminders() {
+  return request("/api/teacher/deadline-reminders", { method: "POST" });
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 3: AI/ML APIs
+// ═══════════════════════════════════════════════════
+
+export function analyzeSentiment(text) {
+  return request("/api/ai/sentiment", { method: "POST", body: JSON.stringify({ text }) });
+}
+
+export function detectRiskFlags(text, description) {
+  return request("/api/ai/risk-flags", { method: "POST", body: JSON.stringify({ text, description }) });
+}
+
+export function autoGradeAssessment(assessmentId, answers) {
+  return request("/api/ai/auto-grade", { method: "POST", body: JSON.stringify({ assessmentId, answers }) });
+}
+
+export function askEnhancedChatbot(message) {
+  return request("/api/teacher/chatbot/enhanced", { method: "POST", body: JSON.stringify({ message }) });
+}
+// Daily Task Automation
+export const generateDummyTeachers = async () => {
+  const res = await fetch(`${API_BASE}/daily-task-automation/teachers/generate-dummy`, { method: "POST" });
+  return res.json();
+};
+
+export const uploadActivityBank = async (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${API_BASE}/daily-task-automation/activities/upload`, {
+    method: "POST",
+    body: formData
+  });
+  return res.json();
+};
+
+export const generateDailyTasks = async ({ activityCount = 4, replaceExisting = false } = {}) => {
+  const res = await fetch(`${API_BASE}/daily-task-automation/generate-daily`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ activityCount, replaceExisting })
+  });
+  return res.json();
+};
+
+export const getTodayAssignments = async () => {
+  const res = await fetch(`${API_BASE}/daily-task-automation/today`);
+  return res.json();
+};
+
+export const getTeacherTodayTasks = async (teacherId) => {
+  const res = await fetch(`${API_BASE}/daily-task-automation/teacher/${teacherId}/today`);
+  return res.json();
+};
+
+export const getTeacherNotifications = async (teacherId) => {
+  const res = await fetch(`${API_BASE}/daily-task-automation/teacher/${teacherId}/notifications`);
+  return res.json();
+};
+
+export const updateTaskStatus = async (assignmentId, taskId, status) => {
+  const res = await fetch(`${API_BASE}/daily-task-automation/assignments/${assignmentId}/tasks/${taskId}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status })
+  });
+  return res.json();
+};
+// ── Course Library (parsed from the .docx source of truth) ──
+export function getCourseLibrary() {
+  return request("/api/course-library");
+}
+
+export function getCourseLibraryDetail(libraryId) {
+  return request(`/api/course-library/${libraryId}`);
+}
+
+// Admin: create an actual Course document from a library template (no video —
+// modules/topics + notes are copied straight from the docx-derived library entry)
+export function createCourseFromLibrary(libraryId) {
+  return request("/api/courses/from-library", {
+    method: "POST",
+    body: JSON.stringify({ libraryId }),
+  });
+}
+
+// ── Assessment bank + result persistence ──
+export function getAssessmentBank(libraryId) {
+  return request(`/api/assessment-bank/${libraryId}`);
+}
+
+// Teacher: submit a completed assessment attempt (persists to DB so admin can see it)
+export function submitAssessmentResult(payload) {
+  return request("/api/assessments", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+// Teacher: fetch own past assessment results
+export function getMyAssessmentResults() {
+  return request("/api/assessments/mine");
+}
+
+// Admin: fetch every teacher's assessment results
+export function getAdminAssessmentResults() {
+  return request("/api/admin/assessments");
+}
+
+// ── Mentor Dynamic Tab APIs ──
+export function recordMenteeObservation(menteeId, notes) {
+  return request("/api/mentor/observation", {
+    method: "POST",
+    body: JSON.stringify({ menteeId, notes }),
+  });
+}
+
+export function submitCapstoneMilestone(notes, evidenceLink) {
+  return request("/api/mentor/capstone", {
+    method: "POST",
+    body: JSON.stringify({ notes, evidenceLink }),
+  });
+}
+
+export function submitPDCACycle(plan, doAction, check, act) {
+  return request("/api/mentor/pdca", {
+    method: "POST",
+    body: JSON.stringify({ plan, do: doAction, check, act }),
+  });
+}
+
+
+export async function downloadCertificatePdf(certificateId, filenameHint) {
+  const token = localStorage.getItem("spaceece_auth_token");
+  const res = await fetch(`${API_BASE_URL}/api/certificates/${certificateId}/pdf`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.message || "Failed to download certificate");
+  }
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filenameHint || "certificate.pdf";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
 }

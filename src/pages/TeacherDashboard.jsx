@@ -5,7 +5,8 @@ import { updateTeacherNotificationPreference } from "../services/api";
 import AttendanceManager from "./AttendanceManager";
 import TrainingAndClassroomManager from "./TrainingAndClassroomManager";
 import GeotagAttendance from "./GeotagAttendance";
-import ProctoredAssessment from "./Proctoredassessment";
+import ProctoredAssessment from "./Proctoredassessment";      // now reading/notes based, same filename
+import TeacherCourseNotes from "./TeacherCourseNotes";         // NEW — replaces the old video CoursesTab
 import {
   getTeacherProgress,
   getNotifications,
@@ -14,16 +15,17 @@ import {
   updateCourseAssignmentProgress,
   updateTeacherMe,
   getTeacherMe,
-  getTeacherAssessmentResults,
   uploadFile,
   changeTeacherPassword,
   submitFeedback,
   getFeedbacks,
   updateTeacherLanguage,
-  getTeacherCourseNotes,
   getTeacherCertificates,
-  getTeacherGrades
+  getTeacherChildren,
+  createTeacherChild,
+  getTeacherClasses
 } from "../services/api";
+import { downloadCertificatePdf } from "../services/api";
 
 /* Resolve a profile photo path to a full URL */
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -55,6 +57,31 @@ function SidebarAvatar({ teacher, size = 34 }) {
       <img src={photoUrl} alt={teacher?.name} onError={() => setImgError(true)}
         style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", border: "2px solid #e2e8f0" }} />
       <span style={{ position: "absolute", bottom: 0, right: 0, background: "#10b981", borderRadius: "50%", width: 12, height: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, border: "1.5px solid white" }}>📷</span>
+    </div>
+  );
+}
+
+/* ── Under Construction Placeholder ── */
+function UnderConstructionTab({ label = "This page", icon = "🚧" }) {
+  return (
+    <div style={{ animation: "fadeIn 0.3s ease", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
+      <div style={{
+        background: "white",
+        borderRadius: 20,
+        padding: "48px 56px",
+        textAlign: "center",
+        border: "1px dashed #fbbf24",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.06)",
+        maxWidth: 460
+      }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>{icon}</div>
+        <div style={{ fontSize: 18, fontWeight: 800, color: "#1c1917", marginBottom: 8 }}>
+          {label} is under work
+        </div>
+        <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.6 }}>
+          This section is currently being built and is not connected yet. Please check back soon — thank you for your patience!
+        </div>
+      </div>
     </div>
   );
 }
@@ -167,6 +194,59 @@ function OverviewTab({ user, setActiveTab, courses = [], assignments = [], lesso
         <StatCard icon="TK" label="Pending Tasks" val={pendingTasksCount} color="#ef4444" bg="#fee2e2"/>
       </div>
 
+      {/* Today's Activities Widget */}
+      {(() => {
+        const today = new Date().toISOString().split("T")[0];
+        const todayLessons = lessons.filter(l => {
+          const d = l.lessonPlan?.scheduleDate ? new Date(l.lessonPlan.scheduleDate).toISOString().split("T")[0] : "";
+          return d === today;
+        });
+        const todayAssignments = assignments.filter(a => {
+          if (a.status === "completed" || a.status === "approved") return false;
+          return true;
+        }).slice(0, 5);
+        if (todayLessons.length === 0 && todayAssignments.length === 0) return null;
+        return (
+          <div style={{ background: "linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%)", borderRadius: 16, border: "1px solid #fcd34d", padding: 20, marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <span style={{ fontSize: 20 }}>📋</span>
+              <span style={{ fontSize: 16, fontWeight: 800, color: "#92400e" }}>Today's Activities</span>
+              <span style={{ fontSize: 12, color: "#b45309", fontWeight: 600 }}>{new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              {todayLessons.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", marginBottom: 8 }}>📚 Lessons Today ({todayLessons.length})</div>
+                  {todayLessons.map((l, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "white", borderRadius: 8, marginBottom: 6, border: "1px solid #fde68a" }}>
+                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: l.status === "completed" ? "#10b981" : "#f59e0b", flexShrink: 0 }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#1c1917" }}>{l.lessonPlan?.title || "Lesson"}</div>
+                      </div>
+                      <StatusBadge status={l.status} />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {todayAssignments.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", marginBottom: 8 }}>📝 Pending Tasks ({todayAssignments.length})</div>
+                  {todayAssignments.map((a, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "white", borderRadius: 8, marginBottom: 6, border: "1px solid #fde68a" }}>
+                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: a.status === "revision" ? "#ef4444" : "#f59e0b", flexShrink: 0 }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#1c1917" }}>{(a.title || a.course?.title || "Task").substring(0, 30)}</div>
+                      </div>
+                      <StatusBadge status={a.status} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
         <SectionCard title="My Attendance Summary">
           <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", height: 220, paddingTop: 15 }}>
@@ -248,418 +328,11 @@ function OverviewTab({ user, setActiveTab, courses = [], assignments = [], lesso
   );
 }
 
-/* ═══════════════════════════════════════════
-   COURSE CONTENT DATA
-═══════════════════════════════════════════ */
-const getCourseContent = (assignment, notes = []) => {
-  const dbCourse = assignment?.course;
-  if (!dbCourse) return null;
-
-  const rawModules = dbCourse.modules && dbCourse.modules.length ? dbCourse.modules : [];
-
-  const courseNotes = notes.filter(n => !n.moduleIndex && n.moduleIndex !== 0);
-  const baseNotesText = courseNotes.map(n => n.content).join('\n\n').trim();
-  const dbNotes = dbCourse.description || "";
-
-  const mapContentItem = (content, moduleIndex, contentIndex) => {
-    const id = content._id || `content-${moduleIndex}-${contentIndex}`;
-    // Support both externalUrl (from DB contents) and videoUrl (from admin form lessons)
-    const url = content.externalUrl || content.videoUrl || content.url || content.file?.publicUrl || "";
-    const youtubeMatch = url.match(/(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?\/\s]{11})/);
-    const contentNotes = notes.filter(n => n.moduleIndex === moduleIndex && n.contentIndex === contentIndex);
-    return {
-      id,
-      title: content.title || `Content ${contentIndex + 1}`,
-      type: content.type || (url ? "video" : "document"),
-      url,
-      ytId: youtubeMatch?.[1] || "",
-      duration: content.suggestedDuration || content.duration || (content.type === "video" ? "Video" : content.type || "Content"),
-      notes: contentNotes.map(n => n.content).join('\n\n').trim() || content.notes || content.description || ""
-    };
-  };
-
-  let modules;
-  if (rawModules.length > 0) {
-    // Check if ANY module has content items; if none do, treat as contentLink-backed course
-    const anyHasContent = rawModules.some(m => (m.contents?.length || m.lessons?.length || 0) > 0);
-    if (!anyHasContent && (dbCourse.contentLink || dbCourse.youtubeId)) {
-      // Fall through to contentLink handling below
-    } else if (!anyHasContent) {
-      // Modules exist but all are empty — show as "no content" placeholder
-      modules = [{
-        id: `module-0`,
-        title: dbCourse.title || "Course Content",
-        description: dbCourse.description || "",
-        contents: [],
-        items: [],
-        notes: baseNotesText || dbCourse.description || "Course modules have been created but no content items have been added yet."
-      }];
-    } else {
-      modules = rawModules.map((module, moduleIndex) => {
-        // Support both module.contents (DB schema) and module.lessons (admin form schema)
-        const rawItems = module.contents?.length ? module.contents
-          : module.lessons?.length ? module.lessons
-          : [];
-        const contents = rawItems.map((content, ci) => mapContentItem(content, moduleIndex, ci));
-
-        const moduleNotesList = notes.filter(n => n.moduleIndex === moduleIndex && !n.contentIndex);
-        const notesText = moduleNotesList.map(n => n.content).join('\n\n').trim();
-        const effectiveNotes = notesText || module.description || dbNotes || "No notes added by admin yet.";
-
-        return {
-          id: module._id || `module-${moduleIndex}`,
-          title: module.title || `Module ${moduleIndex + 1}`,
-          description: module.description || "",
-          contents,
-          items: contents,
-          notes: effectiveNotes
-        };
-      });
-    }
-  }
-
-  if (modules) {
-    // modules already set above
-  } else if (dbCourse.contentLink || dbCourse.youtubeId) {
-    const ytId = dbCourse.youtubeId || (() => {
-      const m = (dbCourse.contentLink || "").match(/(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?\/\s]{11})/);
-      return m ? m[1] : null;
-    })();
-
-    const singleItem = ytId ? [{
-      id: `content-0`,
-      title: dbCourse.title || "Course Video",
-      type: "video",
-      url: dbCourse.contentLink || `https://www.youtube.com/watch?v=${ytId}`,
-      ytId: ytId || "",
-      duration: "Video"
-    }] : [{
-      id: `content-0`,
-      title: dbCourse.title || "Course Material",
-      type: "document",
-      url: dbCourse.contentLink || "",
-      ytId: "",
-      duration: "Document"
-    }];
-
-    modules = [{
-      id: `module-0`,
-      title: dbCourse.title || "Course Content",
-      description: dbCourse.description || "",
-      contents: singleItem,
-      items: singleItem,
-      notes: baseNotesText || dbCourse.description || "No content has been added to this course yet. Please contact your administrator."
-    }];
-  } else {
-    modules = [{
-      id: `module-0`,
-      title: dbCourse.title || "Course Content",
-      description: dbCourse.description || "",
-      contents: [],
-      items: [],
-      notes: baseNotesText || dbCourse.description || "No content has been added to this course yet. Please contact your administrator."
-    }];
-  }
-
-  return {
-    color: "#f59e0b",
-    icon: "Course",
-    description: dbCourse.description || "",
-    modules
-  };
-};
-
-function CoursesTab({ assignments = [], onMarkDone }) {
-  const [activeAssignmentId, setActiveAssignmentId] = useState(null);
-  const [activeModuleId, setActiveModuleId]   = useState(null);
-  const [activeVideoId,  setActiveVideoId]    = useState(null);
-  const [activeTab,      setActiveTab]        = useState("video");
-  const [notesMap,       setNotesMap]         = useState({});
-
-  const activeAssignment = assignments.find(a => a._id === activeAssignmentId);
-  const activeNotes = activeAssignmentId ? (notesMap[activeAssignmentId] || []) : [];
-  const enrichedContent  = getCourseContent(activeAssignment, activeNotes);
-
-  useEffect(() => {
-    let ignore = false;
-    if (!activeAssignmentId) return;
-    const courseId = activeAssignment?.course?._id || activeAssignment?.course?.id;
-    if (!courseId) return;
-    getTeacherCourseNotes(courseId)
-      .then(res => {
-        if (!ignore) setNotesMap(prev => ({ ...prev, [activeAssignmentId]: res.notes || [] }));
-      })
-      .catch(err => console.error("Failed to load course notes:", err));
-    return () => { ignore = true; };
-  }, [activeAssignmentId]);
-
-  const handleMarkDone = (assign, videoId) => {
-    if (!assign) return;
-    const completedContent = [...(assign.completedContent || [])];
-    if (!completedContent.includes(videoId)) {
-      completedContent.push(videoId);
-    }
-    const allVids = enrichedContent.modules.flatMap(m => m.items);
-    // Guard against division by zero
-    const progressPercent = allVids.length > 0
-      ? Math.round((completedContent.length / allVids.length) * 100)
-      : completedContent.length > 0 ? 100 : 0;
-
-    onMarkDone && onMarkDone(assign._id, {
-      completedContent,
-      progressPercent,
-      status: progressPercent === 100 ? "completed" : "in_progress"
-    });
-  };
-
-  const isVideoDone = (assign, videoId) => {
-    return assign?.completedContent?.includes(videoId) || false;
-  };
-
-  const getModuleProgress = (assign, module) => {
-    const allKeys = module.items.map(v => v.id);
-    const done = allKeys.filter(k => isVideoDone(assign, k)).length;
-    return { done, total: allKeys.length };
-  };
-
-  // ── Course list view ──
-  if (!activeAssignmentId) {
-    return (
-      <div style={{ animation: "fadeIn 0.3s ease" }}>
-        <h1 style={S.pageTitle}>My Courses</h1>
-        <p style={S.pageSub}>Your enrolled courses and learning progress</p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {assignments.length === 0 ? (
-            <div style={{ padding: 40, textAlign: "center", background: "white", borderRadius: 16, border: "1px dashed #cbd5e1", color: "#94a3b8" }}>
-              No enrolled courses found.
-            </div>
-          ) : (
-            assignments.map((c) => {
-              const progress = c.progressPercent || 0;
-              const content  = getCourseContent(c);
-              const totalVids = content ? content.modules.reduce((a,m)=>a+m.items.length,0) : 0;
-              const doneVids  = content ? content.modules.reduce((a,m)=>a+m.items.filter(v=>isVideoDone(c, v.id)).length,0) : 0;
-              return (
-                <div key={c._id} style={{ background: "white", borderRadius: 16, padding: "22px 24px", border: "1px solid #f1f5f9", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", borderLeft: `4px solid ${content?.color || "#f59e0b"}` }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
-                    <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-                      <div style={{ fontSize: 36 }}>{content?.icon || "📚"}</div>
-                      <div>
-                        <h3 style={{ fontSize: 16, fontWeight: 800, color: "#1c1917", margin: "0 0 6px" }}>{c.course?.title}</h3>
-                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                          <StatusBadge status={c.status}/>
-                          <span style={{ fontSize: 11, color: "#9ca3af" }}>📅 Due: {c.dueDate ? new Date(c.dueDate).toLocaleDateString() : "No due date"}</span>
-                          <span style={{ fontSize: 11, color: "#6b7280" }}>🎬 {doneVids}/{totalVids} items</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontSize: 28, fontWeight: 900, color: content?.color || "#f59e0b" }}>{progress}%</div>
-                      <div style={{ fontSize: 11, color: "#9ca3af" }}>Complete</div>
-                    </div>
-                  </div>
-                  <div style={{ height: 8, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", marginBottom: 12 }}>
-                    <div style={{ height: "100%", width: `${progress}%`, background: `linear-gradient(90deg,${content?.color||"#f59e0b"},${content?.color||"#d97706"})`, borderRadius: 4, transition: "width 0.8s ease" }}/>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12, color: "#6b7280" }}>📖 {content?.modules?.length || 0} modules · {doneVids}/{totalVids} items done</span>
-                    <button
-                      onClick={() => {
-                        setActiveAssignmentId(c._id);
-                        const firstModule = content?.modules[0];
-                        setActiveModuleId(firstModule?.id || null);
-                        setActiveVideoId(firstModule?.items[0]?.id || null);
-                        setActiveTab("video");
-                      }}
-                      style={{ ...S.primaryBtn, padding: "8px 20px", fontSize: 12, background: `linear-gradient(135deg,${content?.color||"#f59e0b"},${content?.color||"#d97706"})` }}
-                    >
-                      {progress > 0 ? "Continue →" : "Start Course →"}
-                    </button>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ── Course player view ──
-  const activeModule  = enrichedContent?.modules.find(m => m.id === activeModuleId);
-  const activeVideo   = activeModule?.items.find(v => v.id === activeVideoId);
-  const overallProg   = activeAssignment?.progressPercent || 0;
-
-  return (
-    <div style={{ animation: "fadeIn 0.3s ease" }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-        <button onClick={() => setActiveAssignmentId(null)} style={{ background: "#f3f4f6", border: "none", borderRadius: 10, padding: "8px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer", color: "#374151" }}>← Back</button>
-        <div style={{ flex: 1 }}>
-          <h1 style={{ ...S.pageTitle, margin: 0 }}>{enrichedContent?.icon} {activeAssignment?.course?.title}</h1>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
-            <div style={{ flex: 1, height: 6, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", maxWidth: 300 }}>
-              <div style={{ height: "100%", width: `${overallProg}%`, background: `linear-gradient(90deg,${enrichedContent?.color || "#f59e0b"},${enrichedContent?.color || "#f59e0b"})`, borderRadius: 4, transition: "width 0.6s" }}/>
-            </div>
-            <span style={{ fontSize: 12, fontWeight: 800, color: enrichedContent?.color || "#f59e0b" }}>{overallProg}% complete</span>
-          </div>
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 20, alignItems: "start" }}>
-        {/* ── Sidebar: module/video list ── */}
-        <div style={{ background: "white", borderRadius: 16, border: "1px solid #f1f5f9", overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-          <div style={{ padding: "14px 16px", background: "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1917" }}>Course Content</div>
-            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{enrichedContent?.modules?.length} modules</div>
-          </div>
-          <div style={{ overflowY: "auto", maxHeight: 600 }}>
-            {enrichedContent?.modules.map((mod) => {
-              const mp = getModuleProgress(activeAssignment, mod);
-              const isModActive = mod.id === activeModuleId;
-              return (
-                <div key={mod.id}>
-                  {/* Module header */}
-                  <div
-                    onClick={() => { setActiveModuleId(mod.id); setActiveVideoId(mod.items[0]?.id); setActiveTab("video"); }}
-                    style={{ padding: "12px 16px", background: isModActive ? "#fffbeb" : "white", borderBottom: "1px solid #f9fafb", cursor: "pointer", borderLeft: `3px solid ${isModActive ? (enrichedContent?.color || "#f59e0b") : "transparent"}` }}
-                  >
-                    <div style={{ fontSize: 12, fontWeight: 700, color: isModActive ? "#92400e" : "#374151" }}>{mod.title}</div>
-                    <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 3 }}>
-                      {mp.done}/{mp.total} items
-                      <span style={{ marginLeft: 6, background: mp.done===mp.total?"#d1fae5":"#f3f4f6", color: mp.done===mp.total?"#065f46":"#9ca3af", padding: "1px 6px", borderRadius: 10, fontWeight: 700 }}>
-                        {mp.done===mp.total?"✓ Done":`${Math.round((mp.done/mp.total)*100)}%`}
-                      </span>
-                    </div>
-                  </div>
-                  {/* items under module */}
-                  {isModActive && mod.items.map((vid) => {
-                    const isActive = vid.id === activeVideoId;
-                    const done = isVideoDone(activeAssignment, vid.id);
-                    return (
-                      <div
-                        key={vid.id}
-                        onClick={() => { setActiveVideoId(vid.id); setActiveTab("video"); }}
-                        style={{ padding: "9px 16px 9px 28px", background: isActive ? "#fef3c7" : "#fafafa", borderBottom: "1px solid #f3f4f6", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
-                      >
-                        <div style={{ width: 20, height: 20, borderRadius: "50%", background: done ? "#10b981" : isActive ? (enrichedContent?.color || "#f59e0b") : "#e5e7eb", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "white", flexShrink: 0 }}>
-                          {done ? "✓" : isActive ? "▶" : ""}
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 11, fontWeight: isActive?700:500, color: isActive?"#92400e":"#374151", lineHeight: 1.3 }}>{vid.title}</div>
-                          <div style={{ fontSize: 10, color: "#9ca3af" }}>⏱ {vid.duration}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* ── Main content area ── */}
-        <div>
-          {activeVideo ? (
-            <>
-              {/* Video + Notes tabs */}
-              <div style={{ background: "white", borderRadius: 16, border: "1px solid #f1f5f9", overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", marginBottom: 16 }}>
-                {/* Tab bar */}
-                <div style={{ display: "flex", borderBottom: "1px solid #f1f5f9" }}>
-                  {["video","notes"].map(t => (
-                    <button key={t} onClick={() => setActiveTab(t)} style={{ flex: 1, padding: "12px", border: "none", background: activeTab===t?"#fffbeb":"white", color: activeTab===t?"#92400e":"#6b7280", fontWeight: activeTab===t?800:600, fontSize: 13, cursor: "pointer", borderBottom: `2px solid ${activeTab===t?(enrichedContent?.color || "#f59e0b"):"transparent"}`, transition: "all 0.15s" }}>
-                      {t === "video" ? "🎬 Content" : "📝 Notes"}
-                    </button>
-                  ))}
-                </div>
-
-                {activeTab === "video" ? (
-                  <div>
-                    {/* YouTube embed */}
-                    <div style={{ position: "relative", paddingBottom: "56.25%", height: 0, background: "#000" }}>
-                      <iframe
-                        src={`https://www.youtube.com/embed/${activeVideo.ytId}?rel=0&modestbranding=1`}
-                        title={activeVideo.title}
-                        style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none" }}
-                        allowFullScreen
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      />
-                    </div>
-                    <div style={{ padding: "16px 20px" }}>
-                      <div style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", marginBottom: 4 }}>{activeVideo.title}</div>
-                      <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 16 }}>{activeModule?.title} · ⏱ {activeVideo.duration}</div>
-                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                        {isVideoDone(activeAssignment, activeVideoId) ? (
-                          <span style={{ background: "#d1fae5", color: "#065f46", padding: "8px 18px", borderRadius: 10, fontSize: 13, fontWeight: 800 }}>✓ Completed</span>
-                        ) : (
-                          <button
-                            onClick={() => handleMarkDone(activeAssignment, activeVideoId)}
-                            style={{ ...S.primaryBtn, background: `linear-gradient(135deg,${enrichedContent?.color || "#f59e0b"},${enrichedContent?.color || "#f59e0b"})`, fontSize: 13 }}
-                          >
-                            ✅ Mark as Complete
-                          </button>
-                        )}
-                        <button onClick={() => setActiveTab("notes")} style={{ ...S.exportBtn, fontSize: 12 }}>📝 View Notes</button>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ padding: "20px 24px", maxHeight: 520, overflowY: "auto" }}>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", marginBottom: 12 }}>📝 Notes — {activeModule?.title}</div>
-                    <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.8, whiteSpace: "pre-line", fontFamily: "inherit" }}>
-                      {activeModule?.notes?.split('\n').map((line, i) => {
-                        if (line.startsWith('## ')) return <h3 key={i} style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", margin: "16px 0 8px" }}>{line.replace('## ','')}</h3>;
-                        if (line.startsWith('**') && line.endsWith('**')) return <div key={i} style={{ fontWeight: 700, color: "#374151", margin: "8px 0 4px" }}>{line.replace(/\*\*/g,'')}</div>;
-                        if (line.startsWith('- ')) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#4b5563" }}>• {line.slice(2)}</div>;
-                        if (line.match(/^\d+\./)) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#4b5563" }}>{line}</div>;
-                        if (line.startsWith('✅')) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#059669", fontWeight: 600 }}>{line}</div>;
-                        if (line.startsWith('|')) return <div key={i} style={{ fontFamily: "monospace", fontSize: 12, background: "#f8fafc", padding: "3px 8px", margin: "1px 0" }}>{line}</div>;
-                        if (line === '') return <div key={i} style={{ height: 6 }}/>;
-                        return <div key={i} style={{ margin: "3px 0" }}>{line}</div>;
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Next video navigation */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ fontSize: 12, color: "#6b7280" }}>
-                  {(() => {
-                    const allVids = enrichedContent.modules.flatMap(m => m.items.map(v => ({ ...v, moduleId: m.id })));
-                    const idx = allVids.findIndex(v => v.id === activeVideoId);
-                    return `Video ${idx+1} of ${allVids.length}`;
-                  })()}
-                </div>
-                <button
-                  onClick={() => {
-                    const allVids = enrichedContent.modules.flatMap(m => m.items.map(v => ({ ...v, moduleId: m.id })));
-                    const idx = allVids.findIndex(v => v.id === activeVideoId);
-                    if (idx < allVids.length - 1) {
-                      handleMarkDone(activeAssignment, activeVideoId);
-                      const next = allVids[idx + 1];
-                      setActiveModuleId(next.moduleId);
-                      setActiveVideoId(next.id);
-                      setActiveTab("video");
-                    }
-                  }}
-                  style={{ ...S.primaryBtn, fontSize: 12, background: `linear-gradient(135deg,${enrichedContent?.color || "#f59e0b"},${enrichedContent?.color || "#f59e0b"})` }}
-                >
-                  Next Video →
-                </button>
-              </div>
-            </>
-          ) : (
-            <div style={{ background: "white", borderRadius: 16, padding: 40, textAlign: "center", border: "1px solid #f1f5f9" }}>
-              <div style={{ fontSize: 48, marginBottom: 12 }}>👆</div>
-              <div style={{ fontSize: 14, color: "#6b7280" }}>Select a video from the left to start learning</div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+/* NOTE: the old video-based `getCourseContent()` helper and `CoursesTab`
+   component that used to live here have been removed. Course content is
+   now topic-wise reading notes (no video), rendered by the imported
+   `TeacherCourseNotes` component — see the "courses" case in
+   renderContent() below. */
 
 const formatTeacherDate = (value, options = {}) => {
   if (!value) return "Not scheduled";
@@ -1002,6 +675,14 @@ function CertificatesTab({ assignments = [], certificates: certs = [] }) {
                 {isRealCert && <Badge children={item.status === "issued" ? "Issued" : item.status} color="#7c3aed" bg="#ede9fe"/>}
               </div>
               <div style={{ fontSize: 11, color: "#6b7280" }}>Credential ID: {certId}</div>
+              {isRealCert && (
+  <button
+    onClick={() => downloadCertificatePdf(item._id, `Certificate-${item.certificateNumber}.pdf`)}
+    style={{ marginTop: 12, width: "100%", padding: "8px 0", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#f59e0b,#d97706)", color: "white", fontWeight: 700, fontSize: 12, cursor: "pointer" }}
+  >
+    ⬇ Download Certificate
+  </button>
+)}
             </div>
           );
         })}
@@ -1019,13 +700,11 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState(""); // "success" | "error"
   
-  // Profile picture state
   const [profilePhoto, setProfilePhoto] = useState(user.photoUrl || null);
   const [imageLoadError, setImageLoadError] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const fileInputRef = useRef(null);
   
-  // Password change state
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
     newPassword: "",
@@ -1057,7 +736,6 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
     }
   }, [user.photoUrl]);
 
-  // Profile picture upload handler
   const handlePhotoUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1081,20 +759,16 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
       if (uploadRes && uploadRes.asset) {
         let photoUrl = uploadRes.asset.publicUrl;
         
-        // Convert relative URL to absolute if needed
         if (photoUrl.startsWith("/uploads/")) {
           const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
           photoUrl = `${API_BASE_URL}${photoUrl}`;
         }
         
-        // Set the photo URL immediately for display
         setProfilePhoto(photoUrl);
         setImageLoadError(false);
         
-        // Then save to backend
         const res = await updateTeacherMe({ photoUrl });
         
-        // Update parent user object if callback provided
         if (res.teacher && onUserUpdate) {
           onUserUpdate(res.teacher);
         }
@@ -1110,7 +784,6 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
     }
   };
 
-  // Profile save handler
   const handleSave = async () => {
     setSaving(true);
     setMessage("");
@@ -1149,12 +822,10 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
       setForm(nextForm);
       setSavedForm(nextForm);
       
-      // Update profile photo state if backend returned a different URL
       if (updated.photoUrl && updated.photoUrl !== profilePhoto) {
         setProfilePhoto(updated.photoUrl);
       }
       
-      // Update parent user object if callback provided
       if (onUserUpdate) {
         onUserUpdate(updated);
       }
@@ -1171,7 +842,6 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
     }
   };
 
-  // Password change handler
   const handlePasswordChange = async (e) => {
     e.preventDefault();
     setMessage("");
@@ -1237,7 +907,6 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
         </div>
       </div>
 
-      {/* Profile Picture Card */}
       <div style={{ background: "white", borderRadius: 20, padding: "28px", border: "1px solid #f1f5f9", boxShadow: "0 4px 20px rgba(0,0,0,0.06)", marginBottom: 20 }}>
         <h3 style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", margin: "0 0 16px" }}>📷 Profile Picture</h3>
         <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
@@ -1293,7 +962,6 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
         </div>
       </div>
 
-      {/* Personal Information Card */}
       <div style={{ background: "white", borderRadius: 20, padding: "28px", border: "1px solid #f1f5f9", boxShadow: "0 4px 20px rgba(0,0,0,0.06)", marginBottom: 20 }}>
         <h3 style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", margin: "0 0 16px" }}>👤 Personal Information</h3>
         
@@ -1361,7 +1029,6 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
         </div>
       </div>
 
-      {/* Professional Information Card */}
       <div style={{ background: "white", borderRadius: 20, padding: "28px", border: "1px solid #f1f5f9", boxShadow: "0 4px 20px rgba(0,0,0,0.06)", marginBottom: 20 }}>
         <h3 style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", margin: "0 0 16px" }}>💼 Professional Information</h3>
         
@@ -1402,7 +1069,6 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
         </div>
       </div>
 
-      {/* Account Information Card */}
       <div style={{ background: "white", borderRadius: 20, padding: "28px", border: "1px solid #f1f5f9", boxShadow: "0 4px 20px rgba(0,0,0,0.06)", marginBottom: 20 }}>
         <h3 style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", margin: "0 0 16px" }}>🔐 Account Information</h3>
         
@@ -1490,7 +1156,6 @@ function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
         </div>
       </div>
 
-      {/* Change Password Card */}
       <div style={{ background: "white", borderRadius: 20, padding: "28px", border: "1px solid #f1f5f9", boxShadow: "0 4px 20px rgba(0,0,0,0.06)" }}>
         <h3 style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", margin: "0 0 16px" }}>🔒 Change Password</h3>
         
@@ -1635,7 +1300,6 @@ function TeacherFeedbackTab({ user, setToast }) {
   useEffect(() => {
     getFeedbacks()
       .then(data => {
-        // Show only feedbacks from current user
         const mine = (data.feedbacks || []).filter(f =>
           (f.learner && f.learner !== "Anonymous" && f.learner === user.name) ||
           (f.teacherId && String(f.teacherId) === String(user._id))
@@ -1679,7 +1343,6 @@ function TeacherFeedbackTab({ user, setToast }) {
       <p style={S.pageSub}>Share your training experience and help us improve.</p>
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
-        {/* Submit Form */}
         <SectionCard title="📝 New Feedback">
           <form onSubmit={handleSubmit}>
             <label style={S.label}>Course / Training (optional)</label>
@@ -1738,7 +1401,6 @@ function TeacherFeedbackTab({ user, setToast }) {
           </form>
         </SectionCard>
 
-        {/* My Previous Feedbacks */}
         <SectionCard title="📋 My Previous Submissions">
           {loading ? (
             <div style={{textAlign:"center", padding:30, color:"#9ca3af"}}>Loading...</div>
@@ -1798,9 +1460,12 @@ export default function TeacherDashboard({ user, onLogout }) {
   const [lessons, setLessons]             = useState([]);
   const [activities, setActivities]       = useState([]);
   const [summary, setSummary]             = useState({});
-  const [assessmentResults, setAssessmentResults] = useState([]);
   const [certificates, setCertificates]   = useState([]);
-  const [courseNotes, setCourseNotes]     = useState({});
+  const [teacherChildren, setTeacherChildren] = useState([]);
+  const [teacherClasses, setTeacherClasses]  = useState([]);
+  const [selectedChildClassId, setSelectedChildClassId] = useState("");
+  const [childForm, setChildForm]         = useState({ name: "", age: "", gender: "Male", parentName: "", phone: "", email: "", address: "" });
+  const [childSaving, setChildSaving]     = useState(false);
   const [loading, setLoading]            = useState(true);
   const [tabLoading, setTabLoading]      = useState(false);
 
@@ -1813,17 +1478,24 @@ export default function TeacherDashboard({ user, onLogout }) {
 
   const refreshCoreData = async () => {
     try {
-      const [progressRes, notificationsRes, teacherRes, certificatesRes] = await Promise.all([
+      const [progressRes, notificationsRes, teacherRes, certificatesRes, classesRes] = await Promise.all([
         getTeacherProgress(),
         getNotifications(),
         getTeacherMe(),
         getTeacherCertificates(),
+        getTeacherClasses(),
       ]);
       if (progressRes) {
         setCourses(progressRes.courses || []);
         setLessons(progressRes.lessons || []);
         setActivities(progressRes.activities || []);
         setSummary(progressRes.summary || {});
+      }
+      if (classesRes?.classes) {
+        setTeacherClasses(classesRes.classes);
+        if (!selectedChildClassId && classesRes.classes.length > 0) {
+          setSelectedChildClassId(classesRes.classes[0]._id || classesRes.classes[0].id);
+        }
       }
       if (notificationsRes?.notifications) {
         const mapped = notificationsRes.notifications.map(n => {
@@ -1849,15 +1521,6 @@ export default function TeacherDashboard({ user, onLogout }) {
     }
   };
 
-  const refreshAssessmentResults = async () => {
-    try {
-      const res = await getTeacherAssessmentResults();
-      setAssessmentResults(res?.results || []);
-    } catch (err) {
-      console.error("Error fetching assessment results:", err);
-    }
-  };
-
   useEffect(() => {
     const center = currentUser?.teacherProfile?.center;
     if (center && typeof center === "object" && center.name) {
@@ -1874,8 +1537,12 @@ export default function TeacherDashboard({ user, onLogout }) {
   }, [user]);
 
   useEffect(() => {
-    if (activeTab === "assessment") refreshAssessmentResults();
-  }, [activeTab]);
+    if (selectedChildClassId) {
+      getTeacherChildren(selectedChildClassId)
+        .then(res => { if (res?.children) setTeacherChildren(res.children); })
+        .catch(err => console.error("Error loading children for class:", err));
+    }
+  }, [selectedChildClassId]);
 
   const handleTabSwitch = (tab) => {
     if (activeTab !== tab) setTabLoading(true);
@@ -1949,9 +1616,9 @@ export default function TeacherDashboard({ user, onLogout }) {
     { key: "training",      label: "Training & Lessons",  icon: "🎓" },
     { key: "courses",       label: "My Courses",          icon: "📚" },
     { key: "assessment",    label: "Assessments",         icon: "📝" },
-    { key: "schedule",      label: "Schedule",            icon: "📅" },
-    { key: "grades",        label: "Grades",              icon: "📊" },
-    { key: "assignments",   label: "Assignments",         icon: "✏️", badge: pendingAssignmentsCount },
+    //{ key: "schedule",      label: "Schedule",            icon: "📅" },
+    //{ key: "grades",        label: "Grades",              icon: "📊" },
+    //{ key: "assignments",   label: "Assignments",         icon: "✏️", badge: pendingAssignmentsCount },
     { key: "certificates",  label: "Certificates",        icon: "🏆" },
     { key: "notifications", label: "Notifications",       icon: "🔔", badge: unreadCount },
     { key: "feedback",      label: "Feedback",             icon: "💬" },
@@ -1959,6 +1626,12 @@ export default function TeacherDashboard({ user, onLogout }) {
   ];
 
   const enrichedUser = { ...currentUser, workingCenter };
+
+  // Pages that are fully wired to backend/database and should render normally.
+  // Every other page shows an "Under Construction" placeholder instead.
+  // "courses" and "assessment" are now notes/assessment based (no video) —
+  // both are fully wired, so they're included here.
+  const WORKING_TABS = new Set(["overview", "children_att", "geotag", "profile", "training", "courses", "assessment", "certificates", "notifications", "feedback"]);
 
   const renderContent = () => {
     if (loading) {
@@ -1975,13 +1648,27 @@ export default function TeacherDashboard({ user, onLogout }) {
         </div>
       );
     }
+
+    if (!WORKING_TABS.has(activeTab)) {
+      const navItem = navItems.find(n => n.key === activeTab);
+      return <UnderConstructionTab label={navItem ? t(navItem.label) : "This page"} icon={navItem?.icon || "🚧"} />;
+    }
+
     switch(activeTab) {
       case "overview":      return <OverviewTab user={enrichedUser} setActiveTab={handleTabSwitch} courses={courses} assignments={courses} lessons={lessons} activities={activities} summary={summary}/>;
       case "children_att":  return <AttendanceManager user={enrichedUser}/>;
       case "geotag":        return <GeotagAttendance user={enrichedUser}/>;
       case "training":      return <TrainingAndClassroomManager user={enrichedUser}/>;
-      case "courses":       return <CoursesTab assignments={courses} onMarkDone={handleMarkDone}/>;
-      case "assessment":    return <ProctoredAssessment user={enrichedUser} assessmentResults={assessmentResults}/>;
+      case "courses":
+        return (
+          <TeacherCourseNotes
+            assignments={courses}
+            onMarkDone={handleMarkDone}
+            onGoToAssessment={() => handleTabSwitch("assessment")}
+          />
+        );
+      case "assessment":
+        return <ProctoredAssessment assignments={courses} />;
       case "schedule":      return <ScheduleTab user={enrichedUser} lessons={lessons}/>;
       case "grades":        return <GradesTab assignments={courses}/>;
       case "assignments":   return <AssignmentsTab assignments={courses} onSubmitAssignment={handleSubmitAssignment}/>;
@@ -1998,7 +1685,6 @@ export default function TeacherDashboard({ user, onLogout }) {
       <style>{globalCSS}</style>
       <Toast msg={toast.msg} type={toast.type} onClose={()=>setToast({msg:"",type:""})}/>
 
-      {/* Sidebar */}
       <div style={{ width: 240, background: "white", borderRight: "1px solid #f1f5f9", display: "flex", flexDirection: "column", flexShrink: 0, boxShadow: "2px 0 12px rgba(0,0,0,0.04)", position: "sticky", top: 0, height: "100vh", overflowY: "auto" }}>
         <div style={{ padding: "20px 16px 12px" }}>
           <Logo size={120}/>
@@ -2025,9 +1711,7 @@ export default function TeacherDashboard({ user, onLogout }) {
         </div>
       </div>
 
-      {/* Main Content */}
       <div style={{ flex: 1, width: "0px", minWidth: "0px", padding: "28px 32px", overflowY: "auto", maxHeight: "100vh" }}>
-        {/* Top bar with profile icon */}
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
           <button
             onClick={() => setActiveTab("profile")}
@@ -2050,11 +1734,9 @@ export default function TeacherDashboard({ user, onLogout }) {
         {renderContent()}
       </div>
 
-      {/* Floating Chatbot Widget */}
       <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 1000, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
         {chatOpen && (
           <div style={{ width: 340, height: 460, background: "rgba(255, 255, 255, 0.95)", backdropFilter: "blur(12px)", border: "1px solid #fbbf24", borderRadius: 20, boxShadow: "0 10px 40px rgba(0,0,0,0.12)", marginBottom: 16, display: "flex", flexDirection: "column", overflow: "hidden", animation: "slideUp 0.3s ease" }}>
-            {/* Header */}
             <div style={{ background: "linear-gradient(135deg,#f59e0b 0%,#d97706 100%)", padding: "16px 20px", color: "white", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ fontSize: 24 }}>🤖</span>
@@ -2065,7 +1747,6 @@ export default function TeacherDashboard({ user, onLogout }) {
               </div>
               <button onClick={() => setChatOpen(false)} style={{ background: "none", border: "none", color: "white", fontSize: 18, cursor: "pointer", padding: 0 }}>✕</button>
             </div>
-            {/* Messages Area */}
             <div style={{ flex: 1, padding: 16, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, background: "#fafbfc" }}>
               {chatMessages.map((msg, idx) => (
                 <div key={idx} style={{ display: "flex", justifyContent: msg.sender === "user" ? "flex-end" : "flex-start" }}>
@@ -2095,7 +1776,6 @@ export default function TeacherDashboard({ user, onLogout }) {
                 </div>
               )}
             </div>
-            {/* Input Area */}
             <div style={{ padding: 12, background: "white", borderTop: "1px solid #f1f5f9", display: "flex", gap: 8 }}>
               <input
                 type="text"

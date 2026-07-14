@@ -42,7 +42,15 @@ const courseAssignmentSchema = new mongoose.Schema(
     reviewedAt: Date,
     notified: { type: Boolean, default: false },
     annotations: { type: [annotationSchema], default: [] },
-    submissionFiles: { type: [submissionFileSchema], default: [] }
+    submissionFiles: { type: [submissionFileSchema], default: [] },
+    assessmentScore: { type: Number, default: null },
+    assessmentTotal: { type: Number, default: null },
+    assessmentPercentage: { type: Number, default: null },
+    assessmentGrade: { type: String, default: "" },
+    assessmentForced: { type: Boolean, default: false },
+    assessmentWarnings: { type: Number, default: 0 },
+    assessmentCompletedAt: Date,
+    grade: { type: String, default: "" }
   },
   { timestamps: true }
 );

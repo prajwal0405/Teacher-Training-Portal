@@ -1,296 +1,474 @@
-import { useEffect, useRef, useState } from "react";
-import { SectionCard, S, Badge, StatusBadge } from "../components/Shared";
-import {
-  getActivities,
-  getTeacherLessonPlans,
-  getTeacherProgress,
-  getTeacherMe,
-  submitActivity,
-  submitLessonCompletion,
-  uploadFile
-} from "../services/api";
+import { useState, useEffect } from "react";
+import { Modal, S, StatCard, StatusBadge, Toast, SearchBar } from "../components/Shared";
+import { getTeacherLessonPlans, submitLessonCompletion, submitActivity, uploadFile, getCenters, getClasses, getActivities } from "../services/api";
 
-const formatDate = (value) => value ? new Date(value).toLocaleDateString("en-IN") : "Not scheduled";
-const getId = (value) => value?._id || value?.id || value || "";
+const formatDate = (value) => {
+  if (!value) return "Not scheduled";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "Not scheduled";
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+};
 
-export default function TrainingAndClassroomManager({ user }) {
-  const [activeSubTab, setActiveSubTab] = useState("lessons");
-  const [courses, setCourses] = useState([]);
-  const [lessons, setLessons] = useState([]);
-  const [activities, setActivities] = useState([]);
-  const [teacher, setTeacher] = useState(user || null);
-  const [selectedLessonId, setSelectedLessonId] = useState("");
-  const [activityDescription, setActivityDescription] = useState("");
-  const [activityDate, setActivityDate] = useState(new Date().toISOString().slice(0, 10));
-  const [teachingNotes, setTeachingNotes] = useState("");
-  const [completionActivity, setCompletionActivity] = useState("");
-  const [completionLessonId, setCompletionLessonId] = useState("");
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [toastMsg, setToastMsg] = useState("");
-  const [toastType, setToastType] = useState("success");
-  const [loading, setLoading] = useState(true);
-  const fileInputRef = useRef(null);
+/* ── Activity Submission Modal ── */
+function ActivitySubmissionModal({ user, onClose, onSuccess }) {
+  const [description, setDescription] = useState("");
+  const [activityDate, setActivityDate] = useState(new Date().toISOString().split("T")[0]);
+  const [file, setFile] = useState(null);
+  
+  const userCenters = user?.teacherProfile?.center ? [user.teacherProfile.center] : [];
+  const userClasses = user?.teacherProfile?.classes || [];
 
-  const showToast = (message, isError = false) => {
-    setToastMsg(message);
-    setToastType(isError ? "error" : "success");
-    setTimeout(() => setToastMsg(""), 4000);
-  };
+  const [selectedCenter, setSelectedCenter] = useState(userCenters[0]?._id || userCenters[0]?.id || "");
+  const [selectedClass, setSelectedClass] = useState(userClasses[0]?._id || userClasses[0]?.id || "");
+  
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
-  const refreshData = async () => {
-    setLoading(true);
-    try {
-      const [progressRes, lessonRes, activityRes, teacherRes] = await Promise.allSettled([
-        getTeacherProgress(),
-        getTeacherLessonPlans(),
-        getActivities(),
-        user ? Promise.resolve({ teacher: user }) : getTeacherMe()
-      ]);
-      if (progressRes.status === "fulfilled") {
-        setCourses(progressRes.value?.courses || []);
-      } else {
-        console.error("Failed to load courses:", progressRes.reason);
-      }
-      if (lessonRes.status === "fulfilled") {
-        setLessons(lessonRes.value?.lessonPlans || []);
-      } else {
-        console.error("Failed to load lessons:", lessonRes.reason);
-      }
-      if (activityRes.status === "fulfilled") {
-        setActivities(activityRes.value?.activities || []);
-      } else {
-        console.error("Failed to load activities:", activityRes.reason);
-      }
-      if (teacherRes.status === "fulfilled") {
-        setTeacher(teacherRes.value?.teacher || user || null);
-      } else {
-        console.error("Failed to load teacher:", teacherRes.reason);
-      }
-
-      const failures = [progressRes, lessonRes, activityRes, teacherRes].filter(r => r.status === "rejected");
-      if (failures.length > 0) {
-        showToast(`Some data failed to load. ${failures.length} of 4 requests failed.`, true);
-      }
-    } catch (error) {
-      showToast(error.message || "Failed to load training records.", true);
-    } finally {
-      setLoading(false);
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!description.trim()) {
+      setError("Please provide an activity description.");
+      return;
     }
-  };
-
-  useEffect(() => {
-    refreshData();
-  }, []);
-
-  const handleActivitySubmit = async (event) => {
-    event.preventDefault();
-    if (!activityDescription.trim()) return;
-
+    if (!selectedCenter || !selectedClass) {
+      setError("Please select a center and class.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
     try {
-      const files = [];
-      if (selectedFile) {
-        const uploadRes = await uploadFile(selectedFile);
-        if (uploadRes.asset?._id) files.push(uploadRes.asset._id);
+      let fileId = null;
+      if (file) {
+        const uploadRes = await uploadFile(file);
+        console.log("uploadRes:", uploadRes);
+        if (uploadRes && uploadRes.asset) {
+          fileId = uploadRes.asset._id || uploadRes.asset.id;
+        } else if (uploadRes && uploadRes.file) {
+          fileId = uploadRes.file._id || uploadRes.file.id;
+        } else {
+          throw new Error("File upload failed. Server response: " + JSON.stringify(uploadRes));
+        }
       }
 
       await submitActivity({
-        center: getId(teacher?.teacherProfile?.center),
-        class: getId((teacher?.teacherProfile?.classes || [])[0]),
-        lessonPlan: selectedLessonId || undefined,
+        center: selectedCenter,
+        class: selectedClass,
+        description,
         activityDate,
-        description: activityDescription.trim(),
-        files
+        files: fileId ? [fileId] : []
       });
 
-      setActivityDescription("");
-      setSelectedLessonId("");
-      setSelectedFile(null);
-      showToast("Activity submitted for admin review.");
-      refreshData();
-    } catch (error) {
-      showToast(error.message || "Activity submission failed.", true);
+      onSuccess("Activity submitted successfully!");
+      onClose();
+    } catch (err) {
+      setError(err.message || "Failed to submit activity.");
+    } finally {
+      setSubmitting(false);
     }
   };
-
-  const handleCompleteLesson = async (event) => {
-    event.preventDefault();
-    if (!completionLessonId || !teachingNotes.trim() || !completionActivity.trim()) return;
-
-    try {
-      const files = [];
-      if (selectedFile) {
-        const uploadRes = await uploadFile(selectedFile);
-        if (uploadRes.asset?._id) files.push(uploadRes.asset._id);
-      }
-
-      await submitLessonCompletion(completionLessonId, {
-        teachingNotes: teachingNotes.trim(),
-        activityDescription: completionActivity.trim(),
-        files
-      });
-
-      setCompletionLessonId("");
-      setTeachingNotes("");
-      setCompletionActivity("");
-      setSelectedFile(null);
-      showToast("Lesson completion sent to admin.");
-      refreshData();
-    } catch (error) {
-      showToast(error.message || "Lesson completion failed.", true);
-    }
-  };
-
-  const pendingLessons = lessons.filter((item) => item.status === "pending");
 
   return (
-    <div style={{ animation: "fadeIn 0.3s ease" }}>
-      <div style={{ marginBottom: 20 }}>
-        <h1 style={S.pageTitle}>Training & Lessons</h1>
-        <p style={S.pageSub}>Review admin assigned courses, complete lesson plans, and submit classroom evidence.</p>
-      </div>
+    <Modal title="📤 Submit Activity" onClose={onClose}>
+      <form onSubmit={handleSubmit}>
+        {error && (
+          <div style={{ padding: "8px 12px", background: "#fef2f2", color: "#991b1b", borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+            {error}
+          </div>
+        )}
 
-      {toastMsg && (
-        <div style={{ padding: 12, marginBottom: 16, background: toastType === "error" ? "#fee2e2" : "#d1fae5", color: toastType === "error" ? "#991b1b" : "#065f46", borderRadius: 10, fontSize: 13, fontWeight: 700 }}>
-          {toastMsg}
+        <label style={S.label}>Center *</label>
+        <select
+          style={{ ...S.input, marginBottom: 12 }}
+          value={selectedCenter}
+          onChange={(e) => setSelectedCenter(e.target.value)}
+          required
+        >
+          <option value="">Select Center...</option>
+          {userCenters.map(c => <option key={c._id || c.id} value={c._id || c.id}>{c.name}</option>)}
+        </select>
+
+        <label style={S.label}>Class *</label>
+        <select
+          style={{ ...S.input, marginBottom: 12 }}
+          value={selectedClass}
+          onChange={(e) => setSelectedClass(e.target.value)}
+          required
+        >
+          <option value="">Select Class...</option>
+          {userClasses.map(c => <option key={c._id || c.id} value={c._id || c.id}>{c.name}</option>)}
+        </select>
+
+        <label style={S.label}>Activity Date *</label>
+        <input
+          type="date"
+          style={{ ...S.input, marginBottom: 12 }}
+          value={activityDate}
+          onChange={(e) => setActivityDate(e.target.value)}
+          required
+        />
+
+        <label style={S.label}>Description *</label>
+        <textarea
+          style={{ ...S.input, height: 80, resize: "none", marginBottom: 12 }}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Describe the activity you conducted..."
+          required
+        />
+
+        <label style={S.label}>Attach Document (Optional)</label>
+        <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
+          Supports any file type (PNG, JPG, PDFs, Excel, Videos, Zips, etc.)
         </div>
-      )}
+        <input
+          type="file"
+          onChange={(e) => setFile(e.target.files[0])}
+          style={{ marginBottom: 20, width: "100%", fontSize: 13 }}
+        />
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 20, borderBottom: "1px solid #e2e8f0", paddingBottom: 8, flexWrap: "wrap" }}>
-        {[
-          { key: "lessons", label: "Assigned Lessons" },
-          { key: "activities", label: "Activity Submissions" },
-          { key: "courses", label: "Course Progress" }
-        ].map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveSubTab(tab.key)}
-            style={{
-              padding: "8px 16px",
-              border: "none",
-              borderRadius: 8,
-              cursor: "pointer",
-              fontSize: 12,
-              fontWeight: 800,
-              background: activeSubTab === tab.key ? "#fffbeb" : "transparent",
-              color: activeSubTab === tab.key ? "#d97706" : "#64748b",
-              borderBottom: activeSubTab === tab.key ? "3px solid #d97706" : "3px solid transparent"
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+        <button type="submit" disabled={submitting} style={{ ...S.primaryBtn, width: "100%" }}>
+          {submitting ? "Submitting..." : "Submit Activity"}
+        </button>
+      </form>
+    </Modal>
+  );
+}
 
-      {loading ? (
-        <SectionCard title="Loading">Loading training records...</SectionCard>
-      ) : activeSubTab === "lessons" ? (
-        <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 20 }}>
-          <SectionCard title="Lesson Plans From Admin">
-            {lessons.length === 0 ? (
-              <p style={{ color: "#94a3b8", fontSize: 13 }}>No lesson plans assigned yet.</p>
-            ) : lessons.map((item) => {
-              const lesson = item.lessonPlan || {};
+/* ── Completion Submission Modal ── */
+function CompleteLessonModal({ assignment, onSubmit, onClose }) {
+  const [teachingNotes, setTeachingNotes] = useState("");
+  const [activityDescription, setActivityDescription] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const plan = assignment.lessonPlan || {};
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!teachingNotes.trim() && !activityDescription.trim()) {
+      setError("Please add teaching notes or an activity description before submitting.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      await onSubmit(assignment._id || assignment.id, { teachingNotes, activityDescription });
+      onClose();
+    } catch (err) {
+      setError(err.message || "Failed to submit completion report.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal title={`✅ Mark Complete: ${plan.title || "Lesson"}`} onClose={onClose}>
+      <form onSubmit={handleSubmit}>
+        {error && (
+          <div style={{ padding: "8px 12px", background: "#fef2f2", color: "#991b1b", borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+            {error}
+          </div>
+        )}
+
+        <label style={S.label}>What did you teach today? (Activity Description)</label>
+        <textarea
+          style={{ ...S.input, height: 70, resize: "none", marginBottom: 12 }}
+          value={activityDescription}
+          onChange={(e) => setActivityDescription(e.target.value)}
+          placeholder="Briefly describe what was covered in class..."
+        />
+
+        <label style={S.label}>Teaching Notes / Observations</label>
+        <textarea
+          style={{ ...S.input, height: 90, resize: "none", marginBottom: 20 }}
+          value={teachingNotes}
+          onChange={(e) => setTeachingNotes(e.target.value)}
+          placeholder="How did the children respond? Any challenges or highlights?"
+        />
+
+        <button type="submit" disabled={submitting} style={{ ...S.primaryBtn, width: "100%" }}>
+          {submitting ? "Submitting..." : "📤 Submit Completion Report"}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
+/* ── Lesson Detail Modal (read-only) ── */
+function LessonDetailModal({ assignment, onClose }) {
+  if (assignment.isActivity) {
+    const act = assignment.originalActivity || {};
+    return (
+      <Modal title="📖 Submitted Activity" onClose={onClose}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+          <StatusBadge status="completed" />
+          <span style={{ fontSize: 12, color: "#6b7280" }}>📅 {formatDate(act.activityDate || act.createdAt)}</span>
+          {act.class?.name && <span style={{ fontSize: 12, color: "#6b7280" }}>🎒 {act.class.name}</span>}
+        </div>
+        
+        <div style={{ marginBottom: 12, padding: "10px 12px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f3f4f6" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", marginBottom: 4 }}>
+            📝 Description
+          </div>
+          <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6 }}>{act.description || "—"}</div>
+        </div>
+
+        {act.files && act.files.length > 0 && (
+          <div style={{ marginBottom: 12, padding: "10px 12px", background: "#f0fdf4", borderRadius: 10, border: "1px solid #bbf7d0" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#065f46", textTransform: "uppercase", marginBottom: 8 }}>
+              📎 Attached Files
+            </div>
+            {act.files.map((f, i) => {
+              // Basic check if it's an image
+              const isImage = f.mimeType?.startsWith("image/") || /\.(png|jpe?g|gif|webp)$/i.test(f.originalName || "");
               return (
-                <div key={item._id} style={{ padding: 14, border: "1px solid #f1f5f9", borderRadius: 10, marginBottom: 10, background: "white" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917" }}>{lesson.title || "Untitled lesson"}</div>
-                      <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{lesson.course?.title || "General lesson"} | {formatDate(lesson.scheduleDate || item.assignedDate)}</div>
-                    </div>
-                    <StatusBadge status={item.status} />
-                  </div>
-                  {(lesson.objectives || lesson.instructions || lesson.activities) && (
-                    <div style={{ marginTop: 10, fontSize: 12, color: "#475569", lineHeight: 1.5 }}>
-                      {lesson.objectives && <div><b>Objectives:</b> {lesson.objectives}</div>}
-                      {lesson.instructions && <div><b>Instructions:</b> {lesson.instructions}</div>}
-                      {lesson.activities && <div><b>Activities:</b> {lesson.activities}</div>}
+                <div key={i} style={{ marginBottom: 12 }}>
+                  <a 
+                    href={`http://localhost:5000${f.publicUrl}`} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "6px 12px", background: "#fff", border: "1px solid #10b981", borderRadius: 6, fontSize: 12, color: "#10b981", textDecoration: "none", fontWeight: 600 }}
+                  >
+                    ⬇️ Download {f.originalName || "Attachment"}
+                  </a>
+                  {isImage && (
+                    <div style={{ marginTop: 8 }}>
+                      <img src={`http://localhost:5000${f.publicUrl}`} alt={f.originalName} style={{ maxWidth: "100%", maxHeight: "200px", borderRadius: 8, border: "1px solid #e5e7eb" }} />
                     </div>
                   )}
                 </div>
               );
             })}
-          </SectionCard>
+          </div>
+        )}
 
-          <SectionCard title="Complete Lesson">
-            <form onSubmit={handleCompleteLesson}>
-              <label style={S.label}>Lesson Plan</label>
-              <select required value={completionLessonId} onChange={(e) => setCompletionLessonId(e.target.value)} style={{ ...S.input, marginBottom: 12 }}>
-                <option value="">Select a pending lesson</option>
-                {pendingLessons.map((item) => (
-                  <option key={item._id} value={item._id}>{item.lessonPlan?.title || "Untitled lesson"}</option>
-                ))}
-              </select>
-              <label style={S.label}>Teaching Notes</label>
-              <textarea required value={teachingNotes} onChange={(e) => setTeachingNotes(e.target.value)} style={{ ...S.input, minHeight: 90, resize: "vertical", marginBottom: 12 }} />
-              <label style={S.label}>Classroom Activity Done</label>
-              <textarea required value={completionActivity} onChange={(e) => setCompletionActivity(e.target.value)} style={{ ...S.input, minHeight: 80, resize: "vertical", marginBottom: 12 }} />
-              <button type="submit" style={{ ...S.primaryBtn, width: "100%" }}>Send Completion</button>
-            </form>
-          </SectionCard>
+        {assignment.adminFeedback && (
+          <div style={{ marginTop: 4, padding: "10px 12px", background: "#f0fdf4", borderRadius: 10, border: "1px solid #bbf7d0" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#065f46", textTransform: "uppercase", marginBottom: 4 }}>
+              💬 Admin Feedback
+            </div>
+            <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6 }}>{assignment.adminFeedback}</div>
+          </div>
+        )}
+      </Modal>
+    );
+  }
+
+  const plan = assignment.lessonPlan || {};
+  const sections = [
+    { icon: "🎯", label: "Learning Objectives", val: plan.objectives },
+    { icon: "🎪", label: "Activities", val: plan.activities },
+    { icon: "📦", label: "Resources", val: plan.resources },
+    { icon: "📝", label: "Instructions", val: plan.instructions },
+  ];
+
+  return (
+    <Modal title={`📖 ${plan.title || "Lesson"}`} onClose={onClose}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        <StatusBadge status={assignment.status} />
+        <span style={{ fontSize: 12, color: "#6b7280" }}>📅 {formatDate(assignment.assignedDate)}</span>
+        {assignment.class?.name && <span style={{ fontSize: 12, color: "#6b7280" }}>🎒 {assignment.class.name}</span>}
+      </div>
+      {sections.map((s, i) => (
+        <div key={i} style={{ marginBottom: 12, padding: "10px 12px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f3f4f6" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", marginBottom: 4 }}>
+            {s.icon} {s.label}
+          </div>
+          <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6 }}>{s.val || "—"}</div>
         </div>
-      ) : activeSubTab === "activities" ? (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 20 }}>
-          <SectionCard title="Submit Classroom Activity">
-            <form onSubmit={handleActivitySubmit}>
-              <label style={S.label}>Related Lesson</label>
-              <select value={selectedLessonId} onChange={(e) => setSelectedLessonId(e.target.value)} style={{ ...S.input, marginBottom: 12 }}>
-                <option value="">No specific lesson</option>
-                {lessons.map((item) => (
-                  <option key={item._id} value={getId(item.lessonPlan)}>{item.lessonPlan?.title || "Untitled lesson"}</option>
-                ))}
-              </select>
-              <label style={S.label}>Activity Date</label>
-              <input type="date" value={activityDate} onChange={(e) => setActivityDate(e.target.value)} style={{ ...S.input, marginBottom: 12 }} />
-              <label style={S.label}>Description</label>
-              <textarea required value={activityDescription} onChange={(e) => setActivityDescription(e.target.value)} style={{ ...S.input, minHeight: 100, resize: "vertical", marginBottom: 12 }} placeholder="Describe what happened in class." />
-              <input ref={fileInputRef} type="file" onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} style={{ display: "none" }} accept="image/*,video/*,application/pdf" />
-              <button type="button" onClick={() => fileInputRef.current?.click()} style={{ ...S.exportBtn, width: "100%", marginBottom: 12 }}>
-                {selectedFile ? selectedFile.name : "Attach Evidence File"}
-              </button>
-              <button type="submit" style={{ ...S.primaryBtn, width: "100%" }}>Submit For Review</button>
-            </form>
-          </SectionCard>
+      ))}
+      {assignment.adminFeedback && (
+        <div style={{ marginTop: 4, padding: "10px 12px", background: "#f0fdf4", borderRadius: 10, border: "1px solid #bbf7d0" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#065f46", textTransform: "uppercase", marginBottom: 4 }}>
+            💬 Admin Feedback
+          </div>
+          <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6 }}>{assignment.adminFeedback}</div>
+        </div>
+      )}
+    </Modal>
+  );
+}
 
-          <SectionCard title="Submitted Activities">
-            {activities.length === 0 ? (
-              <p style={{ color: "#94a3b8", fontSize: 13 }}>No activity submissions yet.</p>
-            ) : activities.map((activity) => (
-              <div key={activity._id} style={{ padding: 12, border: "1px solid #e2e8f0", borderRadius: 10, marginBottom: 8, background: "#f8fafc" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1917" }}>{activity.lessonPlan?.title || "Classroom activity"}</div>
-                    <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{formatDate(activity.activityDate)}</div>
-                  </div>
-                  <StatusBadge status={activity.status} />
-                </div>
-                <p style={{ fontSize: 12, color: "#475569", margin: "8px 0 0", lineHeight: 1.5 }}>{activity.description}</p>
-                {activity.adminComments && <div style={{ marginTop: 8, fontSize: 12, color: "#92400e" }}><b>Admin feedback:</b> {activity.adminComments}</div>}
-              </div>
-            ))}
-          </SectionCard>
+/* ── Main Component ── */
+export default function TrainingAndClassroomManager({ user }) {
+  const [assignments, setAssignments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [detailAssignment, setDetailAssignment] = useState(null);
+  const [completeAssignment, setCompleteAssignment] = useState(null);
+  const [showActivityModal, setShowActivityModal] = useState(false);
+  const [toast, setToast] = useState({ msg: "", type: "" });
+
+  const loadData = () => {
+    setLoading(true);
+    Promise.all([
+      getTeacherLessonPlans().catch(err => {
+        console.error("Failed to load lesson plans:", err);
+        return { assignments: [], lessonPlans: [] };
+      }),
+      getActivities().catch(err => {
+        console.error("Failed to load activities:", err);
+        return { activities: [] };
+      })
+    ]).then(([lessonRes, activityRes]) => {
+      const lessons = lessonRes.assignments || lessonRes.lessonPlans || [];
+      const activities = activityRes.activities || [];
+      const mappedActivities = activities.map(act => {
+        let title = "Activity";
+        if (act.description) {
+           title = "Activity: " + (act.description.length > 40 ? act.description.slice(0, 40) + "..." : act.description);
+        }
+        return {
+          _id: act._id || act.id,
+          isActivity: true,
+          lessonPlan: { title },
+          assignedDate: act.activityDate || act.createdAt,
+          class: act.class,
+          status: "completed",
+          adminFeedback: act.adminFeedback,
+          originalActivity: act
+        };
+      });
+      setAssignments([...lessons, ...mappedActivities].sort((a, b) => new Date(b.assignedDate) - new Date(a.assignedDate)));
+    }).finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const handleCompleteSubmit = async (assignmentId, payload) => {
+    await submitLessonCompletion(assignmentId, payload);
+    setToast({ msg: "Completion report submitted for admin review!", type: "success" });
+    loadData();
+  };
+
+  const filtered = assignments.filter((a) => {
+    const plan = a.lessonPlan || {};
+    const matchesFilter =
+      filter === "all" ||
+      (filter === "pending" && a.status === "pending") ||
+      (filter === "completed" && (a.status === "completed" || a.status === "reviewed"));
+    const q = search.toLowerCase();
+    const matchesSearch = !q || (plan.title || "").toLowerCase().includes(q) || (plan.instructions || "").toLowerCase().includes(q);
+    return matchesFilter && matchesSearch;
+  });
+
+  const pendingCount = assignments.filter((a) => a.status === "pending").length;
+  const completedCount = assignments.filter((a) => a.status === "completed" || a.status === "reviewed").length;
+
+  const filterBtn = (key, label) => (
+    <button
+      onClick={() => setFilter(key)}
+      style={{ ...S.exportBtn, background: filter === key ? "#f59e0b" : "white", color: filter === key ? "white" : "#6b7280", borderColor: filter === key ? "#f59e0b" : "#e5e7eb" }}
+    >
+      {label}
+    </button>
+  );
+
+  if (loading) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "40vh", fontSize: 14, fontWeight: 600, color: "#d97706" }}>
+        🔄 Loading Training & Lessons...
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ animation: "fadeIn 0.3s ease" }}>
+      <Toast msg={toast.msg} type={toast.type} onClose={() => setToast({ msg: "", type: "" })} />
+
+      {detailAssignment && (
+        <LessonDetailModal assignment={detailAssignment} onClose={() => setDetailAssignment(null)} />
+      )}
+      {completeAssignment && (
+        <CompleteLessonModal
+          assignment={completeAssignment}
+          onSubmit={handleCompleteSubmit}
+          onClose={() => setCompleteAssignment(null)}
+        />
+      )}
+      {showActivityModal && (
+        <ActivitySubmissionModal
+          user={user}
+          onClose={() => setShowActivityModal(false)}
+          onSuccess={(msg) => {
+            setToast({ msg, type: "success" });
+            loadData();
+          }}
+        />
+      )}
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+        <div>
+          <h1 style={S.pageTitle}>Training & Lessons</h1>
+          <p style={S.pageSub}>Lesson plans allocated to you by the admin</p>
+        </div>
+        <button onClick={() => setShowActivityModal(true)} style={{ ...S.primaryBtn, padding: "10px 16px" }}>
+          ➕ Submit Activity
+        </button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(180px,1fr))", gap: 16, marginBottom: 20 }}>
+        <StatCard icon="📋" label="Total Assigned" val={assignments.length} color="#3b82f6" bg="#dbeafe" />
+        <StatCard icon="⏳" label="Pending" val={pendingCount} color="#f59e0b" bg="#fef3c7" />
+        <StatCard icon="✅" label="Completed" val={completedCount} color="#10b981" bg="#d1fae5" />
+      </div>
+
+      <div style={{ background: "white", borderRadius: 14, padding: "14px 18px", border: "1px solid #f1f5f9", marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <SearchBar value={search} onChange={setSearch} placeholder="Search lessons..." />
+        </div>
+        {filterBtn("all", "All")}
+        {filterBtn("pending", "Pending")}
+        {filterBtn("completed", "Completed")}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div style={{ padding: 40, textAlign: "center", background: "white", borderRadius: 16, border: "1px dashed #cbd5e1", color: "#94a3b8" }}>
+          No lesson plans assigned yet. Check back once your admin allocates one.
         </div>
       ) : (
-        <SectionCard title="Assigned Course Progress">
-          {courses.length === 0 ? (
-            <p style={{ color: "#94a3b8", fontSize: 13 }}>No courses assigned yet.</p>
-          ) : courses.map((assignment) => {
-            const progress = assignment.progressPercent || 0;
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))", gap: 16 }}>
+          {filtered.map((a) => {
+            const plan = a.lessonPlan || {};
+            const isDone = a.status === "completed" || a.status === "reviewed";
             return (
-              <div key={assignment._id} style={{ padding: 14, border: "1px solid #f1f5f9", borderRadius: 10, marginBottom: 10 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917" }}>{assignment.course?.title || "Untitled course"}</div>
-                    <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{assignment.course?.category || "Training"} | Due: {formatDate(assignment.dueDate)}</div>
-                  </div>
-                  <Badge color="#d97706" bg="#fef3c7">{progress}% complete</Badge>
+              <div
+                key={a._id || a.id}
+                style={{
+                  background: "white",
+                  borderRadius: 16,
+                  padding: "18px 20px",
+                  border: "1px solid #f1f5f9",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+                  borderLeft: `4px solid ${isDone ? "#10b981" : "#f59e0b"}`,
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917" }}>{plan.title || "Lesson"}</div>
+                  <StatusBadge status={a.status} />
                 </div>
-                <div style={{ height: 8, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", marginTop: 12 }}>
-                  <div style={{ height: "100%", width: `${progress}%`, background: "#f59e0b" }} />
+                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>📅 {formatDate(a.assignedDate)}</div>
+                <p style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.5, marginBottom: 14 }}>
+                  {(plan.instructions || "No instructions provided.").slice(0, 110)}
+                  {(plan.instructions || "").length > 110 ? "..." : ""}
+                </p>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setDetailAssignment(a)} style={{ ...S.tblBtn, flex: 1 }}>
+                    👁 View Details
+                  </button>
+                  {!isDone && (
+                    <button onClick={() => setCompleteAssignment(a)} style={{ ...S.primaryBtn, flex: 1, padding: "8px 12px", fontSize: 12 }}>
+                      ✅ Mark Complete
+                    </button>
+                  )}
                 </div>
               </div>
             );
           })}
-        </SectionCard>
+        </div>
       )}
     </div>
   );

@@ -2,6 +2,50 @@ import { useState, useEffect } from "react";
 import { Modal, S, SearchBar, SectionCard, StatCard, StatusBadge, Toast } from "../components/Shared";
 import { getAdminTeachers } from "../services/api";
 
+// ─────────────────────────────────────────────────────────────
+// 🚧 FEATURE FLAG
+// Set this to `false` whenever you want to re-enable the full
+// Schedule Management UI (form, list, stats, filters, etc).
+// Setting it to `true` shows the "under work" placeholder instead,
+// WITHOUT deleting or breaking any of the existing functionality below.
+// ─────────────────────────────────────────────────────────────
+const SHOW_UNDER_CONSTRUCTION = true;
+
+// Reusable "under construction" placeholder — same visual style as
+// the "Training & Lessons is under work" screen.
+function UnderConstruction({ title = "This section", icon = "🎓" }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        minHeight: "60vh",
+        padding: 20,
+      }}
+    >
+      <div
+        style={{
+          background: "white",
+          borderRadius: 16,
+          padding: "48px 56px",
+          border: "2px dashed #f59e0b",
+          textAlign: "center",
+          maxWidth: 460,
+        }}
+      >
+        <div style={{ fontSize: 44, marginBottom: 16 }}>{icon}</div>
+        <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginBottom: 10 }}>
+          {title} is under work
+        </div>
+        <div style={{ fontSize: 14, color: "#6b7280", lineHeight: 1.6 }}>
+          This section is currently being built and is not connected yet. Please check back soon — thank you for your patience!
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // We need schedule APIs from api.js - inline them since they're already defined
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
@@ -42,6 +86,13 @@ const STATUS_BG = {
 };
 
 export default function ScheduleManagementTab({ setToast }) {
+  // 🚧 Early-return placeholder. Flip SHOW_UNDER_CONSTRUCTION to false
+  // above to restore the full, working tab instantly — nothing else
+  // in this file needs to change.
+  if (SHOW_UNDER_CONSTRUCTION) {
+    return <UnderConstruction title="Schedule Management" icon="📅" />;
+  }
+
   const [schedules, setSchedules] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -50,6 +101,12 @@ export default function ScheduleManagementTab({ setToast }) {
   const [filterStatus, setFilterStatus] = useState("all");
   const [formModal, setFormModal] = useState(false);
   const [editSchedule, setEditSchedule] = useState(null);
+  const [viewMode, setViewMode] = useState("list");
+  const [calMonth, setCalMonth] = useState(new Date().getMonth());
+  const [calYear, setCalYear] = useState(new Date().getFullYear());
+  const [blockedDates, setBlockedDates] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("spaceece_blocked_dates") || "[]"); } catch { return []; }
+  });
   const [localToast, setLocalToast] = useState({ msg: "", type: "" });
 
   const showToast = setToast || ((msg) => setLocalToast(msg));
@@ -114,6 +171,19 @@ export default function ScheduleManagementTab({ setToast }) {
     setFormModal(true);
   };
 
+  const toggleBlockDate = (dateStr) => {
+    const newBlocked = blockedDates.includes(dateStr)
+      ? blockedDates.filter(d => d !== dateStr)
+      : [...blockedDates, dateStr];
+    setBlockedDates(newBlocked);
+    localStorage.setItem("spaceece_blocked_dates", JSON.stringify(newBlocked));
+  };
+
+  const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
+  const getFirstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
+  const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
   if (loading) {
     return (
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "40vh", fontSize: 14, fontWeight: 600, color: "#d97706" }}>
@@ -150,7 +220,14 @@ export default function ScheduleManagementTab({ setToast }) {
         <StatCard icon="📅" label="Total Schedules" val={schedules.length} color="#f59e0b" bg="#fef3c7" />
         <StatCard icon="⏳" label="Upcoming" val={schedules.filter((s) => s.status === "upcoming").length} color="#3b82f6" bg="#dbeafe" />
         <StatCard icon="✅" label="Completed" val={schedules.filter((s) => s.status === "completed").length} color="#10b981" bg="#d1fae5" />
+        <StatCard icon="🚫" label="Blocked Dates" val={blockedDates.length} color="#ef4444" bg="#fee2e2" />
         <StatCard icon="👩‍🏫" label="Teachers Scheduled" val={new Set(schedules.map((s) => String(s.teacher?._id || s.teacher)).filter(Boolean)).size} color="#8b5cf6" bg="#ede9fe" />
+      </div>
+
+      {/* View Mode Toggle */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <button onClick={() => setViewMode("list")} style={{ padding: "8px 16px", borderRadius: 8, border: `1.5px solid ${viewMode === "list" ? "#f59e0b" : "#e5e7eb"}`, background: viewMode === "list" ? "#fef3c7" : "white", color: viewMode === "list" ? "#92400e" : "#6b7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>📋 List View</button>
+        <button onClick={() => setViewMode("calendar")} style={{ padding: "8px 16px", borderRadius: 8, border: `1.5px solid ${viewMode === "calendar" ? "#f59e0b" : "#e5e7eb"}`, background: viewMode === "calendar" ? "#fef3c7" : "white", color: viewMode === "calendar" ? "#92400e" : "#6b7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>🗓️ Calendar View</button>
       </div>
 
       <div style={{ background: "white", borderRadius: 14, padding: "14px 18px", border: "1px solid #f1f5f9", marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -179,6 +256,51 @@ export default function ScheduleManagementTab({ setToast }) {
         </select>
       </div>
 
+      {/* Calendar View */}
+      {viewMode === "calendar" && (
+        <div style={{ background: "white", borderRadius: 16, border: "1px solid #e5e7eb", padding: 20, marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <button onClick={() => { setCalMonth(m => m === 0 ? 11 : m - 1); setCalYear(y => calMonth === 0 ? y - 1 : y); }} style={{ ...S.tblBtn }}>← Prev</button>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "#111827" }}>{MONTH_NAMES[calMonth]} {calYear}</div>
+            <button onClick={() => { setCalMonth(m => m === 11 ? 0 : m + 1); setCalYear(y => calMonth === 11 ? y + 1 : y); }} style={{ ...S.tblBtn }}>Next →</button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+            {DAY_NAMES.map(d => (
+              <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "#9ca3af", padding: 6 }}>{d}</div>
+            ))}
+            {Array.from({ length: getFirstDayOfMonth(calYear, calMonth) }).map((_, i) => <div key={`empty-${i}`} />)}
+            {Array.from({ length: getDaysInMonth(calYear, calMonth) }).map((_, i) => {
+              const day = i + 1;
+              const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+              const daySchedules = schedules.filter(s => {
+                const st = s.time ? new Date(s.time).toISOString().split("T")[0] : "";
+                return st === dateStr;
+              });
+              const isBlocked = blockedDates.includes(dateStr);
+              const isToday = dateStr === new Date().toISOString().split("T")[0];
+              return (
+                <div key={day} onClick={() => toggleBlockDate(dateStr)} style={{
+                  padding: 6, borderRadius: 8, minHeight: 60, cursor: "pointer", border: `1.5px solid ${isToday ? "#f59e0b" : isBlocked ? "#fecaca" : "#f3f4f6"}`,
+                  background: isBlocked ? "#fef2f2" : isToday ? "#fffbeb" : "#fafafa",
+                  transition: "all 0.15s",
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: isBlocked ? "#dc2626" : "#374151", marginBottom: 4 }}>{day}</div>
+                  {isBlocked && <div style={{ fontSize: 9, color: "#dc2626", fontWeight: 600 }}>🚫 Blocked</div>}
+                  {daySchedules.slice(0, 2).map((s, si) => (
+                    <div key={si} style={{ fontSize: 9, padding: "2px 4px", borderRadius: 4, background: STATUS_BG[s.status] || "#f3f4f6", color: STATUS_COLORS[s.status] || "#6b7280", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {s.topic || s.className || "Schedule"}
+                    </div>
+                  ))}
+                  {daySchedules.length > 2 && <div style={{ fontSize: 8, color: "#9ca3af" }}>+{daySchedules.length - 2} more</div>}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ marginTop: 12, fontSize: 11, color: "#6b7280", textAlign: "center" }}>Click a date to toggle blocked/unblocked (blocked dates are skipped by auto-generation)</div>
+        </div>
+      )}
+
+      {viewMode === "list" && (
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {filtered.map((s) => (
           <div
@@ -270,6 +392,7 @@ export default function ScheduleManagementTab({ setToast }) {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

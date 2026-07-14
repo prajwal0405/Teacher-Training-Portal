@@ -28,6 +28,7 @@ export default function AttendanceManager({ user }) {
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(true);
+  const [rosterVersion, setRosterVersion] = useState(0);
 
   // OTP state
   const [showOtpModal, setShowOtpModal] = useState(false);
@@ -70,7 +71,7 @@ export default function AttendanceManager({ user }) {
   }, []);
 
   // Fetch children list and attendance for selected date
-  const loadRosterAndAttendance = () => {
+  useEffect(() => {
     if (!teacherProfile) return;
     const classId = selectedClassId || (teacherProfile?.teacherProfile?.classes || [])[0]?._id || (teacherProfile?.teacherProfile?.classes || [])[0];
     setLoading(true);
@@ -116,13 +117,7 @@ export default function AttendanceManager({ user }) {
       setLoading(false);
       triggerToast("Failed to fetch records from database.", true);
     });
-  };
-
-  useEffect(() => {
-    if (teacherProfile) {
-      loadRosterAndAttendance();
-    }
-  }, [selectedDate, teacherProfile, selectedClassId]);
+  }, [selectedDate, teacherProfile, selectedClassId, rosterVersion]);
 
   // OTP expiry countdown
   useEffect(() => {
@@ -343,7 +338,7 @@ export default function AttendanceManager({ user }) {
         setNewStudentParentName("");
         setNewStudentParentPhone("");
         setShowAddModal(false);
-        loadRosterAndAttendance();
+        setRosterVersion(v => v + 1);
       })
       .catch(err => {
         console.error("Error adding child:", err);

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { AttendanceBar, Modal, S, SearchBar, SectionCard, StatCard, StatusBadge, Toast } from "../components/Shared";
 import { getAdminTeachers, updateTeacherStatus, updateTeacherProfile, registerTeacher, getCenters, getClasses, sendDirectMessageToTeacher, blockTeacher, unblockTeacher, deleteTeacher } from "../services/api";
 import { t } from "../services/i18n";
+import MentorManagementTab from "./MentorManagementTab";
 
 // Reuse same base URL pattern as ActivityMonitoringTab
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -178,6 +179,97 @@ function DirectMessageModal({ teacher, onClose, setToast }) {
   );
 }
 
+/* ── Edit Teacher Modal ── */
+function EditTeacherModal({ teacher, onSave, onClose, setToast }) {
+  const [form, setForm] = useState({
+    name: teacher.name || "",
+    email: teacher.email || "",
+    phone: teacher.phone || "",
+    subject: teacher.subject || "",
+    qualification: teacher.qualification || "",
+    experience: teacher.experience || "",
+    address: teacher.address || "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.name || !form.email) {
+      setToast({ msg: "Name and email are required.", type: "error" });
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateTeacherProfile(teacher.id, {
+        name: form.name,
+        email: form.email,
+        phone: form.phone,
+        teacherProfile: {
+          subject: form.subject,
+          qualification: form.qualification,
+          experience: form.experience,
+          address: form.address,
+        },
+      });
+      setToast({ msg: "Teacher profile updated!", type: "success" });
+      onSave();
+      onClose();
+    } catch (err) {
+      setToast({ msg: err.message || "Failed to update teacher", type: "error" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title={`✏️ Edit Teacher — ${teacher.name}`} onClose={onClose}>
+      <form onSubmit={handleSubmit}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div>
+            <label style={S.label}>Full Name *</label>
+            <input style={S.input} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Teacher name" />
+          </div>
+          <div>
+            <label style={S.label}>Email *</label>
+            <input style={S.input} type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="teacher@email.com" />
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+          <div>
+            <label style={S.label}>Phone</label>
+            <input style={S.input} value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+91 98765 43210" />
+          </div>
+          <div>
+            <label style={S.label}>Subject</label>
+            <input style={S.input} value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} placeholder="e.g. Early Childhood" />
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+          <div>
+            <label style={S.label}>Qualification</label>
+            <select style={S.input} value={form.qualification} onChange={e => setForm({ ...form, qualification: e.target.value })}>
+              {["", "Graduate", "Post-Graduate", "B.Ed", "D.El.Ed", "Other"].map(o => <option key={o} value={o}>{o || "Select..."}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={S.label}>Experience</label>
+            <select style={S.input} value={form.experience} onChange={e => setForm({ ...form, experience: e.target.value })}>
+              {["", "Fresher", "1-2 yrs", "3-5 yrs", "5-10 yrs", "10+ yrs"].map(o => <option key={o} value={o}>{o || "Select..."}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <label style={S.label}>Address</label>
+          <textarea style={{ ...S.input, height: 60, resize: "none" }} value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder="Teacher address" />
+        </div>
+        <button type="submit" disabled={saving} style={{ ...S.primaryBtn, width: "100%", marginTop: 16, opacity: saving ? 0.7 : 1 }}>
+          {saving ? "Saving..." : "Save Changes →"}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
 /* ── Change Center Modal ── */
 function ChangeCenterModal({ teacher, centers = [], classes = [], onSave, onClose }) {
   const [selectedCenter, setSelectedCenter] = useState(teacher.centerId || "");
@@ -269,6 +361,7 @@ function TeacherProfileView({ teacher, centers = [], classes = [], onBack, onUpd
   const [showBlock,    setShowBlock]    = useState(false);
   const [showMsg,      setShowMsg]      = useState(false);
   const [showCourses,  setShowCourses]  = useState(false);
+  const [showEdit,     setShowEdit]     = useState(false);
   // NEW: lightbox to view full-size profile photo
   const [photoLightbox, setPhotoLightbox] = useState(false);
 
@@ -312,6 +405,7 @@ function TeacherProfileView({ teacher, centers = [], classes = [], onBack, onUpd
   const quickActions = [
     { icon: "💬", label: "Send Message",   onClick: () => setShowMsg(true),     color: "#8b5cf6", bg: "#ede9fe" },
     { icon: "🏫", label: "Change Center",  onClick: () => setShowCourses(true), color: "#f59e0b", bg: "#fef3c7" },
+    { icon: "✏️", label: "Edit Profile",   onClick: () => setShowEdit(true),    color: "#2563eb", bg: "#dbeafe" },
   ];
 
   return (
@@ -320,6 +414,7 @@ function TeacherProfileView({ teacher, centers = [], classes = [], onBack, onUpd
       {showBlock    && <BlockModal   teacher={teacher} onClose={() => setShowBlock(false)}   onConfirm={doBlock} />}
       {showMsg      && <DirectMessageModal teacher={teacher} onClose={() => setShowMsg(false)} setToast={setToast} />}
       {showCourses  && <ChangeCenterModal  teacher={teacher} centers={centers} classes={classes} onClose={() => setShowCourses(false)} onSave={doChangeCenter} />}
+      {showEdit     && <EditTeacherModal  teacher={teacher} onClose={() => setShowEdit(false)} onSave={() => { onUpdate(); }} setToast={setToast} />}
 
       {/* NEW: full-size photo lightbox */}
       {photoLightbox && teacher.photoUrl && (
@@ -395,6 +490,7 @@ function TeacherProfileView({ teacher, centers = [], classes = [], onBack, onUpd
           {isApproved && <button onClick={() => setShowBlock(true)} style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>🚫 Block</button>}
           {isBlocked  && <button onClick={doUnblock} style={S.primaryBtn}>✓ Unblock</button>}
           {isRejected && <button onClick={doApprove} style={S.primaryBtn}>✓ Reactivate</button>}
+          <button onClick={() => setShowEdit(true)} style={{ ...S.tblBtn, color: "#2563eb", borderColor: "#93c5fd" }}>✏️ Edit</button>
           <button onClick={doDelete} style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>🗑️ Delete</button>
         </div>
       </div>
@@ -515,7 +611,7 @@ function TeacherProfileView({ teacher, centers = [], classes = [], onBack, onUpd
 /* ══════════════════════════════════════════
    MAIN TEACHER MANAGEMENT TAB
    ══════════════════════════════════════════ */
-export default function TeacherManagementTab({ setToast }) {
+export function TeacherManagementList({ setToast }) {
   const [teachers, setTeachers]   = useState([]);
   const [centers, setCenters]     = useState([]);
   const [classes, setClasses]     = useState([]);
@@ -853,6 +949,52 @@ export default function TeacherManagementTab({ setToast }) {
             </button>
           </form>
         </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   UNIFIED USER MANAGEMENT TAB
+   ══════════════════════════════════════════ */
+export default function TeacherManagementTab({ setToast }) {
+  const [activeRole, setActiveRole] = useState("Teacher");
+
+  return (
+    <div style={{ animation: "fadeIn 0.3s ease" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, borderBottom: "1px solid #e2e8f0", paddingBottom: 16 }}>
+        <div>
+          <h1 style={{ fontSize: 24, fontWeight: 900, color: "#0f172a", margin: "0 0 4px" }}>User Management</h1>
+          <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>Manage platform users, roles, and access.</p>
+        </div>
+        <div style={{ display: "flex", background: "#f1f5f9", padding: 4, borderRadius: 12 }}>
+          {["Teacher", "Mentor"].map(role => (
+            <button
+              key={role}
+              onClick={() => setActiveRole(role)}
+              style={{
+                padding: "8px 24px",
+                borderRadius: 8,
+                background: activeRole === role ? "white" : "transparent",
+                color: activeRole === role ? "#0f172a" : "#64748b",
+                fontWeight: activeRole === role ? 700 : 600,
+                fontSize: 13,
+                border: "none",
+                boxShadow: activeRole === role ? "0 2px 4px rgba(0,0,0,0.05)" : "none",
+                cursor: "pointer",
+                transition: "all 0.2s"
+              }}
+            >
+              {role}s
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {activeRole === "Teacher" ? (
+        <TeacherManagementList setToast={setToast} />
+      ) : (
+        <MentorManagementTab setToast={setToast} />
       )}
     </div>
   );
