@@ -1,24 +1,60 @@
 import { useState, useEffect } from "react";
-import { Modal, S, SearchBar, StatCard } from "../components/Shared";
-import {
-  getCourses, createCourse, deleteCourse, getCourseAssignments, getAdminTeachers,
-  assignCourse, getCourseNotes, createCourseNote, getAdminAssessmentResults,
-} from "../services/api";
+import { Modal, S, SearchBar, StatCard, Toast } from "../components/Shared";
+import { getCourses, createCourse, updateCourse, deleteCourse, getCourseAssignments, getAdminTeachers, generateCourseFromAI, assignCourse, getCourseNotes, createCourseNote, updateCourseNote, deleteCourseNote } from "../services/api";
 
-/* ══════════════════════════════════════════════════════════════
-   Training & Curriculum — Admin side (SELF-CONTAINED VERSION)
+const YOUTUBE_ID_RE = /(?:youtube\.com\/(?:.*[?&]v=|embed\/)|youtu\.be\/)([^"&?/\s]{11})/;
 
-   Why this version doesn't call /api/course-library or
-   /api/courses/from-library anymore:
-   Those two backend routes aren't reliably deployed yet, and every
-   call to them was surfacing as a generic "Request failed" toast.
-   Since the 10-course library is static content (derived once from
-   the docx), it's embedded directly below as LOCAL_LIBRARY and the
-   "Create Course from Library" flow now builds the course payload
-   client-side and saves it through the EXISTING createCourse
-   endpoint — the same one the rest of this app already relies on.
-   No backend changes are required for this file to work.
-══════════════════════════════════════════════════════════════ */
+function extractVideoUrl(course) {
+  const candidates = [
+    course?.contentLink,
+    course?.youtubeUrl,
+    course?.youtubeLink,
+    ...(course?.modules || []).flatMap((module) => [
+      ...(module?.contents || []).flatMap((item) => [item?.externalUrl, item?.videoUrl, item?.url]),
+      ...(module?.lessons || []).flatMap((item) => [item?.externalUrl, item?.videoUrl, item?.url]),
+    ]),
+  ].filter(Boolean);
+  return candidates.find((url) => YOUTUBE_ID_RE.test(String(url))) || candidates[0] || "";
+}
+
+function extractYoutubeId(url) {
+  if (!url) return null;
+  const match = String(url).match(YOUTUBE_ID_RE);
+  return match ? match[1] : null;
+}
+
+const mapCourseFromApi = (c) => ({
+  id: String(c._id || c.id),
+  title: c.title,
+  category: c.category || "Foundations of ECE",
+  level: c.level || "Beginner",
+  duration: c.duration || c.durationText || "2 Weeks",
+  description: c.description || "",
+  objectives: c.objectives || "",
+  contentType: c.contentType || "Video",
+  contentLink: extractVideoUrl(c),
+  youtubeId: c.youtubeId || extractYoutubeId(extractVideoUrl(c)),
+  assignedCount: c.assignedCount || 0,
+  completedCount: c.completedCount || 0,
+  completion: c.completion || (c.assignedCount ? Math.round((c.completedCount / c.assignedCount) * 100) : 0),
+  modules: c.modules && c.modules.length ? c.modules : undefined,
+});
+
+const mapCourseToApi = (c) => ({
+  title: c.title,
+  category: c.category,
+  level: c.level,
+  durationText: c.duration,
+  duration: c.duration,
+  description: c.description,
+  objectives: c.objectives,
+  contentType: c.contentType,
+  contentLink: c.contentLink,
+  youtubeId: c.youtubeId,
+  assignedCount: c.assignedCount,
+  completedCount: c.completedCount,
+  modules: c.modules,
+});
 
 const CATEGORIES = [
   "all",
@@ -27,429 +63,761 @@ const CATEGORIES = [
   "Instructional Strategies",
   "Assessment & Evaluation",
   "Classroom Management",
+  "Family & Community",
+  "Professional Development",
   "Health, Safety & Nutrition",
+  "Practical Training"
 ];
+
 const LEVEL_COLORS = {
-  Beginner: { bg: "#d1fae5", color: "#065f46" },
+  Beginner:     { bg: "#d1fae5", color: "#065f46" },
   Intermediate: { bg: "#dbeafe", color: "#1d4ed8" },
-  Advanced: { bg: "#ede9fe", color: "#5b21b6" },
+  Advanced:     { bg: "#ede9fe", color: "#5b21b6" },
 };
+
+const TYPE_ICONS = { Video: "🎥", PDF: "📄", Document: "📝" };
+
 const CAT_COLORS = {
-  "Foundations of ECE": "#f59e0b",
-  "Curriculum Planning": "#10b981",
+  "Foundations of ECE":       "#f59e0b",
+  "Curriculum Planning":      "#10b981",
   "Instructional Strategies": "#3b82f6",
-  "Assessment & Evaluation": "#8b5cf6",
-  "Classroom Management": "#ef4444",
-  "Health, Safety & Nutrition": "#06b6d4",
+  "Assessment & Evaluation":  "#8b5cf6",
+  "Classroom Management":     "#ef4444",
+  "Family & Community":       "#ec4899",
+  "Professional Development": "#f97316",
+  "Health, Safety & Nutrition":"#06b6d4",
+  "Practical Training":       "#14b8a6",
 };
 
-/* ══════════════════════════════════════════════════════════════
-   LOCAL COURSE LIBRARY — 10 Pre-Primary courses, derived from
-   PreSchool_Teacher_Courses.docx. Static content, embedded so this
-   component never depends on a network call to load it.
-══════════════════════════════════════════════════════════════ */
-const LOCAL_LIBRARY = [
-  {
-    id: "cse-001",
-    title: "Foundations of Early Childhood Care and Education (ECCE)",
-    category: "Foundations of ECE",
-    level: "Beginner",
-    duration: "3 Weeks",
-    description: "An introduction to the philosophy, history, and guiding principles of early childhood care and education, and why the pre-primary years shape a child's lifelong learning trajectory.",
-    objectives: "Understand ECCE philosophy, key theorists, developmentally appropriate practice, and the teacher's role as a facilitator of early learning.",
-    topics: [
-      { title: "What is ECCE and Why the Early Years Matter", notes: "Early Childhood Care and Education (ECCE) refers to the holistic development of children from birth to eight years, with the pre-primary phase (3-6 years) being the most intensive period of brain development. During these years, over 90% of a child's brain architecture is formed through everyday experiences, relationships, and play. Neuroscience shows that responsive, stimulating environments in these years build the cognitive, social, emotional, and physical foundations on which all later learning depends. Teachers in this phase are not simply caregivers; they are the architects of a child's first formal learning experiences." },
-      { title: "Key Theorists and Their Contributions", notes: "Several foundational theorists shape modern ECCE practice. Friedrich Froebel, the founder of the kindergarten movement, introduced the idea of learning through structured play. Maria Montessori emphasized a prepared environment and child-led exploration. Jean Piaget's theory of cognitive development described the Preoperational Stage (2-7 years) as central to this age group. Lev Vygotsky introduced the Zone of Proximal Development (ZPD) and scaffolding. Erik Erikson's 'Initiative vs Guilt' stage (ages 3-5) is central to this period." },
-      { title: "Developmentally Appropriate Practice (DAP)", notes: "Developmentally Appropriate Practice means making decisions about curriculum and teaching based on knowledge of child development generally, the individual child, and the social/cultural context. In practice, DAP means offering open-ended materials, allowing choice and movement, and pacing expectations to match a child's current developmental level rather than a fixed calendar age." },
-      { title: "The Role of the Pre-Primary Teacher", notes: "The pre-primary teacher wears many hats: facilitator, observer, environment designer, emotional anchor, and communicator with families. As a facilitator, the teacher poses open-ended questions. As an observer, the teacher continuously watches how children play and interact. As an environment designer, the teacher arranges the classroom into purposeful zones." },
-      { title: "Ethics, Safety, and Professionalism in ECCE", notes: "Working with young children carries a special duty of care. Ethical practice begins with treating every child with dignity, avoiding comparison or shaming. Confidentiality matters. Physical safety is non-negotiable. Professionalism also means continuous self-reflection and lifelong learning." },
-    ],
-  },
-  {
-    id: "cse-002",
-    title: "Child Growth and Development (0-6 Years)",
-    category: "Foundations of ECE",
-    level: "Beginner",
-    duration: "3 Weeks",
-    description: "A practical study of physical, cognitive, language, social, and emotional milestones from birth to six years, and how teachers can use milestone knowledge to plan age-appropriate activities.",
-    objectives: "Identify typical developmental milestones across domains and design activities that match each stage of growth.",
-    topics: [
-      { title: "Domains of Development", notes: "Child development is generally described across five interconnected domains: physical (gross and fine motor skills), cognitive (thinking, memory, problem-solving), language, social, and emotional. These domains do not develop in isolation; a delay or strength in one area often influences the others." },
-      { title: "Milestones: 3 to 4 Years", notes: "By age three to four, most children can run and jump, hold a crayon with an emerging pincer grip, use three-to-four word sentences, engage in parallel and early cooperative play, and start to name basic emotions, though self-regulation is still developing and tantrums remain common." },
-      { title: "Milestones: 4 to 5 Years", notes: "Between four and five years, gross motor skills become more coordinated, fine motor control improves enough to cut along a line, sentences expand to five or more words, children engage in more sustained cooperative play, and they begin to use words instead of only physical reactions to express frustration." },
-      { title: "Milestones: 5 to 6 Years", notes: "By five to six years, children display more refined gross and fine motor skills, language becomes more complex with connectors like 'because', social play becomes more cooperative and empathetic, self-regulation strengthens, and early number and letter-sound concepts emerge." },
-      { title: "Using Milestones Without Labeling Children", notes: "Milestones are guides, not strict deadlines. Teachers should use milestone charts to plan activities and notice patterns, not to grade or rank children. Consistent variation across multiple domains is a signal to observe more closely and discuss with parents, not to label the child prematurely." },
-    ],
-  },
-  {
-    id: "cse-003",
-    title: "Play-Based Learning and Pedagogy",
-    category: "Instructional Strategies",
-    level: "Intermediate",
-    duration: "4 Weeks",
-    description: "Deep dive into why and how play is the primary vehicle for learning in the early years, covering types of play, play-based lesson design, and the teacher's role during play.",
-    objectives: "Design and facilitate structured and unstructured play experiences that build academic, social, and emotional skills.",
-    topics: [
-      { title: "Why Play is Learning", notes: "Play is not a break from learning in the pre-primary years — it is the primary mechanism through which learning happens. During play, children practice language, mathematics, problem-solving, social skills, and emotional regulation simultaneously." },
-      { title: "Types of Play", notes: "Sensory/exploratory play builds curiosity and fine motor skills. Constructive play develops spatial reasoning. Dramatic/pretend play builds language and empathy. Physical/gross motor play supports body control. Games-with-rules introduce shared rules and turn-taking." },
-      { title: "Designing a Play-Based Lesson", notes: "A well-designed play-based lesson begins with a clear learning objective disguised inside an inviting activity, includes a short circle-time introduction, a main activity block with multiple stations, embedded teacher interactions, and a closing circle to reinforce vocabulary." },
-      { title: "The Teacher's Role During Play", notes: "During play, the teacher moves fluidly between four roles: observer, co-player, scaffolder, and extender. The key skill is restraint — knowing when to step in and when to let the child struggle productively." },
-      { title: "Balancing Free Play and Guided Play", notes: "Effective pre-primary programs use a mix of free play (child-initiated) and guided play (adult-initiated setup, child-directed exploration). A well-balanced schedule includes daily blocks of both, along with outdoor free play." },
-    ],
-  },
-  {
-    id: "cse-004",
-    title: "Curriculum Planning and Lesson Design for Pre-Primary",
-    category: "Curriculum Planning",
-    level: "Intermediate",
-    duration: "4 Weeks",
-    description: "How to build a coherent, theme-based pre-primary curriculum, write daily lesson plans, and align activities to learning goals across the year.",
-    objectives: "Create a thematic yearly curriculum map and write detailed, developmentally appropriate daily lesson plans.",
-    topics: [
-      { title: "Principles of Early Years Curriculum Design", notes: "A good pre-primary curriculum is integrated rather than subject-siloed, spiral rather than linear (concepts are revisited with increasing complexity), and responsive to genuine child interest, while staying balanced across all five developmental domains every week." },
-      { title: "Backward Design for Early Years", notes: "Backward Design starts with identifying desired results, then determining acceptable evidence of learning, and only then planning learning experiences — preventing the common trap of planning appealing activities first with no clear objective." },
-      { title: "Writing a Daily Lesson Plan", notes: "A strong daily lesson plan includes a clear child-friendly objective, a hook or introduction, a main activity with anticipated child responses, materials needed, differentiation notes, and a closing/review section, plus explicitly planned transitions." },
-      { title: "Theme-Based and Project-Based Approaches", notes: "Theme-based teaching organizes activities around a unifying topic, giving repeated varied exposure to vocabulary and concepts. The project approach (Reggio Emilia) takes this further with extended investigations emerging from genuine child curiosity." },
-      { title: "Aligning Curriculum Across the Year", notes: "A yearly curriculum map should be cross-checked against a skills progression chart covering language, numeracy, social-emotional, physical, and creative goals, with regular review weeks roughly every 6-8 weeks to consolidate recent learning." },
-    ],
-  },
-  {
-    id: "cse-005",
-    title: "Classroom Management and Positive Discipline",
-    category: "Classroom Management",
-    level: "Intermediate",
-    duration: "3 Weeks",
-    description: "Practical strategies for organizing the physical classroom, establishing routines, and guiding behavior positively without punishment or shame.",
-    objectives: "Set up a child-friendly, safe physical environment and apply positive discipline techniques to guide behavior.",
-    topics: [
-      { title: "Designing the Physical Classroom", notes: "A well-organized pre-primary classroom is divided into clearly defined zones with low, open shelving, wide pathways, quiet zones separated from noisy zones, maximized natural light, and secured heavy furniture." },
-      { title: "Building Predictable Routines", notes: "Young children thrive on predictability. A visible daily schedule with pictures, a consistent circle-time opening, and clear transition signals reduce anxiety and free mental energy for learning." },
-      { title: "Positive Discipline Principles", notes: "Positive discipline treats behavior as communication, not defiance. Core techniques include stating expectations positively, offering limited choices, using natural and logical consequences, and connecting before correcting." },
-      { title: "Managing Tantrums and Separation Anxiety", notes: "Tantrums are a normal, developmentally expected response to overwhelming emotion. During a tantrum, safety comes first, followed by staying calm nearby. Separation anxiety is best managed with a consistent, brief, confident goodbye routine." },
-      { title: "Preventing Behavior Challenges Through Engagement", notes: "Most behavior challenges stem from unmet needs — boredom, fatigue, hunger, overstimulation — rather than intentional defiance. Prevention starts with engaging activities, movement breaks, and advance notice before transitions." },
-    ],
-  },
-  {
-    id: "cse-006",
-    title: "Language and Early Literacy Development",
-    category: "Instructional Strategies",
-    level: "Intermediate",
-    duration: "4 Weeks",
-    description: "Strategies for building vocabulary, phonological awareness, and pre-writing skills through storytelling, songs, and print-rich environments.",
-    objectives: "Plan daily language-rich activities and pre-literacy routines that build the foundation for reading and writing.",
-    topics: [
-      { title: "The Building Blocks of Early Literacy", notes: "Early literacy rests on oral language and vocabulary, phonological awareness, print awareness, alphabet knowledge, and emergent writing. Oral language and phonological awareness are far more predictive of later reading success than early letter recognition alone." },
-      { title: "Read-Alouds and Storytelling", notes: "Daily read-alouds are one of the most powerful literacy practices available. Effective read-alouds are interactive, pause for predictive questions, and revisit the same beloved book multiple times to deepen vocabulary retention." },
-      { title: "Building Vocabulary Intentionally", notes: "Vocabulary growth is dramatic in these years. Teachers can build vocabulary by pre-selecting target words per theme, using rich precise language, and pairing new words with real objects and hands-on experiences." },
-      { title: "Phonological Awareness Activities", notes: "Phonological awareness develops from whole words and sentences, to syllables, to rhyme, to onset sounds, and finally blending/segmenting individual phonemes — all taught orally through games and songs, with no print required." },
-      { title: "Emergent Writing and Fine Motor Preparation", notes: "Writing readiness begins with fine motor strength built through playdough, tongs, and threading beads. Emergent writing progresses through scribbling, mock letters, strings of real letters, and eventually conventional spelling attempts." },
-    ],
-  },
-  {
-    id: "cse-007",
-    title: "Numeracy and Early Mathematical Thinking",
-    category: "Instructional Strategies",
-    level: "Intermediate",
-    duration: "4 Weeks",
-    description: "Building number sense, patterns, shapes, measurement, and early problem-solving through concrete, playful mathematics experiences.",
-    objectives: "Sequence early numeracy concepts appropriately and design hands-on math activities that build genuine number sense.",
-    topics: [
-      { title: "What is Number Sense?", notes: "Number sense is a flexible, intuitive understanding of quantity, requiring one-to-one correspondence, cardinality, and subitizing — much deeper than rote counting. Genuine number sense requires extensive hands-on experience with real, countable objects." },
-      { title: "Counting and Cardinality Progression", notes: "Counting develops from the rote number sequence, to one-to-one correspondence, to cardinality (understanding the last number counted represents the total), to counting on and comparing sets." },
-      { title: "Patterns, Shapes, and Spatial Reasoning", notes: "Pattern recognition underlies later algebraic thinking. Shape knowledge should go beyond naming shapes to exploring properties through building and sorting. Spatial reasoning is a strong predictor of later mathematical ability." },
-      { title: "Measurement and Comparison", notes: "Early measurement begins with direct, non-numerical comparison and non-standard units (blocks, hand-spans) before standard units. Water and sand play build early volume and capacity concepts." },
-      { title: "Early Problem-Solving and Mathematical Thinking", notes: "Pre-primary mathematics should build curiosity, persistence, and willingness to try different strategies. Genuine open-ended problems and asking children to explain their thinking build mathematical reasoning and language together." },
-    ],
-  },
-  {
-    id: "cse-008",
-    title: "Health, Nutrition, Safety and Hygiene in ECCE",
-    category: "Health, Safety & Nutrition",
-    level: "Beginner",
-    duration: "2 Weeks",
-    description: "Essential knowledge on child nutrition, hygiene routines, common illnesses, and safety protocols every pre-primary teacher must know.",
-    objectives: "Apply health, hygiene, nutrition, and safety best practices to protect and promote the wellbeing of young children.",
-    topics: [
-      { title: "Nutrition Basics for Pre-Primary Children", notes: "Young children need frequent, smaller meals and healthy snacks rather than three large meals alone. Teachers must always be aware of and strictly respect any food allergies or dietary restrictions on file for each child." },
-      { title: "Hygiene Routines", notes: "Consistent hygiene routines protect both individual and classroom health. Handwashing should be taught step by step and practiced at key transition points. Teachers should model correct handwashing themselves consistently." },
-      { title: "Recognizing and Responding to Common Illnesses", notes: "Teachers should recognize signs of common childhood illnesses and know the appropriate response. Any head injury, breathing difficulty, or loss of consciousness is a medical emergency requiring immediate escalation." },
-      { title: "Physical Safety in the Classroom and Outdoors", notes: "Physical safety requires ongoing vigilance: securing heavy furniture, keeping hazards inaccessible, clear emergency exits indoors, and soft surfacing, active supervision, and sun safety outdoors." },
-      { title: "Building Health and Safety Awareness in Children", notes: "Part of a pre-primary teacher's role is building children's own health and safety awareness in age-appropriate ways, including simple body safety concepts taught in a calm, matter-of-fact tone." },
-    ],
-  },
-  {
-    id: "cse-009",
-    title: "Inclusive Education and Special Needs in Early Years",
-    category: "Curriculum Planning",
-    level: "Advanced",
-    duration: "3 Weeks",
-    description: "Understanding developmental delays, common conditions like autism and ADHD, and practical inclusive classroom strategies for supporting every learner.",
-    objectives: "Recognize early signs of developmental differences and apply inclusive, individualized strategies within a mainstream pre-primary classroom.",
-    topics: [
-      { title: "Principles of Inclusive Education", notes: "Inclusive education means adapting the environment, curriculum, and teaching approach to meet the needs of every child, rather than expecting every child to fit an unchanging classroom." },
-      { title: "Recognizing Developmental Delay", notes: "Developmental delay means a child is achieving milestones at a slower pace than typical, not a permanent disability. Teachers should observe over time, document specific examples, and raise concerns collaboratively with families." },
-      { title: "Understanding Autism Spectrum Differences and ADHD", notes: "Autism spectrum differences involve variations in social communication, sensory processing, and behavior patterns. ADHD involves difficulty with sustained attention, impulse control, or activity level. Both benefit from individualized, predictable supports." },
-      { title: "Language and Learning Differences", notes: "Dyslexia primarily affects reading and writing, though early pre-primary signs often appear as difficulty with rhyming or remembering letter names, well before formal reading instruction begins." },
-      { title: "Practical Inclusive Classroom Strategies", notes: "Practical inclusion includes universal design (visual schedules, consistent routines), peer buddy systems, flexible seating, and differentiated instruction offering the same activity at multiple levels of challenge." },
-    ],
-  },
-  {
-    id: "cse-010",
-    title: "Assessment, Observation and Parent-Teacher Communication",
-    category: "Assessment & Evaluation",
-    level: "Intermediate",
-    duration: "3 Weeks",
-    description: "How to observe and document young children's progress without formal testing, and how to communicate that progress meaningfully to families.",
-    objectives: "Use observation-based assessment tools effectively and communicate children's progress to parents constructively and confidently.",
-    topics: [
-      { title: "Why Formal Testing Doesn't Work for Young Children", notes: "Standardized testing is developmentally inappropriate for pre-primary children, whose test performance is far more likely to reflect mood, hunger, or comfort with the tester than actual knowledge." },
-      { title: "Observation as an Assessment Tool", notes: "Systematic observation involves deliberately watching and recording specific aspects of a child's behavior during regular classroom activities. Effective notes are objective and specific rather than vague impressions." },
-      { title: "Portfolio Assessment", notes: "A portfolio is a purposeful collection of a child's work samples and observations gathered over time, specifically selected to show growth rather than simply archiving everything a child produces." },
-      { title: "Interpreting and Using Assessment Data", notes: "Collected observations are only valuable if actually used to inform teaching. Teachers should periodically review accumulated observations against a developmental milestone framework and adjust planning accordingly." },
-      { title: "Communicating Progress to Parents", notes: "Parent-teacher communication should be frequent, specific, and two-directional. When discussing a concern, teachers should lead with strengths, use factual non-judgmental language, and frame conversations collaboratively." },
-    ],
-  },
-];
+const EMPTY_FORM = {
+  title: "", category: "Foundations of ECE", level: "Beginner", duration: "",
+  description: "", objectives: "", contentType: "Video", contentLink: "",
+  youtubeId: "", assignedCount: 0, completedCount: 0,
+};
 
-const mapCourseFromApi = (c) => ({
-  id: String(c._id || c.id),
-  title: c.title,
-  category: c.category || "Foundations of ECE",
-  level: c.level || "Beginner",
-  duration: c.duration || c.durationText || "3 Weeks",
-  description: c.description || "",
-  objectives: c.objectives || "",
-  libraryId: c.libraryId || null,
-  modules: c.modules || [],
-  assignedCount: c.assignedCount || 0,
-  completedCount: c.completedCount || 0,
-});
-
-/* Assessment scores are saved by ProctoredAssessment.jsx onto the
-   CourseAssignment document itself (via updateCourseAssignmentProgress —
-   the same endpoint already proven to work for reading-progress), NOT
-   only through the separate /api/admin/assessments collection, which
-   isn't reliably live. So the authoritative source here is `assignments`
-   (already loaded successfully — that's how "100% notes read" shows up
-   correctly); the API results are merged in only as a fallback for any
-   teacher/course pair not already covered. */
-function mergeAssessmentResults(assignments = [], apiResults = []) {
-  const fromAssignments = assignments
-    .filter((a) => a.assessmentPercentage !== undefined && a.assessmentPercentage !== null)
-    .map((a) => ({
-      _id: `assign-${a._id || a.id}`,
-      teacher: a.teacher,
-      course: a.course,
-      courseTitle: a.course?.title,
-      score: a.assessmentScore,
-      total: a.assessmentTotal ?? 10,
-      percentage: a.assessmentPercentage,
-      grade: a.assessmentGrade,
-      warnings: a.assessmentWarnings || 0,
-      forced: !!a.assessmentForced,
-      submittedAt: a.assessmentCompletedAt,
-    }));
-  const coveredKeys = new Set(
-    fromAssignments.map((r) => `${r.teacher?._id || r.teacher}-${r.courseTitle}`)
-  );
-  const extra = apiResults.filter(
-    (r) => !coveredKeys.has(`${r.teacher?._id || r.teacher}-${r.courseTitle || r.course?.title}`)
-  );
-  return [...fromAssignments, ...extra];
+/* ── Extract YouTube ID from URL ── */
+function getYoutubeId(url) {
+  if (!url) return null;
+  const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\n?#]+)/);
+  return match ? match[1] : null;
 }
 
-/* Build the payload createCourse() expects, from a LOCAL_LIBRARY entry.
-   IMPORTANT: the backend Course schema's `contentType` field is an enum
-   that only accepts "Video" | "PDF" | "Document" (the same three options
-   the old manual course form used). There is no "Notes" value in that
-   enum, so sending "Notes" throws a Mongoose validation error. Since
-   these courses are text-based reading material (not video, not a raw
-   PDF upload), "Document" is the closest valid enum value — it does NOT
-   change how the course renders anywhere in the app; TeacherCourseNotes
-   reads from `modules[].contents[].notes` regardless of contentType. */
-function buildCoursePayloadFromLibrary(lib) {
-  const modules = lib.topics.map((topic, idx) => ({
-    title: topic.title,
-    description: "",
-    contents: [
-      {
-        title: topic.title,
-        type: "reading",
-        notes: topic.notes,
-        suggestedDuration: `${Math.max(10, Math.round(topic.notes.split(" ").length / 130) * 5)} min read`,
-        order: idx,
-      },
-    ],
-  }));
-  return {
-    title: lib.title,
-    category: lib.category,
-    level: lib.level,
-    duration: lib.duration,
-    durationText: lib.duration,
-    description: lib.description,
-    objectives: lib.objectives,
-    contentType: "Document", // valid enum value on the backend (Video | PDF | Document)
-    libraryId: lib.id,
-    modules,
+/* ── Verify a YouTube video actually exists/is embeddable before we save it.
+     Uses the public oEmbed endpoint — no API key required.
+     Returns true if the video is real, false if it's invalid/private/deleted. ── */
+async function verifyYoutubeVideo(youtubeId) {
+  if (!youtubeId) return false;
+  try {
+    const res = await fetch(
+      `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${youtubeId}&format=json`
+    );
+    return res.ok;
+  } catch {
+    // If the check itself fails (e.g. offline), don't block saving —
+    // just skip verification rather than wrongly rejecting a valid video.
+    return true;
+  }
+}
+
+/* ── Build a YouTube search URL as a fallback when no valid video is on file ── */
+function youtubeSearchUrl(query) {
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+}
+
+/* ── YouTube Thumbnail ── */
+function YoutubeThumbnail({ youtubeId, title, fallbackQuery }) {
+  const [playing, setPlaying] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [invalid, setInvalid] = useState(false);
+
+  // Reset state whenever the video actually changes
+  // (e.g. after a "Refresh Video" re-fetch), so the new thumbnail shows up.
+  useEffect(() => {
+    setPlaying(false);
+    setChecking(false);
+    setInvalid(false);
+  }, [youtubeId]);
+
+  if (!youtubeId) return null;
+
+  const handlePlayClick = async () => {
+    if (checking) return;
+    setChecking(true);
+    const ok = await verifyYoutubeVideo(youtubeId);
+    setChecking(false);
+    if (ok) {
+      setPlaying(true);
+    } else {
+      setInvalid(true);
+    }
   };
-}
 
-/* Does this course have any readable topic content at all? Used to flag
-   stale/legacy courses (created before the notes-based model existed, or
-   created from an incomplete upload) so admin can spot and clean them up. */
-function getTopicCount(course) {
-  return (course.modules || []).reduce((a, m) => a + (m.contents?.length || m.lessons?.length || 0), 0);
-}
+  // The stored video turned out to be unavailable/private/deleted —
+  // show a clear message + a direct link to search YouTube for the topic,
+  // instead of a broken embedded player.
+  if (invalid) {
+    return (
+      <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", borderRadius: "12px 12px 0 0",
+        overflow: "hidden", background: "#111827", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center", gap: 10, padding: 16, textAlign: "center" }}>
+          <div style={{ fontSize: 28 }}>⚠️</div>
+          <div style={{ color: "white", fontSize: 13, fontWeight: 700 }}>Video unavailable</div>
+          <div style={{ color: "#9ca3af", fontSize: 11 }}>This video has been removed or is invalid.</div>
+          <a
+            href={youtubeSearchUrl(fallbackQuery || title)}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: "white",
+              background: "rgba(255,255,255,0.15)", padding: "6px 12px", borderRadius: 20, textDecoration: "none" }}
+          >
+            🔎 Search YouTube for this topic
+          </a>
+        </div>
+      </div>
+    );
+  }
 
-/* ── Read-only Notes Preview (admin) ── */
-function NotesPreviewModal({ course, onClose }) {
-  const topics = (course.modules || []).flatMap((m) => m.contents || m.lessons || []);
-  const [activeIdx, setActiveIdx] = useState(0);
-  const active = topics[activeIdx];
   return (
-    <Modal title={`📖 ${course.title} — Notes Preview`} onClose={onClose}>
-      {topics.length === 0 ? (
-        <div style={{ padding: 24, textAlign: "center" }}>
-          <div style={{ fontSize: 13, color: "#9ca3af", marginBottom: 10 }}>
-            This course has no topics/notes attached. It was likely created before the notes-based course model, or the upload didn't complete.
+    <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", borderRadius: "12px 12px 0 0", overflow: "hidden", background: "#000", cursor: "pointer" }}
+      onClick={handlePlayClick}>
+      {playing ? (
+        <iframe
+          style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none" }}
+          src={`https://www.youtube.com/embed/${youtubeId}?autoplay=1`}
+          title={title}
+          allow="autoplay; encrypted-media"
+          allowFullScreen
+        />
+      ) : (
+        <>
+          <img
+            src={`https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg`}
+            alt={title}
+            style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover" }}
+          />
+          <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%",
+            background: "rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ width: 56, height: 56, borderRadius: "50%", background: "rgba(255,0,0,0.9)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 4px 16px rgba(0,0,0,0.4)" }}>
+              {checking ? (
+                <div style={{ width: 22, height: 22, border: "3px solid rgba(255,255,255,0.4)",
+                  borderTopColor: "white", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+              ) : (
+                <div style={{ width: 0, height: 0, borderTop: "10px solid transparent",
+                  borderBottom: "10px solid transparent", borderLeft: "18px solid white", marginLeft: 4 }}/>
+              )}
+            </div>
           </div>
-          <div style={{ fontSize: 12, color: "#dc2626", fontWeight: 700 }}>
-            Recommended: delete this course and recreate it via "+ Create Course from Library".
+          <div style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.8)",
+            color: "white", fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4 }}>
+            🎥 YouTube
+          </div>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ── Data Stats Row ── */
+function CourseDataRow({ course }) {
+  const pct = course.assignedCount > 0 ? Math.round((course.completedCount / course.assignedCount) * 100) : 0;
+  const notStarted = course.assignedCount - course.completedCount;
+
+  return (
+    <div style={{
+      background: "#f8fafc",
+      border: "1px solid #e2e8f0",
+      borderRadius: "0 0 12px 12px",
+      padding: "10px 14px",
+      borderTop: "none",
+    }}>
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "#64748b" }}>COMPLETION</span>
+          <span style={{ fontSize: 11, fontWeight: 800, color: pct >= 75 ? "#10b981" : pct >= 50 ? "#f59e0b" : "#ef4444" }}>{pct}%</span>
+        </div>
+        <div style={{ height: 6, background: "#e2e8f0", borderRadius: 6, overflow: "hidden" }}>
+          <div style={{
+            height: "100%",
+            width: `${pct}%`,
+            background: pct >= 75 ? "#10b981" : pct >= 50 ? "#f59e0b" : "#ef4444",
+            borderRadius: 6,
+            transition: "width 0.4s ease"
+          }} />
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+        <div style={{ textAlign: "center", background: "white", borderRadius: 8, padding: "6px 4px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "#1e293b" }}>{course.assignedCount}</div>
+          <div style={{ fontSize: 9, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.5px" }}>Assigned</div>
+        </div>
+        <div style={{ textAlign: "center", background: "white", borderRadius: 8, padding: "6px 4px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "#10b981" }}>{course.completedCount}</div>
+          <div style={{ fontSize: 9, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.5px" }}>Completed</div>
+        </div>
+        <div style={{ textAlign: "center", background: "white", borderRadius: 8, padding: "6px 4px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: notStarted > 0 ? "#ef4444" : "#10b981" }}>{notStarted}</div>
+          <div style={{ fontSize: 9, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.5px" }}>Remaining</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Course Form Modal ── */
+function CourseFormModal({ course, onSave, onClose, setToast }) {
+  const isEdit = !!course;
+  const [form, setForm] = useState(course || EMPTY_FORM);
+  const [notes, setNotes] = useState([]);
+  const [loadingNotes, setLoadingNotes] = useState(false);
+  const [showNoteForm, setShowNoteForm] = useState(false);
+  const [editingNote, setEditingNote] = useState(null);
+  const [noteTitle, setNoteTitle] = useState("");
+  const [noteContent, setNoteContent] = useState("");
+
+  useEffect(() => {
+    if (!course?.id) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoadingNotes(true);
+    getCourseNotes(course.id)
+      .then(res => setNotes(res.notes || []))
+      .catch(err => console.error("Failed to load notes for form:", err))
+      .finally(() => setLoadingNotes(false));
+  }, [course?.id]);
+
+  const resetNoteForm = () => {
+    setNoteTitle("");
+    setNoteContent("");
+    setEditingNote(null);
+    setShowNoteForm(false);
+  };
+
+  const handleSaveNote = async () => {
+    if (!noteTitle.trim() || !noteContent.trim()) {
+      setToast({ msg: "Note title and content are required.", type: "error" });
+      return;
+    }
+    try {
+      if (editingNote) {
+        await updateCourseNote(editingNote._id || editingNote.id, { title: noteTitle, content: noteContent });
+        setToast({ msg: "Note updated.", type: "success" });
+      } else {
+        const savedCourse = isEdit ? course : { _id: course?.id };
+        const targetCourseId = form.id || savedCourse._id || savedCourse.id;
+        if (!targetCourseId) {
+          setToast({ msg: "Save the course first before adding notes.", type: "error" });
+          return;
+        }
+        await createCourseNote(targetCourseId, { title: noteTitle, content: noteContent });
+        setToast({ msg: "Note added.", type: "success" });
+      }
+      resetNoteForm();
+      if (course?.id) {
+        const res = await getCourseNotes(course.id);
+        setNotes(res.notes || []);
+      }
+    } catch (err) {
+      setToast({ msg: err.message || "Failed to save note.", type: "error" });
+    }
+  };
+
+  const handleEditNote = (note) => {
+    setEditingNote(note);
+    setNoteTitle(note.title || "");
+    setNoteContent(note.content || "");
+    setShowNoteForm(true);
+  };
+
+  const handleDeleteNote = async (noteId) => {
+    try {
+      await deleteCourseNote(noteId);
+      setToast({ msg: "Note deleted.", type: "success" });
+      if (course?.id) {
+        const res = await getCourseNotes(course.id);
+        setNotes(res.notes || []);
+      }
+    } catch (err) {
+      setToast({ msg: err.message || "Failed to delete note.", type: "error" });
+    }
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!form.title || !form.description) {
+      setToast({ msg: "Please fill all required fields.", type: "error" }); return;
+    }
+    if (form.contentType === "Video" && !form.contentLink && (!form.modules || form.modules.length === 0)) {
+      setToast({ msg: "Please add a YouTube URL or provide course modules.", type: "error" }); return;
+    }
+    const yId = form.contentType === "Video" && form.contentLink ? getYoutubeId(form.contentLink) : null;
+    onSave({ ...form, youtubeId: yId, notes });
+    onClose();
+  };
+
+  return (
+    <Modal title={isEdit ? "✏️ Edit Course" : "📚 Create New Course"} onClose={onClose}>
+      <form onSubmit={handleSubmit}>
+        <label style={S.label}>Course Title *</label>
+        <input style={{ ...S.input, marginBottom: 12 }} value={form.title}
+          onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. Advanced Phonics Instruction" />
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div>
+            <label style={S.label}>Category</label>
+            <select style={S.input} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
+              {CATEGORIES.filter(c => c !== "all").map(c => <option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={S.label}>Level</label>
+            <select style={S.input} value={form.level} onChange={e => setForm({ ...form, level: e.target.value })}>
+              <option>Beginner</option><option>Intermediate</option><option>Advanced</option>
+            </select>
+          </div>
+          <div>
+            <label style={S.label}>Duration</label>
+            <input style={S.input} value={form.duration}
+              onChange={e => setForm({ ...form, duration: e.target.value })} placeholder="e.g. 2 Weeks" />
           </div>
         </div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 16, minHeight: 360 }}>
-          <div style={{ borderRight: "1px solid #f1f5f9", paddingRight: 12, overflowY: "auto", maxHeight: 480 }}>
-            {topics.map((t, i) => (
-              <div key={t._id || t.id || i} onClick={() => setActiveIdx(i)}
-                style={{ padding: "9px 10px", borderRadius: 8, cursor: "pointer", marginBottom: 4, fontSize: 12, fontWeight: i === activeIdx ? 800 : 600,
-                  background: i === activeIdx ? "#fef3c7" : "transparent", color: i === activeIdx ? "#92400e" : "#374151" }}>
-                {i + 1}. {t.title}
-              </div>
-            ))}
+
+        <label style={S.label}>Description *</label>
+        <textarea style={{ ...S.input, height: 60, resize: "none", marginBottom: 12 }}
+          value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
+          placeholder="Brief outline of the training program..." />
+
+        <label style={S.label}>Learning Objectives</label>
+        <input style={{ ...S.input, marginBottom: 12 }} value={form.objectives}
+          onChange={e => setForm({ ...form, objectives: e.target.value })} placeholder="Skills gained upon completion..." />
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div>
+            <label style={S.label}>Content Format</label>
+            <select style={S.input} value={form.contentType} onChange={e => setForm({ ...form, contentType: e.target.value })}>
+              <option value="Video">🎥 Video (YouTube / Vimeo)</option>
+              <option value="PDF">📄 PDF Guide / Handbook</option>
+              <option value="Document">📝 Document / PPTX</option>
+            </select>
           </div>
-          <div style={{ overflowY: "auto", maxHeight: 480, paddingRight: 4 }}>
-            {active && (
-              <>
-                <div style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", marginBottom: 10 }}>{active.title}</div>
-                <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.8, whiteSpace: "pre-line" }}>{active.notes}</div>
-              </>
+          <div>
+            <label style={S.label}>
+              {form.contentType === "Video" ? "YouTube URL *" : "File URL / Link *"}
+            </label>
+            <input style={S.input} value={form.contentLink}
+              onChange={e => setForm({ ...form, contentLink: e.target.value })}
+              placeholder={form.contentType === "Video" ? "https://youtube.com/watch?v=..." : "https://..."} />
+          </div>
+        </div>
+
+        {form.contentType === "Video" && form.contentLink && (
+          <div style={{ marginBottom: 16 }}>
+            <YoutubeThumbnail youtubeId={getYoutubeId(form.contentLink)} title={form.title} />
+          </div>
+        )}
+
+        {/* Notes Section */}
+        <div style={{ marginBottom: 16, padding: 14, background: "#fffbeb", borderRadius: 10, border: "2px solid #fbbf24" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: showNoteForm ? 10 : 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#92400e" }}>📝 Course Notes & Materials</div>
+            {!showNoteForm && (
+              <button type="button" onClick={() => { resetNoteForm(); setShowNoteForm(true); }} style={{ ...S.tblBtn, fontSize: 11, padding: "4px 10px" }}>
+                + Add Note
+              </button>
             )}
           </div>
+
+          {loadingNotes ? (
+            <div style={{ fontSize: 12, color: "#6b7280" }}>Loading notes...</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {notes.map(note => (
+                <div key={note._id || note.id} style={{ background: "white", borderRadius: 8, border: "1px solid #fde68a", padding: "10px 12px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1917" }}>{note.title}</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button type="button" onClick={() => handleEditNote(note)} style={{ ...S.tblBtn, fontSize: 10, padding: "2px 8px" }}>✏️</button>
+                      <button type="button" onClick={() => handleDeleteNote(note._id || note.id)} style={{ ...S.tblBtn, fontSize: 10, padding: "2px 8px", color: "#dc2626", borderColor: "#fca5a5" }}>🗑️</button>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6, whiteSpace: "pre-line" }}>{note.content}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {showNoteForm && (
+            <div style={{ marginTop: 10 }}>
+              <input
+                style={{ ...S.input, marginBottom: 8 }}
+                placeholder="Note title"
+                value={noteTitle}
+                onChange={e => setNoteTitle(e.target.value)}
+              />
+              <textarea
+                style={{ ...S.input, minHeight: 80, resize: "vertical", marginBottom: 8, fontSize: 13 }}
+                placeholder="Write instructions, links, or important information..."
+                value={noteContent}
+                onChange={e => setNoteContent(e.target.value)}
+              />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" onClick={handleSaveNote} style={{ ...S.primaryBtn, fontSize: 12, padding: "8px 16px" }}>
+                  💾 {editingNote ? "Update" : "Save Note"}
+                </button>
+                <button type="button" onClick={resetNoteForm} style={{ ...S.tblBtn, fontSize: 12 }}>Cancel</button>
+              </div>
+            </div>
+          )}
         </div>
-      )}
+
+        <button type="submit" style={{ ...S.primaryBtn, width: "100%" }}>
+          {isEdit ? "Update Course →" : "Create Course →"}
+        </button>
+      </form>
     </Modal>
   );
 }
 
-/* ── Course Form Modal: pick a course from the embedded library ── */
-function CourseLibraryPickerModal({ onClose, onCreated, setToast }) {
-  const [selectedId, setSelectedId] = useState("");
-  const [creating, setCreating] = useState(false);
+/* ── AI Course Generator Modal ── */
+function AICourseGeneratorModal({ onClose, onSave, setToast }) {
+  const [form, setForm] = useState({
+    topic: "",
+    duration: "2 Weeks",
+    level: "Beginner",
+    category: "Foundations of ECE",
+    format: "Video"
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [phase, setPhase] = useState("idle");
 
-  const detail = LOCAL_LIBRARY.find((c) => c.id === selectedId) || null;
+  const phases = [
+    { key: "structure",    label: "Generating Course Structure...",  ms: 600 },
+    { key: "objectives",  label: "Creating Learning Objectives...",  ms: 800 },
+    { key: "modules",     label: "Building Modules & Lessons...",    ms: 1000 },
+    { key: "notes",       label: "Generating Notes & Assignments...", ms: 700 },
+    { key: "saving",      label: "Saving Course...",                 ms: 500 },
+  ];
 
-  const handleCreate = async () => {
-    if (!selectedId) { setToast({ msg: "Please select a course from the library.", type: "error" }); return; }
-    const lib = LOCAL_LIBRARY.find((c) => c.id === selectedId);
-    if (!lib) { setToast({ msg: "That course could not be found in the library.", type: "error" }); return; }
-    setCreating(true);
+  const runPhases = async () => {
+    for (const p of phases) {
+      setPhase(p.key);
+      await new Promise(r => setTimeout(r, p.ms));
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    if (!form.topic.trim()) {
+      setToast({ msg: "Please enter a course topic.", type: "error" });
+      return;
+    }
+    if (!form.duration) {
+      setToast({ msg: "Please select a course duration.", type: "error" });
+      return;
+    }
+
+    setLoading(true);
+    setPhase("structure");
     try {
-      const payload = buildCoursePayloadFromLibrary(lib);
-      const res = await createCourse(payload);
-      const created = res.course || res;
-      const createdId = created._id || created.id;
-
-      // IMPORTANT: writing notes onto modules[].contents[].notes above is
-      // not enough — the teacher-side "My Courses" page reads notes from
-      // the separate CourseNote collection (the same store your "Add
-      // Note" button in the Track modal writes to). Without this step,
-      // teachers see "No notes found for this course yet" even though
-      // the admin preview shows all the topics. moduleIndex/contentIndex
-      // mirror the 1-module-per-topic, 1-content-per-module structure
-      // built in buildCoursePayloadFromLibrary above.
-      let noteFailures = 0;
-      if (createdId) {
-        const noteResults = await Promise.allSettled(
-          lib.topics.map((topic, idx) =>
-            createCourseNote(createdId, {
-              title: topic.title,
-              content: topic.notes,
-              moduleIndex: idx,
-              contentIndex: 0,
-            })
-          )
-        );
-        noteFailures = noteResults.filter((r) => r.status === "rejected").length;
+      await runPhases();
+      const response = await generateCourseFromAI(form);
+      if (response.course) {
+        setPhase("idle");
+        setToast({ msg: "Course generated successfully.", type: "success" });
+        onSave(response.course);
+        onClose();
       }
-
-      if (noteFailures > 0) {
-        setToast({
-          msg: `"${created.title || lib.title}" created, but ${noteFailures} of ${lib.topics.length} topic notes failed to save. Check Track → Additional Admin Notes and add any missing ones manually.`,
-          type: "error",
-        });
-      } else {
-        setToast({ msg: `"${created.title || lib.title}" added to Course Management with all ${lib.topics.length} topic notes.`, type: "success" });
-      }
-      onCreated();
-      onClose();
-    } catch (err) {
-      setToast({ msg: err.message || "Failed to create course. Please check your connection and try again.", type: "error" });
+    } catch {
+      setPhase("idle");
+      const message = "AI course generation is currently unavailable. Please try again later.";
+      setError(message);
+      setToast({ msg: "Unable to generate the course. Please try again.", type: "error" });
     } finally {
-      setCreating(false);
+      setLoading(false);
+    }
+  };
+
+  const currentLabel = phases.find(p => p.key === phase)?.label || "";
+
+  return (
+    <Modal title="🤖 AI Course Generator" onClose={onClose}>
+      <div style={{ background: "#f0f9ff", padding: "14px 16px", borderRadius: 10, marginBottom: 16, fontSize: 12, color: "#0c4a6e", border: "1px solid #bae6fd", lineHeight: 1.6 }}>
+        <b>How it works:</b> Enter a course topic and our AI will build a complete training package — course structure, learning objectives, YouTube video lessons, notes, and assignments — ready to publish to your library.
+      </div>
+
+      <form onSubmit={handleSubmit}>
+        <label style={S.label}>Course Topic *</label>
+        <input style={{ ...S.input, marginBottom: 12 }} value={form.topic}
+          onChange={e => setForm({ ...form, topic: e.target.value })}
+          placeholder="e.g. Early childhood classroom management for anganwadi teachers" />
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div>
+            <label style={S.label}>Category</label>
+            <select style={S.input} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
+              {CATEGORIES.filter(c => c !== "all").map(c => <option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={S.label}>Level</label>
+            <select style={S.input} value={form.level} onChange={e => setForm({ ...form, level: e.target.value })}>
+              <option>Beginner</option><option>Intermediate</option><option>Advanced</option>
+            </select>
+          </div>
+          <div>
+            <label style={S.label}>Duration</label>
+            <input style={S.input} value={form.duration}
+              onChange={e => setForm({ ...form, duration: e.target.value })} placeholder="e.g. 4 Weeks" />
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={S.label}>Format</label>
+          <select style={S.input} value={form.format} onChange={e => setForm({ ...form, format: e.target.value })}>
+            <option value="Video">🎥 Video (YouTube embeds)</option>
+            <option value="PDF">📄 PDF Guide</option>
+            <option value="Document">📝 Document</option>
+          </select>
+        </div>
+
+        {loading && (
+          <div style={{ marginBottom: 16, padding: "14px 16px", background: "#fffbeb", borderRadius: 10, border: "2px solid #fbbf24" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <div style={{ width: 18, height: 18, border: "2.5px solid #fbbf24", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#92400e" }}>{currentLabel}</span>
+            </div>
+            <div style={{ height: 4, background: "#fde68a", borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ height: "100%", background: "#f59e0b", borderRadius: 2, animation: "progress 2s ease-in-out infinite" }}/>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div style={{ marginBottom: 12, padding: "10px 14px", background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca", fontSize: 12, color: "#991b1b" }}>
+            ⚠️ {error}
+          </div>
+        )}
+
+        <button type="submit" disabled={loading} style={{ ...S.primaryBtn, width: "100%", opacity: loading ? 0.7 : 1, cursor: loading ? "not-allowed" : "pointer" }}>
+          {loading ? "⏳ Please wait..." : "✨ Generate Course"}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
+/* ── Tracking Modal ── */
+function CourseTrackingModal({ course, assignments = [], onClose, setToast }) {
+  const courseAssignments = assignments.filter(a => {
+    const cid = a.course?._id || a.course?.id || a.course;
+    return cid === course.id;
+  });
+
+  const pct = course.assignedCount > 0 ? Math.round((course.completedCount / course.assignedCount) * 100) : 0;
+  const [notes, setNotes] = useState([]);
+  const [loadingNotes, setLoadingNotes] = useState(true);
+  const [showNoteForm, setShowNoteForm] = useState(false);
+  const [editingNote, setEditingNote] = useState(null);
+  const [noteTitle, setNoteTitle] = useState("");
+  const [noteContent, setNoteContent] = useState("");
+
+  const fetchNotes = async () => {
+    if (!course?.id) return;
+    setLoadingNotes(true);
+    try {
+      const res = await getCourseNotes(course.id);
+      setNotes(res.notes || []);
+    } catch (err) {
+      console.error("Failed to load notes:", err);
+    } finally {
+      setLoadingNotes(false);
+    }
+  };
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchNotes();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course?.id]);
+
+  const resetNoteForm = () => {
+    setNoteTitle("");
+    setNoteContent("");
+    setEditingNote(null);
+    setShowNoteForm(false);
+  };
+
+  const handleSaveNote = async () => {
+    if (!noteTitle.trim() || !noteContent.trim()) {
+      setToast?.({ msg: "Please enter both note title and content.", type: "error" });
+      return;
+    }
+    try {
+      if (editingNote) {
+        await updateCourseNote(editingNote._id || editingNote.id, { title: noteTitle, content: noteContent });
+        setToast?.({ msg: "Note updated.", type: "success" });
+      } else {
+        await createCourseNote(course.id, { title: noteTitle, content: noteContent });
+        setToast?.({ msg: "Note added. Teachers can view it now.", type: "success" });
+      }
+      resetNoteForm();
+      fetchNotes();
+    } catch (err) {
+      setToast?.({ msg: err.message || "Failed to save note.", type: "error" });
+    }
+  };
+
+  const handleEditNote = (note) => {
+    setEditingNote(note);
+    setNoteTitle(note.title || "");
+    setNoteContent(note.content || "");
+    setShowNoteForm(true);
+  };
+
+  const handleDeleteNote = async (noteId) => {
+    if (!window.confirm("Delete this note? Teachers will no longer see it.")) return;
+    try {
+      await deleteCourseNote(noteId);
+      setToast?.({ msg: "Note deleted.", type: "success" });
+      fetchNotes();
+    } catch (err) {
+      setToast?.({ msg: err.message || "Failed to delete note.", type: "error" });
     }
   };
 
   return (
-    <Modal title="📚 Create Course from Library" onClose={onClose}>
-      <div style={{ background: "#f0f9ff", padding: "10px 14px", borderRadius: 10, marginBottom: 14, fontSize: 12, color: "#0c4a6e", border: "1px solid #bae6fd" }}>
-        📢 Courses are sourced from the SpacECE Pre-Primary Course Library — 10 ready-made courses with comprehensive, topic-wise notes for teachers to read and complete.
+    <Modal title={`📊 Tracker: ${course.title}`} onClose={onClose}>
+      <div style={{ background: "#f9fafb", borderRadius: 12, padding: "14px 16px", marginBottom: 16, border: "1px solid #f1f5f9" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>Completion Rate</span>
+          <span style={{ fontSize: 14, fontWeight: 800, color: pct >= 75 ? "#10b981" : pct >= 50 ? "#f59e0b" : "#ef4444" }}>{pct}%</span>
+        </div>
+        <div style={{ height: 8, background: "#e5e7eb", borderRadius: 6, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${pct}%`, background: pct >= 75 ? "#10b981" : pct >= 50 ? "#f59e0b" : "#ef4444", borderRadius: 6 }} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 11, color: "#9ca3af" }}>
+          <span>✅ {course.completedCount} completed</span>
+          <span>👥 {course.assignedCount} assigned</span>
+        </div>
       </div>
 
-      <label style={S.label}>Select a Course *</label>
-      <select style={{ ...S.input, marginBottom: 14 }} value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
-        <option value="">Choose a course from the library...</option>
-        {LOCAL_LIBRARY.map((c) => (
-          <option key={c.id} value={c.id}>{c.title} — {c.category} ({c.level})</option>
-        ))}
-      </select>
+      <div style={{ marginBottom: 14, fontSize: 12, color: "#0369a1", background: "#f0f9ff",
+        padding: "10px 14px", borderRadius: 8, border: "1px solid #bae6fd" }}>
+        📎 <b>Resource:</b>{" "}
+        <a href={course.contentLink} target="_blank" rel="noreferrer" style={{ color: "#2563eb" }}>
+          {course.contentLink}
+        </a>
+      </div>
 
-      {detail && (
-        <div style={{ background: "#f9fafb", borderRadius: 12, padding: 14, border: "1px solid #f1f5f9", marginBottom: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1917", marginBottom: 4 }}>{detail.title}</div>
-          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>{detail.description}</div>
-          <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 8 }}>🎯 {detail.objectives}</div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#92400e", marginBottom: 6 }}>{detail.topics.length} Topics (comprehensive reading notes):</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 160, overflowY: "auto" }}>
-            {detail.topics.map((t, i) => (
-              <div key={i} style={{ fontSize: 12, color: "#374151", padding: "4px 8px", background: "white", borderRadius: 6, border: "1px solid #f1f5f9" }}>
-                {i + 1}. {t.title}
+      <div style={{ marginBottom: 14, padding: 14, background: "#fffbeb", borderRadius: 10, border: "2px solid #fbbf24" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: showNoteForm ? 10 : 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#92400e" }}>📝 Notes & Materials for Teachers</div>
+          {!showNoteForm && (
+            <button onClick={() => { resetNoteForm(); setShowNoteForm(true); }} style={{ ...S.tblBtn, fontSize: 11, padding: "4px 10px" }}>
+              + Add Note
+            </button>
+          )}
+        </div>
+
+        {loadingNotes ? (
+          <div style={{ fontSize: 12, color: "#6b7280" }}>Loading notes...</div>
+        ) : notes.length === 0 && !showNoteForm ? (
+          <div style={{ fontSize: 12, color: "#9ca3af", fontStyle: "italic" }}>No notes or learning materials added yet.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {notes.map(note => (
+              <div key={note._id || note.id} style={{ background: "white", borderRadius: 8, border: "1px solid #fde68a", padding: "10px 12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1917" }}>{note.title}</div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => handleEditNote(note)} style={{ ...S.tblBtn, fontSize: 10, padding: "2px 8px" }}>✏️</button>
+                    <button onClick={() => handleDeleteNote(note._id || note.id)} style={{ ...S.tblBtn, fontSize: 10, padding: "2px 8px", color: "#dc2626", borderColor: "#fca5a5" }}>🗑️</button>
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6, whiteSpace: "pre-line" }}>{note.content}</div>
+                <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 4 }}>By {note.createdBy?.name || "Admin"} · {new Date(note.createdAt).toLocaleDateString("en-IN")}</div>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
 
-      <button onClick={handleCreate} disabled={creating || !selectedId} style={{ ...S.primaryBtn, width: "100%", opacity: creating ? 0.7 : 1 }}>
-        {creating ? "Creating..." : "✅ Create Course →"}
-      </button>
+        {showNoteForm && (
+          <div style={{ marginTop: 10 }}>
+            <input
+              style={{ ...S.input, marginBottom: 8 }}
+              placeholder="Note title"
+              value={noteTitle}
+              onChange={e => setNoteTitle(e.target.value)}
+            />
+            <textarea
+              style={{ ...S.input, minHeight: 80, resize: "vertical", marginBottom: 8, fontSize: 13 }}
+              placeholder="Write instructions, links, or important information for teachers..."
+              value={noteContent}
+              onChange={e => setNoteContent(e.target.value)}
+            />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={handleSaveNote} style={{ ...S.primaryBtn, fontSize: 12, padding: "8px 16px" }}>
+                💾 {editingNote ? "Update" : "Save Note"}
+              </button>
+              <button onClick={resetNoteForm} style={{ ...S.tblBtn, fontSize: 12 }}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 8 }}>👩‍🏫 Teacher Status</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 250, overflowY: "auto" }}>
+        {courseAssignments.length > 0 ? courseAssignments.map(a => {
+          const tname = a.teacher?.name || "Unknown Teacher";
+          const statusText = a.status === "completed" || a.progressPercent === 100 ? "Completed" : "In Progress";
+          const progress = a.progressPercent || 0;
+          return (
+            <div key={a._id || a.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "10px 14px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f1f5f9" }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1917" }}>{tname}</div>
+                <div style={{ fontSize: 11, fontWeight: 600,
+                  color: statusText === "Completed" ? "#16a34a" : "#d97706" }}>
+                  ● {statusText} ({progress}%)
+                </div>
+              </div>
+              {statusText !== "Completed" && (
+                <button onClick={() => setToast?.({ msg: `Reminder sent to ${tname}!`, type: "success" })}
+                  style={{ ...S.tblBtn, fontSize: 11, color: "#dc2626", borderColor: "#fca5a5" }}>
+                  🔔 Remind
+                </button>
+              )}
+            </div>
+          );
+        }) : (
+          <div style={{ textAlign: "center", padding: 16, color: "#9ca3af", fontSize: 12 }}>
+            No teachers assigned to this course yet.
+          </div>
+        )}
+      </div>
     </Modal>
   );
 }
 
-/* ── Assign Course Modal (unchanged behaviour, no video references) ── */
+/* ── Assign Course Modal ── */
 function AssignCourseModal({ course, teachers = [], onClose, onAssigned, setToast }) {
   const [teacherId, setTeacherId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [assigning, setAssigning] = useState(false);
+
   const handleAssign = async (e) => {
     e.preventDefault();
     if (!teacherId) { setToast({ msg: "Please select a teacher.", type: "error" }); return; }
     setAssigning(true);
     try {
       await assignCourse(course.id, { teacherId, dueDate: dueDate || undefined });
-      setToast({ msg: `"${course.title}" assigned! Teacher can now read the course notes on their dashboard.`, type: "success" });
+      setToast({ msg: `"${course.title}" assigned to teacher! It will appear on their dashboard.`, type: "success" });
       onAssigned();
       onClose();
     } catch (err) {
@@ -458,17 +826,19 @@ function AssignCourseModal({ course, teachers = [], onClose, onAssigned, setToas
       setAssigning(false);
     }
   };
-  const approvedTeachers = teachers.filter((t) => t.status === "approved");
+
+  const approvedTeachers = teachers.filter(t => t.status === "approved");
+
   return (
     <Modal title={`📋 Assign Course — ${course.title}`} onClose={onClose}>
       <div style={{ background: "#f0f9ff", padding: "10px 14px", borderRadius: 10, marginBottom: 14, fontSize: 12, color: "#0c4a6e", border: "1px solid #bae6fd" }}>
-        📢 The teacher will see this course's notes on their dashboard, mark topics as read, and take a short assessment once all topics are complete.
+        📢 Assigning this course will create a training task on the selected teacher's dashboard with a notification.
       </div>
       <form onSubmit={handleAssign}>
         <label style={S.label}>Select Teacher *</label>
-        <select style={{ ...S.input, marginBottom: 12 }} value={teacherId} onChange={(e) => setTeacherId(e.target.value)} required>
+        <select style={{ ...S.input, marginBottom: 12 }} value={teacherId} onChange={e => setTeacherId(e.target.value)} required>
           <option value="">Choose an approved teacher...</option>
-          {approvedTeachers.map((t) => (
+          {approvedTeachers.map(t => (
             <option key={t._id || t.id} value={t._id || t.id}>{t.name} — {t.email}</option>
           ))}
         </select>
@@ -476,7 +846,7 @@ function AssignCourseModal({ course, teachers = [], onClose, onAssigned, setToas
           <div style={{ fontSize: 12, color: "#d97706", marginBottom: 12 }}>⚠️ No approved teachers found. Approve teachers first in Teacher Management.</div>
         )}
         <label style={S.label}>Due Date (optional)</label>
-        <input type="date" style={{ ...S.input, marginBottom: 20 }} value={dueDate} onChange={(e) => setDueDate(e.target.value)} min={new Date().toISOString().split("T")[0]} />
+        <input type="date" style={{ ...S.input, marginBottom: 20 }} value={dueDate} onChange={e => setDueDate(e.target.value)} min={new Date().toISOString().split("T")[0]} />
         <button type="submit" disabled={assigning || !teacherId} style={{ ...S.primaryBtn, width: "100%", opacity: assigning ? 0.7 : 1 }}>
           {assigning ? "Assigning..." : "📋 Assign to Teacher →"}
         </button>
@@ -485,143 +855,170 @@ function AssignCourseModal({ course, teachers = [], onClose, onAssigned, setToas
   );
 }
 
-/* ── Tracking Modal: reading completion + assessment scores per teacher ── */
-function CourseTrackingModal({ course, assignments = [], assessmentResults = [], onClose, setToast }) {
-  const courseAssignments = assignments.filter((a) => {
-    const cid = a.course?._id || a.course?.id || a.course;
-    return cid === course.id;
-  });
-  const courseResults = assessmentResults.filter((r) => (r.courseTitle || r.course?.title) === course.title);
-  const avgScore = courseResults.length
-    ? Math.round(courseResults.reduce((s, r) => s + (r.percentage || 0), 0) / courseResults.length)
-    : null;
-
-  const [notes, setNotes] = useState([]);
-  useEffect(() => {
-    if (!course?.id) return;
-    getCourseNotes(course.id).then((res) => setNotes(res.notes || [])).catch(() => {});
-  }, [course?.id]);
-
-  return (
-    <Modal title={`📊 Tracker: ${course.title}`} onClose={onClose}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-        <div style={{ background: "#f9fafb", borderRadius: 12, padding: "14px 16px", border: "1px solid #f1f5f9" }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", marginBottom: 6 }}>📖 Reading Completion</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: "#f59e0b" }}>
-            {course.assignedCount > 0 ? Math.round((course.completedCount / course.assignedCount) * 100) : 0}%
-          </div>
-          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>{course.completedCount}/{course.assignedCount} teachers finished all topics</div>
-        </div>
-        <div style={{ background: "#f9fafb", borderRadius: 12, padding: "14px 16px", border: "1px solid #f1f5f9" }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", marginBottom: 6 }}>📝 Avg. Assessment Score</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: avgScore === null ? "#9ca3af" : avgScore >= 75 ? "#10b981" : avgScore >= 50 ? "#f59e0b" : "#ef4444" }}>
-            {avgScore === null ? "—" : `${avgScore}%`}
-          </div>
-          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>{courseResults.length} attempt(s) recorded</div>
-        </div>
-      </div>
-
-      <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 8 }}>👩‍🏫 Teacher Status</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 260, overflowY: "auto", marginBottom: 16 }}>
-        {courseAssignments.length > 0 ? courseAssignments.map((a) => {
-          const tname = a.teacher?.name || "Unknown Teacher";
-          const progress = a.progressPercent || 0;
-          const statusText = progress === 100 ? "Notes Completed" : "Reading in Progress";
-          const teacherResult = courseResults.find((r) => (r.teacher?._id || r.teacher) === (a.teacher?._id || a.teacher));
-          return (
-            <div key={a._id || a.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
-              padding: "10px 14px", background: "#f9fafb", borderRadius: 10, border: "1px solid #f1f5f9" }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1917" }}>{tname}</div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: progress === 100 ? "#16a34a" : "#d97706" }}>
-                  ● {statusText} ({progress}%)
-                </div>
-              </div>
-              {teacherResult ? (
-                <span style={{ fontSize: 12, fontWeight: 800, color: teacherResult.percentage >= 75 ? "#10b981" : teacherResult.percentage >= 50 ? "#f59e0b" : "#ef4444" }}>
-                  📝 {teacherResult.percentage}% ({teacherResult.grade})
-                </span>
-              ) : (
-                <span style={{ fontSize: 11, color: "#9ca3af" }}>No assessment yet</span>
-              )}
-            </div>
-          );
-        }) : (
-          <div style={{ textAlign: "center", padding: 16, color: "#9ca3af", fontSize: 12 }}>No teachers assigned to this course yet.</div>
-        )}
-      </div>
-
-      {notes.length > 0 && (
-        <div style={{ padding: 14, background: "#fffbeb", borderRadius: 10, border: "2px solid #fbbf24" }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: "#92400e", marginBottom: 6 }}>📎 Additional Admin Notes ({notes.length})</div>
-          {notes.map((n) => (
-            <div key={n._id || n.id} style={{ fontSize: 12, color: "#374151", marginBottom: 4 }}>• {n.title}</div>
-          ))}
-        </div>
-      )}
-    </Modal>
-  );
-}
-
 export default function CurriculumTrainingTab({ setToast }) {
   const [courses, setCourses] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [teachers, setTeachers] = useState([]);
-  const [assessmentResults, setAssessmentResults] = useState([]);
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("all");
   const [levelFilter, setLevelFilter] = useState("all");
-  const [libraryModal, setLibraryModal] = useState(false);
-  const [previewModal, setPreviewModal] = useState(false);
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [formModal, setFormModal] = useState(false);
+  const [aiModal, setAiModal] = useState(false);
   const [trackingModal, setTrackingModal] = useState(false);
   const [assignModal, setAssignModal] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshingId, setRefreshingId] = useState(null);
+  const [deleteModal, setDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [toast, setLocalToast] = useState({ msg: "", type: "" });
 
-  /* Each call is caught individually so one failing endpoint (e.g. the
-     assessment-results route not being live yet) never blocks the rest
-     of the page — courses/assignments/teachers still load normally. */
+  const showToast = setToast || setLocalToast;
+
   const loadCourses = () => {
     setLoading(true);
-    Promise.all([
-      getCourses().catch((err) => { console.error("getCourses failed:", err); return { courses: [] }; }),
-      getCourseAssignments().catch((err) => { console.error("getCourseAssignments failed:", err); return { assignments: [] }; }),
-      getAdminTeachers().catch((err) => { console.error("getAdminTeachers failed:", err); return { teachers: [] }; }),
-      getAdminAssessmentResults().catch((err) => { console.error("getAdminAssessmentResults failed:", err); return { results: [] }; }),
-    ])
-      .then(([coursesRes, assignmentsRes, teachersRes, assessmentsRes]) => {
-        const loadedAssignments = assignmentsRes.assignments || [];
-        setAssignments(loadedAssignments);
+    Promise.all([getCourses(), getCourseAssignments(), getAdminTeachers()])
+      .then(([coursesRes, assignmentsRes, teachersRes]) => {
+        // Build statistics dynamically for each course
+        const assns = assignmentsRes.assignments || [];
+        setAssignments(assns);
         setTeachers(teachersRes.teachers || []);
-        setAssessmentResults(mergeAssessmentResults(loadedAssignments, assessmentsRes.results || []));
-        const mapped = [...new Map((coursesRes.courses || []).map((c) => [String(c._id || c.id), c]))]
+
+        const mapped = [...new Map((coursesRes.courses || []).map(c => [String(c._id || c.id), c]))]
           .map(([, c]) => mapCourseFromApi(c));
+
         setCourses(mapped);
+        setLoading(false);
       })
-      .finally(() => setLoading(false));
+      .catch(err => {
+        console.error("Error loading curriculum:", err);
+        setLoading(false);
+        showToast({ msg: "Failed to load courses from database.", type: "error" });
+      });
   };
 
-  useEffect(() => { loadCourses(); }, []); // eslint-disable-line
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadCourses();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const filtered = courses.filter((c) => {
+  const filtered = courses.filter(c => {
     const q = search.toLowerCase();
     const ms = c.title.toLowerCase().includes(q) || c.description.toLowerCase().includes(q);
     const mc = catFilter === "all" || c.category === catFilter;
     const ml = levelFilter === "all" || c.level === levelFilter;
-    return ms && mc && ml;
+    const mt = typeFilter === "all" || c.contentType === typeFilter;
+    return ms && mc && ml && mt;
   });
 
-  const handleDelete = (course) => {
-    if (!window.confirm(`Delete "${course.title}"? This cannot be undone.`)) return;
-    deleteCourse(course.id)
-      .then(() => { setToast({ msg: "Course deleted.", type: "success" }); loadCourses(); })
-      .catch((err) => setToast({ msg: err.message, type: "error" }));
+  const handleSave = async (saved) => {
+    const { notes, ...courseData } = saved;
+    const payload = mapCourseToApi(courseData);
+    let course;
+    if (selectedCourse) {
+      course = await updateCourse(selectedCourse.id, payload);
+      showToast({ msg: "Course updated in database!", type: "success" });
+    } else if (saved?._id || saved?.course?._id) {
+      showToast({ msg: "AI course generated successfully.", type: "success" });
+      loadCourses();
+      setFormModal(false);
+      setSelectedCourse(null);
+      return saved;
+    } else {
+      course = await createCourse(payload);
+      showToast({ msg: "Course created in database!", type: "success" });
+    }
+    const courseId = selectedCourse?.id || course?.course?._id;
+    if (notes?.length && courseId) {
+      try {
+        await Promise.all(notes.map(n => createCourseNote(courseId, n)));
+      } catch (err) {
+        console.error("Failed to save some notes:", err);
+        showToast({ msg: "Course saved, but some notes failed to save.", type: "error" });
+      }
+    }
+    setFormModal(false);
+    setSelectedCourse(null);
+    loadCourses();
+    return course;
+  };
+
+  /* Open the confirm-delete modal instead of deleting immediately */
+  const handleDeleteClick = (course) => {
+    setSelectedCourse(course);
+    setDeleteModal(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!selectedCourse) return;
+    setDeleting(true);
+    deleteCourse(selectedCourse.id)
+      .then(() => {
+        showToast({ msg: "Course deleted successfully.", type: "success" });
+        setDeleteModal(false);
+        setSelectedCourse(null);
+        loadCourses();
+      })
+      .catch(err => {
+        console.error("Error deleting course:", err);
+        showToast({ msg: "Failed to delete course: " + err.message, type: "error" });
+      })
+      .finally(() => setDeleting(false));
+  };
+
+  /* Re-fetch a topic-relevant video for an existing course via the AI generator,
+     keeping all other course fields (title/description/objectives/etc.) untouched.
+     The returned video is verified against YouTube's oEmbed endpoint before saving,
+     so we never overwrite a working video with a broken/hallucinated one. */
+  const handleRefreshVideo = (course) => {
+    setRefreshingId(course.id);
+    generateCourseFromAI({
+      topic: course.title,
+      duration: course.duration,
+      level: course.level,
+      category: course.category,
+    })
+      .then(async (response) => {
+        const aiCourse = response.course || {};
+        const newLink = aiCourse.contentLink || "";
+        const newYoutubeId = aiCourse.youtubeId || getYoutubeId(newLink);
+
+        if (!newLink && !newYoutubeId) {
+          showToast({ msg: "AI couldn't find a matching video for this topic.", type: "error" });
+          return;
+        }
+
+        const isValid = await verifyYoutubeVideo(newYoutubeId);
+        if (!isValid) {
+          showToast({ msg: "AI suggested a video that no longer exists. Try again.", type: "error" });
+          return;
+        }
+
+        const payload = mapCourseToApi({
+          ...course,
+          contentType: "Video",
+          contentLink: newLink || course.contentLink,
+          youtubeId: newYoutubeId || course.youtubeId,
+        });
+
+        return updateCourse(course.id, payload).then(() => {
+          showToast({ msg: `Video refreshed for "${course.title}"!`, type: "success" });
+          loadCourses();
+        });
+      })
+      .catch(err => {
+        console.error("Error refreshing video:", err);
+        showToast({ msg: "Failed to refresh video: " + err.message, type: "error" });
+      })
+      .finally(() => setRefreshingId(null));
   };
 
   if (loading) {
     return (
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "40vh", fontSize: 14, fontWeight: 600, color: "#d97706" }}>
-        🔄 Loading Courses...
+        🔄 Loading Courses Curriculum...
       </div>
     );
   }
@@ -629,119 +1026,176 @@ export default function CurriculumTrainingTab({ setToast }) {
   const totalAssigned = courses.reduce((a, c) => a + c.assignedCount, 0);
   const totalCompleted = courses.reduce((a, c) => a + c.completedCount, 0);
   const overallPct = totalAssigned > 0 ? Math.round((totalCompleted / totalAssigned) * 100) : 0;
-  const overallAvgScore = assessmentResults.length
-    ? Math.round(assessmentResults.reduce((s, r) => s + (r.percentage || 0), 0) / assessmentResults.length)
-    : 0;
-  const staleCourseCount = courses.filter((c) => getTopicCount(c) === 0).length;
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
-      {libraryModal && (
-        <CourseLibraryPickerModal onClose={() => setLibraryModal(false)} onCreated={loadCourses} setToast={setToast} />
+      {!setToast && <Toast msg={toast.msg} type={toast.type} onClose={() => setLocalToast({ msg: "", type: "" })} />}
+
+      {aiModal && (
+        <AICourseGeneratorModal onClose={() => { setAiModal(false); }} onSave={handleSave}
+          setToast={showToast} />
       )}
-      {previewModal && selectedCourse && (
-        <NotesPreviewModal course={selectedCourse} onClose={() => { setPreviewModal(false); setSelectedCourse(null); }} />
+      {formModal && (
+        <CourseFormModal course={selectedCourse} onSave={handleSave}
+          onClose={() => { setFormModal(false); setSelectedCourse(null); }} setToast={showToast} />
       )}
       {trackingModal && selectedCourse && (
-        <CourseTrackingModal course={selectedCourse} assignments={assignments} assessmentResults={assessmentResults}
-          onClose={() => { setTrackingModal(false); setSelectedCourse(null); }} setToast={setToast} />
+        <CourseTrackingModal course={selectedCourse} assignments={assignments}
+          onClose={() => { setTrackingModal(false); setSelectedCourse(null); }} setToast={showToast} />
       )}
       {assignModal && selectedCourse && (
-        <AssignCourseModal course={selectedCourse} teachers={teachers}
-          onClose={() => { setAssignModal(false); setSelectedCourse(null); }} onAssigned={loadCourses} setToast={setToast} />
+        <AssignCourseModal
+          course={selectedCourse}
+          teachers={teachers}
+          onClose={() => { setAssignModal(false); setSelectedCourse(null); }}
+          onAssigned={loadCourses}
+          setToast={showToast}
+        />
       )}
 
+      {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div>
           <h1 style={S.pageTitle}>Training & Curriculum</h1>
-          <p style={S.pageSub}>{courses.length} courses · {overallPct}% notes completion · {overallAvgScore}% avg assessment score</p>
+          <p style={S.pageSub}>{courses.length} courses · {overallPct}% overall completion</p>
         </div>
-        <button onClick={() => setLibraryModal(true)} style={S.primaryBtn}>+ Create Course from Library</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => { setAiModal(true); }} style={{ ...S.primaryBtn, backgroundColor: "#6366f1", color: "white" }}>🤖 AI Generate</button>
+          <button onClick={() => { setSelectedCourse(null); setFormModal(true); }} style={S.primaryBtn}>+ Create Course</button>
+        </div>
       </div>
 
-      {staleCourseCount > 0 && (
-        <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: "#991b1b" }}>
-          ⚠️ {staleCourseCount} course{staleCourseCount > 1 ? "s have" : " has"} no topics/notes attached (created before the notes-based model, or an incomplete upload). Look for the "No topics" badge below, then delete and recreate via "+ Create Course from Library".
-        </div>
-      )}
-
+      {/* KPI Cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 14, marginBottom: 20 }}>
         <StatCard icon="📚" label="Total Courses" val={courses.length} color="#f59e0b" bg="#fef3c7" />
-        <StatCard icon="📖" label="Notes Completion" val={`${overallPct}%`} color="#10b981" bg="#d1fae5" />
-        <StatCard icon="📝" label="Avg Assessment Score" val={`${overallAvgScore}%`} color="#8b5cf6" bg="#ede9fe" />
-        <StatCard icon="👥" label="Total Assignments" val={totalAssigned} color="#3b82f6" bg="#dbeafe" />
-        <StatCard icon="✅" label="Assessments Taken" val={assessmentResults.length} color="#06b6d4" bg="#cffafe" />
+        <StatCard icon="🎥" label="Video" val={courses.filter(c => c.contentType === "Video").length} color="#3b82f6" bg="#dbeafe" />
+        <StatCard icon="📄" label="PDF Guides" val={courses.filter(c => c.contentType === "PDF").length} color="#10b981" bg="#d1fae5" />
+        <StatCard icon="📝" label="Documents" val={courses.filter(c => c.contentType === "Document").length} color="#8b5cf6" bg="#ede9fe" />
+        <StatCard icon="✅" label="Completion" val={`${overallPct}%`} color="#06b6d4" bg="#cffafe" />
       </div>
 
-      <div style={{ background: "white", borderRadius: 14, padding: "14px 18px", border: "1px solid #f1f5f9", marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+      {/* Filters */}
+      <div style={{ background: "white", borderRadius: 14, padding: "14px 18px",
+        border: "1px solid #f1f5f9", marginBottom: 16,
+        display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ flex: 1, minWidth: 200 }}>
           <SearchBar value={search} onChange={setSearch} placeholder="Search courses..." />
         </div>
-        <select style={{ ...S.input, width: 200, marginBottom: 0 }} value={catFilter} onChange={(e) => setCatFilter(e.target.value)}>
-          {CATEGORIES.map((c) => <option key={c} value={c}>{c === "all" ? "All Categories" : c}</option>)}
+        <select style={{ ...S.input, width: 200, marginBottom: 0 }} value={catFilter} onChange={e => setCatFilter(e.target.value)}>
+          {CATEGORIES.map(c => <option key={c} value={c}>{c === "all" ? "All Categories" : c}</option>)}
         </select>
-        <select style={{ ...S.input, width: 150, marginBottom: 0 }} value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)}>
+        <select style={{ ...S.input, width: 150, marginBottom: 0 }} value={levelFilter} onChange={e => setLevelFilter(e.target.value)}>
           <option value="all">All Levels</option>
           <option>Beginner</option><option>Intermediate</option><option>Advanced</option>
         </select>
-        {(catFilter !== "all" || levelFilter !== "all" || search) && (
-          <button onClick={() => { setCatFilter("all"); setLevelFilter("all"); setSearch(""); }} style={{ ...S.tblBtn, color: "#ef4444", borderColor: "#fca5a5" }}>✕ Clear</button>
+        <select style={{ ...S.input, width: 150, marginBottom: 0 }} value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
+          <option value="all">All Formats</option>
+          <option value="Video">🎥 Video</option>
+          <option value="PDF">📄 PDF</option>
+          <option value="Document">📝 Document</option>
+        </select>
+        {(catFilter !== "all" || levelFilter !== "all" || typeFilter !== "all" || search) && (
+          <button onClick={() => { setCatFilter("all"); setLevelFilter("all"); setTypeFilter("all"); setSearch(""); }}
+            style={{ ...S.tblBtn, color: "#ef4444", borderColor: "#fca5a5" }}>✕ Clear</button>
         )}
       </div>
 
-      <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 12 }}>Showing {filtered.length} of {courses.length} courses</div>
+      <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 12 }}>
+        Showing {filtered.length} of {courses.length} courses
+      </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))", gap: 20 }}>
-        {filtered.map((c) => {
+      {/* Course Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 20 }}>
+        {filtered.map(c => {
           const lc = LEVEL_COLORS[c.level] || LEVEL_COLORS.Beginner;
           const pct = c.assignedCount > 0 ? Math.round((c.completedCount / c.assignedCount) * 100) : 0;
           const catColor = CAT_COLORS[c.category] || "#f59e0b";
-          const topicCount = getTopicCount(c);
-          const isStale = topicCount === 0;
-          const courseResults = assessmentResults.filter((r) => (r.courseTitle || r.course?.title) === c.title);
-          const avgScore = courseResults.length ? Math.round(courseResults.reduce((s, r) => s + (r.percentage || 0), 0) / courseResults.length) : null;
+          const isRefreshing = refreshingId === c.id;
+
           return (
-            <div key={c.id} style={{ background: "white", borderRadius: 14, border: isStale ? "1px solid #fca5a5" : "1px solid #f1f5f9", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-              <div style={{ padding: "16px 18px 0" }}>
+            <div key={c.id} style={{ background: "white", borderRadius: 14,
+              border: "1px solid #f1f5f9", boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
+              overflow: "hidden", display: "flex", flexDirection: "column",
+              transition: "box-shadow 0.2s" }}>
+
+              <div style={{ position: "relative" }}>
+                <YoutubeThumbnail youtubeId={c.youtubeId} title={c.title} fallbackQuery={`${c.title} ECE training`} />
+                {c.contentType === "Video" && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleRefreshVideo(c); }}
+                    disabled={isRefreshing}
+                    title="Re-fetch a topic-matched video for this course"
+                    style={{
+                      position: "absolute", top: 8, right: 8, zIndex: 2,
+                      background: "rgba(0,0,0,0.75)", color: "white", border: "none",
+                      borderRadius: 8, padding: "4px 8px", fontSize: 11, fontWeight: 700,
+                      cursor: isRefreshing ? "default" : "pointer", opacity: isRefreshing ? 0.6 : 1,
+                      display: "flex", alignItems: "center", gap: 4
+                    }}
+                  >
+                    {isRefreshing ? "⏳ Refreshing..." : "🔄 Refresh Video"}
+                  </button>
+                )}
+              </div>
+
+              <div style={{ padding: "14px 16px", flex: 1, display: "flex", flexDirection: "column" }}>
                 <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
-                  <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: `${catColor}20`, color: catColor }}>{c.category}</span>
-                  <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: lc.bg, color: lc.color }}>{c.level}</span>
-                  {isStale ? (
-                    <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: "#fee2e2", color: "#dc2626" }}>⚠️ No topics</span>
-                  ) : (
-                    <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: "#f3f4f6", color: "#6b7280" }}>📖 {topicCount} topics</span>
-                  )}
+                  <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700,
+                    background: `${catColor}20`, color: catColor }}>{c.category}</span>
+                  <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700,
+                    background: lc.bg, color: lc.color }}>{c.level}</span>
+                  <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700,
+                    background: "#f3f4f6", color: "#6b7280" }}>{TYPE_ICONS[c.contentType]} {c.contentType}</span>
                 </div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", marginBottom: 6, lineHeight: 1.4 }}>{c.title}</div>
+
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", marginBottom: 6, lineHeight: 1.4 }}>
+                  {c.title}
+                </div>
+
                 <div style={{ display: "flex", gap: 12, fontSize: 11, color: "#9ca3af", marginBottom: 8 }}>
-                  <span>⏱️ {c.duration}</span>
+                  <span>⏱️ {c.duration || "—"}</span>
                   <span>👥 {c.assignedCount} assigned</span>
+                  <span style={{ color: pct >= 75 ? "#10b981" : "#f59e0b", fontWeight: 700 }}>✅ {pct}% done</span>
                 </div>
-                <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 10px", lineHeight: 1.5 }}>
-                  {c.description.length > 110 ? c.description.substring(0, 110) + "..." : c.description}
+
+                <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 10px", lineHeight: 1.5, flex: 1 }}>
+                  {c.description && c.description.length > 100 ? c.description.substring(0, 100) + "..." : c.description}
                 </p>
+
+                <div style={{ fontSize: 11, background: "#f8fafc", padding: "8px 10px",
+                  borderRadius: 8, color: "#475569", marginBottom: 12, border: "1px solid #e2e8f0" }}>
+                  🎯 {c.objectives}
+                </div>
+
+                <div style={{ display: "flex", gap: 6 }}>
+                  {c.contentType === "Video" ? (
+                    <a href={c.contentLink} target="_blank" rel="noreferrer"
+                      style={{ ...S.tblBtn, flex: 1.2, textAlign: "center", textDecoration: "none",
+                        color: "#dc2626", borderColor: "#fca5a5", fontWeight: 700 }}>
+                      ▶ Watch
+                    </a>
+                  ) : (
+                    <a href={c.contentLink} target="_blank" rel="noreferrer"
+                      style={{ ...S.tblBtn, flex: 1.2, textAlign: "center", textDecoration: "none",
+                        color: "#2563eb", borderColor: "#bfdbfe", fontWeight: 700 }}>
+                      👁 View
+                    </a>
+                  )}
+                  <button onClick={() => { setSelectedCourse(c); setAssignModal(true); }}
+                    style={{ ...S.tblBtn, flex: 1, color: "#059669", borderColor: "#6ee7b7" }}>
+                    📋 Assign
+                  </button>
+                  <button onClick={() => { setSelectedCourse(c); setTrackingModal(true); }}
+                    style={{ ...S.tblBtn, flex: 1, color: "#2563eb", borderColor: "#bfdbfe" }}>
+                    📊 Track
+                  </button>
+                  <button onClick={() => { setSelectedCourse(c); setFormModal(true); }} style={S.tblBtn}>✏️</button>
+                  <button onClick={() => handleDeleteClick(c)}
+                    style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>🗑️</button>
+                </div>
               </div>
 
-              {/* Reading completion + assessment score */}
-              <div style={{ padding: "0 18px 12px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, fontWeight: 700, color: "#64748b", marginBottom: 3 }}>
-                  <span>NOTES READ</span><span>{pct}%</span>
-                </div>
-                <div style={{ height: 6, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", marginBottom: 8 }}>
-                  <div style={{ height: "100%", width: `${pct}%`, background: pct >= 75 ? "#10b981" : pct >= 40 ? "#f59e0b" : "#ef4444", borderRadius: 4 }} />
-                </div>
-                <div style={{ fontSize: 11, color: "#6b7280" }}>
-                  📝 Avg assessment: <b style={{ color: avgScore === null ? "#9ca3af" : avgScore >= 75 ? "#10b981" : "#f59e0b" }}>{avgScore === null ? "—" : `${avgScore}%`}</b>
-                  {" · "}{courseResults.length} attempt(s)
-                </div>
-              </div>
-
-              <div style={{ padding: "0 18px 16px", display: "flex", gap: 6, flexWrap: "wrap" }}>
-                <button onClick={() => { setSelectedCourse(c); setPreviewModal(true); }} style={{ ...S.tblBtn, flex: 1, color: "#7c3aed", borderColor: "#c4b5fd" }}>📖 Preview Notes</button>
-                <button onClick={() => { setSelectedCourse(c); setAssignModal(true); }} disabled={isStale} style={{ ...S.tblBtn, flex: 1, color: isStale ? "#9ca3af" : "#059669", borderColor: isStale ? "#e5e7eb" : "#6ee7b7", cursor: isStale ? "not-allowed" : "pointer" }}>📋 Assign</button>
-                <button onClick={() => { setSelectedCourse(c); setTrackingModal(true); }} style={{ ...S.tblBtn, flex: 1, color: "#2563eb", borderColor: "#bfdbfe" }}>📊 Track</button>
-                <button onClick={() => handleDelete(c)} style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>🗑️</button>
-              </div>
+              <CourseDataRow course={c} />
             </div>
           );
         })}
@@ -751,7 +1205,7 @@ export default function CurriculumTrainingTab({ setToast }) {
         <div style={{ textAlign: "center", padding: "60px 20px", color: "#9ca3af" }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>📚</div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>No courses found</div>
-          <div style={{ fontSize: 12, marginTop: 4 }}>Create a course from the library to get started.</div>
+          <div style={{ fontSize: 12, marginTop: 4 }}>Try adjusting filters or create a new course</div>
         </div>
       )}
     </div>

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { S } from "../components/Shared";
-import { updateCourseAssignmentReview } from "../services/api";
+import { updateCourseAssignmentReview, getAiAssignmentFeedback } from "../services/api";
 import { AR_BTN_GHOST, AR_BTN_PRIMARY, AR_CLOSE, AR_HDR, AR_MODAL, AR_OVERLAY } from "./adminStyles";
 
 const FALLBACK_REVIEWERS = ["Dr. Rekha Iyer", "Prof. Amol Desai", "Ms. Geeta Rao", "Dr. Vikram Shah", "Mr. Sunil Mehta"];
@@ -291,22 +291,25 @@ export default function AssignmentReviewTab({ assignments, setAssignments, setTo
   };
 
   const runAiFeedback = async (assignment) => {
+    console.log("runAiFeedback called", assignment);
     setAiLoading(true);
     setAiSuggestion("");
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-
-    const pct = rubricPct(assignment);
-    const teacherName = getTeacherName(assignment).split(" ")[0] || "Teacher";
-    const title = toText(assignment?.title, "the assignment");
-
-    const suggestion = pct >= 85
-      ? `Dear ${teacherName},\n\nExcellent work on "${title}". Your submission is clear, aligned to the course outcomes, and ready for approval.\n\nHighlights:\n- Strong content accuracy\n- Clear presentation\n- Practical classroom application\n\nBest regards,\nAdmin Team`
-      : pct >= 60
-        ? `Dear ${teacherName},\n\nThank you for submitting "${title}". The submission is on the right track, but a few areas need strengthening.\n\n- Add a little more classroom detail\n- Tighten the structure and sequencing\n- Review the rubric comments before final submission\n\nBest regards,\nAdmin Team`
-        : `Dear ${teacherName},\n\nThank you for submitting "${title}". The work needs more improvement before it can be approved.\n\n- Revisit the assignment instructions\n- Improve alignment with the learning outcomes\n- Expand the practical examples\n\nBest regards,\nAdmin Team`;
-
-    setAiSuggestion(suggestion);
-    setAiLoading(false);
+    try {
+      console.log("about to call API");
+      const res = await getAiAssignmentFeedback({
+        title: toText(assignment?.title, "the assignment"),
+        courseName: getCourseName(assignment),
+        teacherName: getTeacherName(assignment),
+        rubric: getRubricRows(assignment),
+        rubricPercent: rubricPct(assignment),
+      });
+      setAiSuggestion(res?.feedback || "AI Assist is temporarily unavailable. Please write feedback manually.");
+    } catch (error) {
+      console.error("runAiFeedback caught:", error);
+      setAiSuggestion("AI Assist is temporarily unavailable. Please write feedback manually.");
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   const applyAiFeedback = async (assignment) => {

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="SpacECE Teacher Dashboard — example page demonstrating the embedded Teacher Support Chatbot widget." />
+  <title>Teacher Dashboard — Chat Widget Demo</title>
+  <style>
+    /* Minimal page styling — not part of the widget. */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                   "Helvetica Neue", Arial, sans-serif;
+      background: #f3f4f8;
+      color: #1e1e2f;
+    }
+    .page-header {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: #fff;
+      padding: 20px 32px;
+      font-size: 18px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .page-header svg {
+      width: 24px; height: 24px; fill: currentColor;
+    }
+    .page-body {
+      max-width: 960px;
+      margin: 40px auto;
+      padding: 0 24px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 28px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.06);
+      margin-bottom: 24px;
+    }
+    .card h2 {
+      font-size: 16px;
+      margin-bottom: 12px;
+      color: #374151;
+    }
+    .card p {
+      font-size: 14px;
+      color: #6b7280;
+      line-height: 1.6;
+    }
+    .integration-note {
+      background: #eef2ff;
+      border: 1px dashed #a5b4fc;
+      border-radius: 10px;
+      padding: 20px 24px;
+      font-size: 13px;
+      line-height: 1.7;
+      color: #4338ca;
+    }
+    .integration-note code {
+      background: #ddd6fe;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Simulated dashboard header -->
+  <div class="page-header">
+    <svg viewBox="0 0 24 24"><path d="M12 3L1 9l4 2.18v6L12 21l7-3.82v-6l2-1.09V17h2V9L12 3zm6.82 6L12 12.72 5.18 9 12 5.28 18.82 9zM17 15.99l-5 2.73-5-2.73v-3.72L12 15l5-2.73v3.72z"/></svg>
+    SpacECE Teacher Dashboard
+  </div>
+
+  <!-- Simulated dashboard body -->
+  <div class="page-body">
+    <div class="card">
+      <h2>Welcome back, Teacher</h2>
+      <p>
+        This is a minimal example page that shows how the Teacher Support
+        Chatbot widget is embedded. Click the chat icon in the bottom-right
+        corner to try it out.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>My Courses</h2>
+      <p>ECE Fundamentals — Deadline: 30 Jul 2026</p>
+      <p>FLN Assessment Techniques — Deadline: 15 Aug 2026</p>
+    </div>
+
+    <div class="card">
+      <h2>My Certificates</h2>
+      <p>No certificates pending.</p>
+    </div>
+
+    <!-- Integration note for developers -->
+    <div class="integration-note">
+      <strong>Integration in any portal requires only three things:</strong><br />
+      1. A container element: <code>&lt;div id="teacher-chat"&gt;&lt;/div&gt;</code><br />
+      2. The widget script: <code>&lt;script src="teacher-chatbot-widget.js"&gt;&lt;/script&gt;</code><br />
+      3. One init call: <code>TeacherChatWidget.init({ container, apiUrl })</code>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <!--  CHAT WIDGET INTEGRATION — this is all another portal needs    -->
+  <!-- ============================================================== -->
+
+  <!-- 1. Container element (can be placed anywhere in the DOM) -->
+  <div id="teacher-chat"></div>
+
+  <!-- 2. Widget script -->
+  <script src="teacher-chatbot-widget.js"></script>
+
+  <!-- 3. One-line init call -->
+  <script>
+    TeacherChatWidget.init({
+      container: '#teacher-chat',
+      apiUrl:    'http://localhost:8000/api/v1/teacher-support-chat',
+      source:    'teacher-dashboard'
+    });
+  </script>
+
+</body>
+</html>

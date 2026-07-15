@@ -2,7 +2,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000
 
 async function request(path, options = {}) {
   const token = localStorage.getItem("spaceece_auth_token");
-  
+
   const headers = {
     ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -33,13 +33,6 @@ export function loginUser(credentials) {
 
 export function registerTeacher(payload) {
   return request("/api/auth/register-teacher", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function registerMentor(payload) {
-  return request("/api/auth/register-mentor", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -139,10 +132,6 @@ export function deleteCenter(id) {
   return request(`/api/centers/${id}`, {
     method: "DELETE"
   });
-}
-
-export function getMyCenter() {
-  return request("/api/mentor/center");
 }
 
 export function getCenterTeacherAssignments(centerId) {
@@ -286,50 +275,6 @@ export function deleteTeacher(id) {
   });
 }
 
-// Mentor Management APIs
-export function getAdminMentors() {
-  return request("/api/admin/mentors");
-}
-
-export function updateMentorProfile(id, mentorData) {
-  return request(`/api/admin/mentors/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(mentorData)
-  });
-}
-
-export function updateMentorStatus(id, status) {
-  return request(`/api/admin/mentors/${id}/status`, {
-    method: "PATCH",
-    body: JSON.stringify({ status }),
-  });
-}
-
-export function deleteMentor(id) {
-  return request(`/api/admin/mentors/${id}`, {
-    method: "DELETE"
-  });
-}
-
-export function blockMentor(id) {
-  return request(`/api/admin/mentors/${id}/block`, {
-    method: "PATCH"
-  });
-}
-
-export function unblockMentor(id) {
-  return request(`/api/admin/mentors/${id}/unblock`, {
-    method: "PATCH"
-  });
-}
-
-export function sendDirectMessageToMentor(id, payload) {
-  return request(`/api/admin/mentors/${id}/message`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
 export function blockTeacher(id) {
   return request(`/api/admin/teachers/${id}/block`, {
     method: "PATCH"
@@ -346,28 +291,10 @@ export function getTeacherMe() {
   return request("/api/teacher/me");
 }
 
-export function updateTeacherMe(payload) {
+export function updateTeacherMe(profileData) {
   return request("/api/teacher/me", {
     method: "PATCH",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function getMentorMe() {
-  return request("/api/mentor/me");
-}
-
-export function updateMentorMe(payload) {
-  return request("/api/mentor/me", {
-    method: "PATCH",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function changeMentorPassword(currentPassword, newPassword) {
-  return request("/api/mentor/change-password", {
-    method: "POST",
-    body: JSON.stringify({ currentPassword, newPassword })
+    body: JSON.stringify(profileData)
   });
 }
 
@@ -1106,28 +1033,6 @@ export function getAdminAssessmentResults() {
   return request("/api/admin/assessments");
 }
 
-// ── Mentor Dynamic Tab APIs ──
-export function recordMenteeObservation(menteeId, notes) {
-  return request("/api/mentor/observation", {
-    method: "POST",
-    body: JSON.stringify({ menteeId, notes }),
-  });
-}
-
-export function submitCapstoneMilestone(notes, evidenceLink) {
-  return request("/api/mentor/capstone", {
-    method: "POST",
-    body: JSON.stringify({ notes, evidenceLink }),
-  });
-}
-
-export function submitPDCACycle(plan, doAction, check, act) {
-  return request("/api/mentor/pdca", {
-    method: "POST",
-    body: JSON.stringify({ plan, do: doAction, check, act }),
-  });
-}
-
 
 export async function downloadCertificatePdf(certificateId, filenameHint) {
   const token = localStorage.getItem("spaceece_auth_token");
@@ -1147,4 +1052,11 @@ export async function downloadCertificatePdf(certificateId, filenameHint) {
   a.click();
   a.remove();
   window.URL.revokeObjectURL(url);
+}
+
+export function getAiAssignmentFeedback(payload) {
+  return request("/api/courses/ai/assignment-feedback", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }

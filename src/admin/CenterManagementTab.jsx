@@ -13,8 +13,6 @@ const mapCenterFromApi = (c) => ({
   email: c.email || "",
   contactPerson: c.contactPerson || "",
   status: c.status || "active",
-  mentor: c.mentor?._id || c.mentor?.id || c.mentor || "",
-  mentorDetails: c.mentor || null,
   teachers: c.teachers || [],
   children: c.children || 0,
   classes: c.classes || 0,
@@ -28,7 +26,6 @@ const mapCenterToApi = (c) => ({
   phone: c.phone,
   email: c.email,
   contactPerson: c.contactPerson,
-  mentor: c.mentor || undefined,
   status: c.status,
   teachers: c.teachers,
   classes: c.classes || [],
@@ -36,12 +33,12 @@ const mapCenterToApi = (c) => ({
 
 const EMPTY_FORM = {
   name: "", location: "", city: "", pincode: "",
-  phone: "", email: "", contactPerson: "", mentor: "",
+  phone: "", email: "", contactPerson: "",
   status: "active", teachers: [], children: 0, classes: 0,
 };
 
 /* ── Add / Edit Modal ── */
-function CenterFormModal({ center, allTeachers = [], mentors = [], onSave, onClose, setToast }) {
+function CenterFormModal({ center, allTeachers = [], onSave, onClose, setToast }) {
   const isEdit = !!center;
   const [form, setForm] = useState(center ? { ...center } : { ...EMPTY_FORM });
   const [saving, setSaving] = useState(false);
@@ -288,26 +285,12 @@ function CenterFormModal({ center, allTeachers = [], mentors = [], onSave, onClo
           onChange={e => setForm({ ...form, contactPerson: e.target.value })}
           placeholder="e.g. Mrs. Rekha Iyer" />
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-          <div>
-            <label style={S.label}>Assigned Mentor</label>
-            <select style={S.input} value={form.mentor || ""}
-              onChange={e => setForm({ ...form, mentor: e.target.value })}>
-              <option value="">-- No Mentor Assigned --</option>
-              {mentors.filter(m => m.status === "approved" || m.status === "pending").map(m => (
-                <option key={m.id || m._id} value={m.id || m._id}>{m.name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label style={S.label}>Status</label>
-            <select style={S.input} value={form.status}
-              onChange={e => setForm({ ...form, status: e.target.value })}>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
-          </div>
-        </div>
+        <label style={S.label}>Status</label>
+        <select style={{ ...S.input, marginBottom: 16 }} value={form.status}
+          onChange={e => setForm({ ...form, status: e.target.value })}>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
 
         {/* ── Classes Section ── */}
         <div style={{
@@ -1160,7 +1143,7 @@ function ClassLogsModal({ logs = [], onClose }) {
 /* ══════════════════════════════════════════
    MAIN CENTER MANAGEMENT TAB
    ══════════════════════════════════════════ */
-export default function CenterManagementTab({ mentors = [], setToast }) {
+export default function CenterManagementTab({ setToast }) {
   const [centers, setCenters]         = useState([]);
   const [allTeachers, setAllTeachers] = useState([]);
   const [search, setSearch]           = useState("");
@@ -1341,7 +1324,6 @@ export default function CenterManagementTab({ mentors = [], setToast }) {
         <CenterFormModal
           center={editCenter}
           allTeachers={allTeachers}
-          mentors={mentors}
           onSave={handleSave}
           onClose={() => { setFormModal(false); setEditCenter(null); }}
           setToast={showToast}
@@ -1448,7 +1430,6 @@ export default function CenterManagementTab({ mentors = [], setToast }) {
               <div style={{ fontSize: 12, color: "#6b7280" }}>📱 {c.phone}</div>
               {c.email && <div style={{ fontSize: 12, color: "#6b7280" }}>📧 {c.email}</div>}
               {c.contactPerson && <div style={{ fontSize: 12, color: "#6b7280" }}>👤 {c.contactPerson}</div>}
-              {c.mentorDetails && <div style={{ fontSize: 12, color: "#6b7280" }}>👨‍🏫 Mentor: <span style={{ fontWeight: 600 }}>{c.mentorDetails.name}</span></div>}
               <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>📍 {c.location}</div>
             </div>
 

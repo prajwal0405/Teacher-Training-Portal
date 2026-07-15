@@ -25,27 +25,21 @@ const getFileUrl = (file) => {
   return `${API_BASE_URL}${path}`;
 };
 
-const mapActivityFromApi = (a) => {
-  const file = a.files?.length > 0 ? a.files[0] : null;
-  const fileName = file?.originalName || "Attached File";
-  const isImage = fileName.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
-  return {
-    id: a._id || a.id,
-    date: a.activityDate ? new Date(a.activityDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—",
-    centerName: a.center?.name || "Unassigned Center",
-    centerId: a.center?._id || a.center || "",
-    teacherName: a.teacher?.name || "Unknown Teacher",
-    teacherAvatar: a.teacher?.name ? `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(a.teacher.name)}` : null,
-    className: a.class?.name || "Unassigned Class",
-    description: a.description || "",
-    image: file ? getFileUrl(file) : null,
-    imageName: fileName,
-    isDocument: !isImage,
-    status: a.status || "pending",
-    adminComments: a.adminComments || "",
-    createdAt: a.createdAt ? new Date(a.createdAt) : new Date(),
-  };
-};
+const mapActivityFromApi = (a) => ({
+  id: a._id || a.id,
+  date: a.activityDate ? new Date(a.activityDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—",
+  centerName: a.center?.name || "Unassigned Center",
+  centerId: a.center?._id || a.center || "",
+  teacherName: a.teacher?.name || "Unknown Teacher",
+  teacherAvatar: a.teacher?.name ? `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(a.teacher.name)}` : null,
+  className: a.class?.name || "Unassigned Class",
+  description: a.description || "",
+  image: a.files?.length > 0 ? getFileUrl(a.files[0]) : null,
+  imageName: a.files?.length > 0 ? a.files[0].originalName || "Classroom Photo" : "Classroom Photo",
+  status: a.status || "pending",
+  adminComments: a.adminComments || "",
+  createdAt: a.createdAt ? new Date(a.createdAt) : new Date(),
+});
 
 /* ── Activity Review Modal ── */
 function ActivityReviewModal({ activity, onAction, onClose }) {
@@ -126,38 +120,26 @@ function ActivityReviewModal({ activity, onAction, onClose }) {
         </div>
       </div>
 
-      {/* Image / Document */}
+      {/* Image */}
       <div style={{ marginBottom: 16 }}>
         <label style={S.label}>Submitted Photo / Documentation</label>
         {activity.image ? (
-          activity.isDocument ? (
-            <div style={{ background: "#f8fafc", padding: "16px", borderRadius: 12, border: "1px solid #e2e8f0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ fontSize: 24 }}>📄</span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>{activity.imageName}</span>
-              </div>
-              <a href={activity.image} target="_blank" rel="noreferrer" style={{ ...S.exportBtn, textDecoration: "none" }}>
-                ⬇️ Download
-              </a>
-            </div>
-          ) : (
-            <div
-              onClick={() => setLightboxOpen(true)}
-              title="Click to view full size"
-              style={{ borderRadius: 12, border: "1px solid #cbd5e1", overflow: "hidden", background: "#f1f5f9", cursor: "zoom-in", position: "relative" }}>
-              <img src={activity.image} alt={activity.imageName}
-                style={{ width: "100%", maxHeight: 200, objectFit: "cover", display: "block" }}
-                onError={e => { e.target.style.display = "none"; }} />
-              <span style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.55)",
-                color: "white", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6 }}>🔍 Click to enlarge</span>
-            </div>
-          )
+          <div
+            onClick={() => setLightboxOpen(true)}
+            title="Click to view full size"
+            style={{ borderRadius: 12, border: "1px solid #cbd5e1", overflow: "hidden", background: "#f1f5f9", cursor: "zoom-in", position: "relative" }}>
+            <img src={activity.image} alt={activity.imageName}
+              style={{ width: "100%", maxHeight: 200, objectFit: "cover", display: "block" }}
+              onError={e => { e.target.style.display = "none"; }} />
+            <span style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.55)",
+              color: "white", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6 }}>🔍 Click to enlarge</span>
+          </div>
         ) : (
           <div style={{ background: "#fef3c7", border: "1.5px dashed #f59e0b", borderRadius: 12,
             height: 80, display: "flex", alignItems: "center", justifyContent: "center",
             gap: 8, color: "#b45309", fontSize: 12, fontWeight: 600 }}>
-            <span style={{ fontSize: 24 }}>📄</span>
-            No file attached — text description only
+            <span style={{ fontSize: 24 }}>📷</span>
+            No image submitted — text description only
           </div>
         )}
       </div>

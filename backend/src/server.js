@@ -43,9 +43,9 @@ import TaskReplacementLog from "./models/TaskReplacementLog.js";
 import { PortalSetting } from "./models/PortalSetting.js";
 import { TrainerMessage } from "./models/TrainerMessage.js";
 import { TrainerPayout } from "./models/TrainerPayout.js";
-import { AssessmentResult } from "./models/AssessmentResult.js";
 import { sendBulkEmails, sendEmail, getTwilioConfig } from "./email.js";
 import { initSocket, createAndEmitNotification } from "./socket.js";
+import { autoIssueCertificateForAssignment } from "./routes/certificates.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "../.env") });
@@ -337,11 +337,10 @@ app.post("/api/auth/login", async (req, res, next) => {
         language: user.language || "English",
         preferredNotificationChannel: user.preferredNotificationChannel || "in_app",
         teacherProfile: user.teacherProfile,
-        mentorProfile: user.mentorProfile,
         subject: user.teacherProfile?.subject,
-        address: user.teacherProfile?.address || user.mentorProfile?.address,
-        qualification: user.teacherProfile?.qualification || user.mentorProfile?.qualification,
-        experience: user.teacherProfile?.experience || user.mentorProfile?.experience,
+        address: user.teacherProfile?.address,
+        qualification: user.teacherProfile?.qualification,
+        experience: user.teacherProfile?.experience,
       },
     });
   } catch (error) {
@@ -385,45 +384,6 @@ app.post("/api/auth/register-teacher", async (req, res, next) => {
         email: teacher.email,
         phone: teacher.phone,
         status: teacher.status,
-      },
-    });
-  } catch (error) {
-    if (error.code === 11000) {
-      return res.status(409).json({ message: "Email already registered" });
-    }
-    next(error);
-  }
-});
-
-app.post("/api/auth/register-mentor", async (req, res, next) => {
-  try {
-    const { name, email, phone, password, qualification, specialization, experience, address, fellowshipSemester } = req.body;
-    
-    const policyResult = await validatePasswordAgainstPolicy(password);
-    if (!policyResult.valid) {
-      return res.status(400).json({ message: policyResult.message });
-    }
-
-    const passwordHash = await hashPassword(password);
-
-    const mentor = await User.create({
-      role: "mentor",
-      name,
-      email,
-      phone,
-      passwordHash,
-      status: "pending",
-      mentorProfile: { qualification, specialization, experience, address, fellowshipSemester: fellowshipSemester || 3 },
-    });
-
-    res.status(201).json({
-      mentor: {
-        id: mentor._id,
-        role: mentor.role,
-        name: mentor.name,
-        email: mentor.email,
-        phone: mentor.phone,
-        status: mentor.status,
       },
     });
   } catch (error) {
@@ -720,7 +680,7 @@ app.get("/api/admin/dashboard", requireAuth, requireRole("admin"), async (_req, 
 
 app.get("/api/centers", requireAuth, requireRole("admin"), async (_req, res, next) => {
   try {
-    const rawCenters = await Center.find().sort({ createdAt: -1 }).populate("mentor", "name email phone photoUrl");
+    const rawCenters = await Center.find().sort({ createdAt: -1 });
     const centers = await Promise.all(rawCenters.map(async (center) => {
       const [teachers, children, classes] = await Promise.all([
         User.find({ role: "teacher", "teacherProfile.center": center._id }).select("_id"),
@@ -742,37 +702,10 @@ app.get("/api/centers", requireAuth, requireRole("admin"), async (_req, res, nex
   }
 });
 
-app.get("/api/mentor/center", requireAuth, requireRole("mentor"), async (req, res, next) => {
-  try {
-    const center = await Center.findOne({ mentor: req.user.userId })
-      .sort({ updatedAt: -1 })
-      .populate("mentor", "name email photoUrl");
-    res.json({ center });
-  } catch (error) {
-    next(error);
-  }
-});
-
 app.post("/api/centers", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
     const { teachers = [], classes: classesPayload = [], ...centerPayload } = req.body;
-
-    if (centerPayload.mentor) {
-      // Clear this mentor from any existing centers they might be assigned to
-      await mongoose.model("Center").updateMany(
-        { mentor: centerPayload.mentor },
-        { $unset: { mentor: "" } }
-      );
-    }
-
     const center = await Center.create(centerPayload);
-
-    if (centerPayload.mentor) {
-      // Also update the mentor's profile directly
-      await User.findByIdAndUpdate(centerPayload.mentor, {
-        $set: { "mentorProfile.center": center._id }
-      });
-    }
 
     // Create classes for this center and track teacher-class assignments
     const createdClasses = [];
@@ -889,125 +822,6 @@ app.patch("/api/admin/teachers/:id/status", requireAuth, requireRole("admin"), a
     ).select("-passwordHash");
 
     res.json({ teacher });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.get("/api/admin/mentors", requireAuth, requireRole("admin"), async (_req, res, next) => {
-  try {
-    const mentors = await User.find({ role: "mentor" })
-      .select("-passwordHash")
-      .populate("mentorProfile.center", "name address city")
-      .populate("mentorProfile.classes", "name")
-      .sort({ createdAt: -1 });
-
-    res.json({ mentors });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.patch("/api/admin/mentors/:id/status", requireAuth, requireRole("admin"), async (req, res, next) => {
-  try {
-    const mentor = await User.findOneAndUpdate(
-      { _id: req.params.id, role: "mentor" },
-      { status: req.body.status },
-      { new: true }
-    ).select("-passwordHash");
-
-    res.json({ mentor });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.patch("/api/admin/mentors/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
-  try {
-    const updateData = {
-      $set: {
-        name: req.body.name,
-        phone: req.body.phone,
-      }
-    };
-    
-    if (req.body.mentorProfile) {
-      if (req.body.mentorProfile.qualification !== undefined) updateData.$set["mentorProfile.qualification"] = req.body.mentorProfile.qualification;
-      if (req.body.mentorProfile.specialization !== undefined) updateData.$set["mentorProfile.specialization"] = req.body.mentorProfile.specialization;
-      if (req.body.mentorProfile.experience !== undefined) updateData.$set["mentorProfile.experience"] = req.body.mentorProfile.experience;
-      if (req.body.mentorProfile.address !== undefined) updateData.$set["mentorProfile.address"] = req.body.mentorProfile.address;
-      if (req.body.mentorProfile.center !== undefined) updateData.$set["mentorProfile.center"] = req.body.mentorProfile.center;
-      if (req.body.mentorProfile.classes !== undefined) updateData.$set["mentorProfile.classes"] = req.body.mentorProfile.classes;
-    } else {
-      // Fallback
-      if (req.body.qualification !== undefined) updateData.$set["mentorProfile.qualification"] = req.body.qualification;
-      if (req.body.specialization !== undefined) updateData.$set["mentorProfile.specialization"] = req.body.specialization;
-      if (req.body.experience !== undefined) updateData.$set["mentorProfile.experience"] = req.body.experience;
-      if (req.body.address !== undefined) updateData.$set["mentorProfile.address"] = req.body.address;
-    }
-
-    const mentor = await User.findOneAndUpdate(
-      { _id: req.params.id, role: "mentor" },
-      updateData,
-      { new: true }
-    )
-    .select("-passwordHash")
-    .populate("mentorProfile.center", "name address city")
-    .populate("mentorProfile.classes", "name");
-
-    if (req.body.mentorProfile && req.body.mentorProfile.center) {
-      // Clear this mentor from any existing centers they might be assigned to
-      await mongoose.model("Center").updateMany(
-        { mentor: mentor._id },
-        { $unset: { mentor: "" } }
-      );
-      // Assign them to the new center
-      await mongoose.model("Center").findByIdAndUpdate(req.body.mentorProfile.center, { mentor: mentor._id });
-    }
-    res.json({ mentor });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.delete("/api/admin/mentors/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
-  try {
-    await User.findOneAndDelete({ _id: req.params.id, role: "mentor" });
-    res.json({ message: "Mentor deleted successfully" });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.patch("/api/admin/mentors/:id/block", requireAuth, requireRole("admin"), async (req, res, next) => {
-  try {
-    const mentor = await User.findOneAndUpdate(
-      { _id: req.params.id, role: "mentor" },
-      { status: "blocked" },
-      { new: true }
-    ).select("-passwordHash");
-    res.json({ mentor });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.patch("/api/admin/mentors/:id/unblock", requireAuth, requireRole("admin"), async (req, res, next) => {
-  try {
-    const mentor = await User.findOneAndUpdate(
-      { _id: req.params.id, role: "mentor" },
-      { status: "approved" },
-      { new: true }
-    ).select("-passwordHash");
-    res.json({ mentor });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.post("/api/admin/mentors/:id/message", requireAuth, requireRole("admin"), async (req, res, next) => {
-  try {
-    res.json({ message: "Direct message sent to mentor successfully (simulated)." });
   } catch (error) {
     next(error);
   }
@@ -1195,72 +1009,6 @@ app.patch("/api/teacher/me", requireAuth, requireRole("teacher"), async (req, re
       .populate("teacherProfile.classes", "name ageGroup curriculumLevel schedule");
 
     res.json({ teacher });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// ── Mentor Me Routes ──
-app.get("/api/mentor/me", requireAuth, requireRole("mentor"), async (req, res, next) => {
-  try {
-    const mentor = await User.findById(req.user.id)
-      .select("-passwordHash")
-      .populate("mentorProfile.assignedCenters", "name address city pincode contactPerson phone email")
-      .populate("mentorProfile.center", "name address city")
-      .populate("mentorProfile.classes", "name")
-      .populate("mentorProfile.assignedTeachers", "name teacherProfile.subject photoUrl");
-    res.json({ mentor });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.patch("/api/mentor/me", requireAuth, requireRole("mentor"), async (req, res, next) => {
-  try {
-    const { name, email, phone, photoUrl, language, mentorProfile = {} } = req.body;
-    const allowedProfileFields = ["qualification", "specialization", "experience", "address"];
-    const update = {};
-
-    if (name !== undefined) update.name = name;
-    if (phone !== undefined) update.phone = phone;
-    if (photoUrl !== undefined) update.photoUrl = photoUrl;
-    if (language !== undefined) update.language = language;
-    if (email !== undefined) {
-      const existing = await User.findOne({ email: email.toLowerCase(), _id: { $ne: req.user.id } });
-      if (existing) {
-        return res.status(400).json({ message: "Email is already in use by another account." });
-      }
-      update.email = email.toLowerCase();
-    }
-
-    for (const field of allowedProfileFields) {
-      if (mentorProfile[field] !== undefined) {
-        update[`mentorProfile.${field}`] = mentorProfile[field];
-      }
-    }
-
-    const mentor = await User.findByIdAndUpdate(req.user.id, { $set: update }, { new: true })
-      .select("-passwordHash")
-      .populate("mentorProfile.assignedCenters", "name address city")
-      .populate("mentorProfile.assignedTeachers", "name teacherProfile.subject photoUrl");
-    res.json({ mentor });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.post("/api/mentor/change-password", requireAuth, requireRole("mentor"), async (req, res, next) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
-    const user = await User.findById(req.user.id);
-    if (!user) return res.status(404).json({ message: "Mentor not found" });
-
-    const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
-    if (!isMatch) return res.status(401).json({ message: "Incorrect current password" });
-
-    user.passwordHash = await bcrypt.hash(newPassword, 10);
-    await user.save();
-    res.json({ message: "Password updated successfully" });
   } catch (error) {
     next(error);
   }
@@ -1603,19 +1351,6 @@ app.post("/api/upload", requireAuth, upload.single("file"), async (req, res, nex
 app.patch("/api/centers/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
     const { teachers = [], classes: classesPayload, ...centerPayload } = req.body;
-
-    if (centerPayload.mentor) {
-      // Clear this mentor from any existing centers they might be assigned to
-      await mongoose.model("Center").updateMany(
-        { mentor: centerPayload.mentor },
-        { $unset: { mentor: "" } }
-      );
-      // Also update the mentor's profile directly
-      await User.findByIdAndUpdate(centerPayload.mentor, {
-        $set: { "mentorProfile.center": req.params.id }
-      });
-    }
-
     const center = await Center.findByIdAndUpdate(req.params.id, centerPayload, { new: true });
 
     // If classes payload provided, handle class creation/update and teacher assignments
@@ -2233,12 +1968,7 @@ app.patch("/api/admin/courses/assignments/:id", requireAuth, requireRole("admin"
 
 app.patch("/api/teacher/courses/assignments/:id", requireAuth, requireRole("teacher"), async (req, res, next) => {
   try {
-    const { 
-      progressPercent, completedContent, status, title, feedback, submissionFiles,
-      assessmentScore, assessmentTotal, assessmentPercentage, assessmentGrade,
-      assessmentForced, assessmentWarnings, assessmentCompletedAt
-    } = req.body;
-    
+    const { progressPercent, completedContent, status, title, feedback, submissionFiles } = req.body;
     const update = {};
     if (progressPercent !== undefined) update.progressPercent = progressPercent;
     if (completedContent) update.completedContent = completedContent.map(String);
@@ -2246,21 +1976,6 @@ app.patch("/api/teacher/courses/assignments/:id", requireAuth, requireRole("teac
     if (title !== undefined) update.title = title;
     if (feedback !== undefined) update.feedback = feedback;
     if (submissionFiles !== undefined) update.submissionFiles = submissionFiles;
-    
-    if (assessmentScore !== undefined) {
-      update.assessmentScore = assessmentScore;
-      update.score = assessmentScore;
-    }
-    if (assessmentTotal !== undefined) update.assessmentTotal = assessmentTotal;
-    if (assessmentPercentage !== undefined) update.assessmentPercentage = assessmentPercentage;
-    if (assessmentGrade !== undefined) {
-      update.assessmentGrade = assessmentGrade;
-      update.grade = assessmentGrade;
-    }
-    if (assessmentForced !== undefined) update.assessmentForced = assessmentForced;
-    if (assessmentWarnings !== undefined) update.assessmentWarnings = assessmentWarnings;
-    if (assessmentCompletedAt !== undefined) update.assessmentCompletedAt = assessmentCompletedAt;
-    
     if (status === "submitted") update.submittedAt = new Date();
     if (progressPercent === 100) {
       update.completedAt = new Date();
@@ -2271,6 +1986,14 @@ app.patch("/api/teacher/courses/assignments/:id", requireAuth, requireRole("teac
       update,
       { new: true }
     ).populate("course");
+
+    if (progressPercent === 100 && assignment) {
+      try {
+        await autoIssueCertificateForAssignment(assignment._id);
+      } catch (certErr) {
+        console.error("[certificate] auto_issue_failed", certErr.message);
+      }
+    }
 
     // Notify admin when teacher submits an assignment
     if (status === "submitted" && assignment) {
@@ -4361,136 +4084,6 @@ app.post("/api/teacher/chatbot/enhanced", requireAuth, requireRole("teacher"), a
     }
     if (!bestMatch) bestMatch = "I'm not sure I understand. Try asking about: attendance, lesson plans, passwords, certificates, schedules, feedback, courses, or assessments.";
     res.json({ reply: bestMatch, timestamp: new Date().toISOString() });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// ==========================================
-// ==========================================
-// Mentor Dynamic Tab Routes
-// ==========================================
-
-app.post("/api/mentor/observation", requireAuth, requireRole("mentor"), async (req, res, next) => {
-  try {
-    const { menteeId, notes } = req.body;
-    if (!menteeId || !notes) return res.status(400).json({ message: "Mentee ID and notes are required" });
-    
-    const user = await User.findById(req.user.id);
-    user.mentorProfile.menteeObservations.push({ menteeId, notes, date: new Date() });
-    await user.save();
-    
-    res.json({ message: "Observation recorded successfully", user });
-  } catch (err) {
-    next(err);
-  }
-});
-
-app.post("/api/mentor/capstone", requireAuth, requireRole("mentor"), async (req, res, next) => {
-  try {
-    const { notes, evidenceLink } = req.body;
-    const user = await User.findById(req.user.id);
-    
-    const currentMilestone = user.mentorProfile.capstoneMilestone || 1;
-    user.mentorProfile.capstoneSubmissions.push({
-      milestone: currentMilestone,
-      notes,
-      evidenceLink,
-      submittedAt: new Date()
-    });
-    
-    if (currentMilestone < 4) {
-      user.mentorProfile.capstoneMilestone = currentMilestone + 1;
-    }
-    
-    await user.save();
-    res.json({ message: "Capstone milestone submitted successfully", user });
-  } catch (err) {
-    next(err);
-  }
-});
-
-app.post("/api/mentor/pdca", requireAuth, requireRole("mentor"), async (req, res, next) => {
-  try {
-    const { plan, do: doAction, check, act } = req.body;
-    if (!plan || !doAction || !check || !act) {
-      return res.status(400).json({ message: "All PDCA fields are required" });
-    }
-    
-    const user = await User.findById(req.user.id);
-    user.mentorProfile.pdcaCycles.unshift({
-      plan, do: doAction, check, act, date: new Date(), status: "Completed"
-    }); // unshift to put latest first
-    await user.save();
-    
-    res.json({ message: "PDCA cycle recorded successfully", user });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// ==========================================
-// Assessment Results Routes
-// ==========================================
-app.post("/api/assessments", requireAuth, async (req, res, next) => {
-  try {
-    const { courseId, courseTitle, libraryId, answers, score, total, percentage, grade, timeTaken, warnings, forced } = req.body;
-    const teacherId = req.user.id;
-    const doc = await AssessmentResult.create({
-      user: teacherId,
-      course: courseTitle || "Unknown Course",
-      courseId,
-      totalQuestions: total || 10,
-      correctAnswers: score || 0,
-      wrongAnswers: (total || 10) - (score || 0),
-      unanswered: 0,
-      score: score || 0,
-      maxScore: total || 10,
-      percentage: percentage || 0,
-      grade: grade || "F",
-      timeTaken: timeTaken || 0,
-      warnings: warnings || 0,
-      forced: forced || false,
-      answers: answers || {},
-      submittedAt: new Date(),
-    });
-    res.json({ result: doc });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.get("/api/assessments/mine", requireAuth, async (req, res, next) => {
-  try {
-    const teacherId = req.user.id;
-    const results = await AssessmentResult.find({ user: teacherId }).sort({ createdAt: -1 });
-    res.json({ results });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.get("/api/admin/assessments", requireAuth, requireRole("admin"), async (req, res, next) => {
-  try {
-    const results = await AssessmentResult.find({})
-      .populate("user", "name email")
-      .populate("courseId", "title category")
-      .sort({ createdAt: -1 });
-    
-    // Map to exactly what frontend AssessmentResultsTab expects
-    const mapped = results.map(r => ({
-      _id: r._id,
-      teacher: { name: r.user?.name || "Unknown", email: r.user?.email || "" },
-      courseTitle: r.course || r.courseId?.title || "Unknown Course",
-      score: r.score,
-      total: r.maxScore || r.totalQuestions,
-      percentage: r.percentage,
-      grade: r.grade,
-      warnings: r.warnings || 0,
-      forced: r.forced || false,
-      submittedAt: r.createdAt
-    }));
-    res.json({ results: mapped });
   } catch (error) {
     next(error);
   }

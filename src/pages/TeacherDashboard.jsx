@@ -1469,12 +1469,33 @@ export default function TeacherDashboard({ user, onLogout }) {
   const [loading, setLoading]            = useState(true);
   const [tabLoading, setTabLoading]      = useState(false);
 
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState([
-    { sender: "bot", text: `Hello ${user.name?.split(" ")[0] || "there"}! I'm your SpaceCE AI Assistant. How can I assist you with your class, attendance, courses, or lesson plans today?` }
-  ]);
-  const [chatInput, setChatInput] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
+  // Initialize standalone Teacher Support Chatbot widget
+  useEffect(() => {
+    // Only load if not already present
+    if (document.getElementById('teacher-chatbot-script')) return;
+    
+    const script = document.createElement('script');
+    script.id = 'teacher-chatbot-script';
+    script.src = 'http://localhost:8000/static/teacher-chatbot-widget.js';
+    script.async = true;
+    script.onload = () => {
+      if (window.TeacherChatWidget) {
+        window.TeacherChatWidget.init({
+          container: '#teacher-chat',
+          apiUrl: 'http://localhost:8000/api/v1/teacher-support-chat',
+          source: 'teacher-dashboard'
+        });
+      }
+    };
+    document.body.appendChild(script);
+
+    return () => {
+      // Cleanup if component unmounts
+      const scriptEl = document.getElementById('teacher-chatbot-script');
+      if (scriptEl) scriptEl.remove();
+      // The widget doesn't have a destroy method yet, but it mounts into the container below.
+    };
+  }, []);
 
   const refreshCoreData = async () => {
     try {
@@ -1586,25 +1607,6 @@ export default function TeacherDashboard({ user, onLogout }) {
     }
   };
 
-  const handleSendChatMessage = async () => {
-    if (!chatInput.trim()) return;
-    const userMsg = chatInput.trim();
-    setChatMessages(prev => [...prev, { sender: "user", text: userMsg }]);
-    setChatInput("");
-    setChatLoading(true);
-    try {
-      const res = await askTeacherChatbot(userMsg);
-      if (res && res.reply) {
-        setChatMessages(prev => [...prev, { sender: "bot", text: res.reply }]);
-      } else {
-        setChatMessages(prev => [...prev, { sender: "bot", text: "I'm sorry, I'm having trouble connecting right now." }]);
-      }
-    } catch (err) {
-      setChatMessages(prev => [...prev, { sender: "bot", text: "Something went wrong. Please try again later." }]);
-    } finally {
-      setChatLoading(false);
-    }
-  };
 
   const unreadCount = notifications.filter(n=>!n.read).length;
   const pendingAssignmentsCount = courses.filter(a=>a.status==="assigned"||a.status==="revision").length;
@@ -1734,87 +1736,8 @@ export default function TeacherDashboard({ user, onLogout }) {
         {renderContent()}
       </div>
 
-      <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 1000, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-        {chatOpen && (
-          <div style={{ width: 340, height: 460, background: "rgba(255, 255, 255, 0.95)", backdropFilter: "blur(12px)", border: "1px solid #fbbf24", borderRadius: 20, boxShadow: "0 10px 40px rgba(0,0,0,0.12)", marginBottom: 16, display: "flex", flexDirection: "column", overflow: "hidden", animation: "slideUp 0.3s ease" }}>
-            <div style={{ background: "linear-gradient(135deg,#f59e0b 0%,#d97706 100%)", padding: "16px 20px", color: "white", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 24 }}>🤖</span>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 900, letterSpacing: "-0.2px" }}>SpaceCE Assistant</div>
-                  <div style={{ fontSize: 10, opacity: 0.85, fontWeight: 700 }}>Online · Portal Helper</div>
-                </div>
-              </div>
-              <button onClick={() => setChatOpen(false)} style={{ background: "none", border: "none", color: "white", fontSize: 18, cursor: "pointer", padding: 0 }}>✕</button>
-            </div>
-            <div style={{ flex: 1, padding: 16, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, background: "#fafbfc" }}>
-              {chatMessages.map((msg, idx) => (
-                <div key={idx} style={{ display: "flex", justifyContent: msg.sender === "user" ? "flex-end" : "flex-start" }}>
-                  <div style={{
-                    maxWidth: "80%",
-                    padding: "10px 14px",
-                    borderRadius: msg.sender === "user" ? "16px 16px 0 16px" : "16px 16px 16px 0",
-                    background: msg.sender === "user" ? "linear-gradient(135deg,#f59e0b 0%,#d97706 100%)" : "white",
-                    color: msg.sender === "user" ? "white" : "#1c1917",
-                    fontSize: 12.5,
-                    fontWeight: 600,
-                    lineHeight: 1.45,
-                    boxShadow: "0 2px 8px rgba(0,0,0,0.03)",
-                    border: msg.sender === "user" ? "none" : "1px solid #f1f5f9"
-                  }}>
-                    {msg.text}
-                  </div>
-                </div>
-              ))}
-              {chatLoading && (
-                <div style={{ display: "flex", justifyContent: "flex-start" }}>
-                  <div style={{ background: "white", padding: "12px 18px", borderRadius: "16px 16px 16px 0", border: "1px solid #f1f5f9", display: "flex", gap: 4, alignItems: "center" }}>
-                    <span style={{ width: 6, height: 6, background: "#d97706", borderRadius: "50%", display: "inline-block", animation: "bounce 1.4s infinite ease-in-out both" }} />
-                    <span style={{ width: 6, height: 6, background: "#d97706", borderRadius: "50%", display: "inline-block", animation: "bounce 1.4s infinite ease-in-out both 0.2s" }} />
-                    <span style={{ width: 6, height: 6, background: "#d97706", borderRadius: "50%", display: "inline-block", animation: "bounce 1.4s infinite ease-in-out both 0.4s" }} />
-                  </div>
-                </div>
-              )}
-            </div>
-            <div style={{ padding: 12, background: "white", borderTop: "1px solid #f1f5f9", display: "flex", gap: 8 }}>
-              <input
-                type="text"
-                placeholder="Ask about attendance, courses..."
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && handleSendChatMessage()}
-                style={{ flex: 1, border: "1px solid #cbd5e1", borderRadius: 10, padding: "8px 12px", fontSize: 12, outline: "none", fontWeight: 600 }}
-              />
-              <button
-                onClick={handleSendChatMessage}
-                style={{ background: "linear-gradient(135deg,#f59e0b 0%,#d97706 100%)", border: "none", color: "white", borderRadius: 10, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 2px 6px rgba(217,119,6,0.3)" }}
-              >
-                ➔
-              </button>
-            </div>
-          </div>
-        )}
-        <button
-          onClick={() => setChatOpen(!chatOpen)}
-          style={{
-            width: 54,
-            height: 54,
-            borderRadius: "50%",
-            background: "linear-gradient(135deg,#f59e0b 0%,#d97706 100%)",
-            border: "none",
-            color: "white",
-            fontSize: 24,
-            cursor: "pointer",
-            boxShadow: "0 4px 16px rgba(217,119,6,0.45)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            transition: "transform 0.2s ease"
-          }}
-        >
-          💬
-        </button>
-      </div>
+      {/* Standalone Chatbot Widget Container */}
+      <div id="teacher-chat"></div>
     </div>
   );
 }

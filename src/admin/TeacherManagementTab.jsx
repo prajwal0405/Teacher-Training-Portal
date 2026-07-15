@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { AttendanceBar, Modal, S, SearchBar, SectionCard, StatCard, StatusBadge, Toast } from "../components/Shared";
 import { getAdminTeachers, updateTeacherStatus, updateTeacherProfile, registerTeacher, getCenters, getClasses, sendDirectMessageToTeacher, blockTeacher, unblockTeacher, deleteTeacher } from "../services/api";
 import { t } from "../services/i18n";
-import MentorManagementTab from "./MentorManagementTab";
 
 // Reuse same base URL pattern as ActivityMonitoringTab
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
@@ -611,7 +610,7 @@ function TeacherProfileView({ teacher, centers = [], classes = [], onBack, onUpd
 /* ══════════════════════════════════════════
    MAIN TEACHER MANAGEMENT TAB
    ══════════════════════════════════════════ */
-export function TeacherManagementList({ setToast }) {
+export default function TeacherManagementTab({ setToast }) {
   const [teachers, setTeachers]   = useState([]);
   const [centers, setCenters]     = useState([]);
   const [classes, setClasses]     = useState([]);
@@ -949,52 +948,6 @@ export function TeacherManagementList({ setToast }) {
             </button>
           </form>
         </Modal>
-      )}
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════
-   UNIFIED USER MANAGEMENT TAB
-   ══════════════════════════════════════════ */
-export default function TeacherManagementTab({ setToast }) {
-  const [activeRole, setActiveRole] = useState("Teacher");
-
-  return (
-    <div style={{ animation: "fadeIn 0.3s ease" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, borderBottom: "1px solid #e2e8f0", paddingBottom: 16 }}>
-        <div>
-          <h1 style={{ fontSize: 24, fontWeight: 900, color: "#0f172a", margin: "0 0 4px" }}>User Management</h1>
-          <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>Manage platform users, roles, and access.</p>
-        </div>
-        <div style={{ display: "flex", background: "#f1f5f9", padding: 4, borderRadius: 12 }}>
-          {["Teacher", "Mentor"].map(role => (
-            <button
-              key={role}
-              onClick={() => setActiveRole(role)}
-              style={{
-                padding: "8px 24px",
-                borderRadius: 8,
-                background: activeRole === role ? "white" : "transparent",
-                color: activeRole === role ? "#0f172a" : "#64748b",
-                fontWeight: activeRole === role ? 700 : 600,
-                fontSize: 13,
-                border: "none",
-                boxShadow: activeRole === role ? "0 2px 4px rgba(0,0,0,0.05)" : "none",
-                cursor: "pointer",
-                transition: "all 0.2s"
-              }}
-            >
-              {role}s
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {activeRole === "Teacher" ? (
-        <TeacherManagementList setToast={setToast} />
-      ) : (
-        <MentorManagementTab setToast={setToast} />
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Modal, S, StatCard, StatusBadge, Toast } from "../components/Shared";
-import { getAdminCertificates, generateCertificate, revokeCertificate, getCourseAssignments, getAdminTeachers, getCourses } from "../services/api";
+import { getAdminCertificates, generateCertificate, revokeCertificate, getCourseAssignments, getAdminTeachers, getCourses, downloadCertificatePdf } from "../services/api";
 
 export default function CertificateManagementTab({ setToast }) {
   const [certificates, setCertificates] = useState([]);
@@ -172,46 +172,12 @@ export default function CertificateManagementTab({ setToast }) {
                   <div style={{ display: "flex", gap: 6 }}>
                     {cert.status === "issued" && (
                       <>
-                        <button onClick={() => {
-                          const printWindow = window.open("", "_blank");
-                          printWindow.document.write(`
-                            <!DOCTYPE html><html><head><title>Certificate - ${cert.certificateNumber}</title>
-                            <style>
-                              @page { size: landscape; margin: 0; }
-                              body { margin: 0; font-family: 'Georgia', serif; }
-                              .cert { width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; background: #f5f5f5; }
-                              .inner { width: 800px; height: 560px; background: white; border: 3px solid #b8860b; padding: 50px; text-align: center; position: relative; }
-                              .inner::before { content: ''; position: absolute; inset: 8px; border: 1px solid #daa520; pointer-events: none; }
-                              .logo { font-size: 14px; letter-spacing: 4px; color: #b8860b; text-transform: uppercase; margin-bottom: 10px; }
-                              .title { font-size: 32px; color: #1a1a2e; margin: 10px 0; font-weight: bold; }
-                              .subtitle { font-size: 14px; color: #666; margin-bottom: 30px; }
-                              .name { font-size: 28px; color: #1a1a2e; font-weight: bold; margin: 10px 0; border-bottom: 2px solid #b8860b; display: inline-block; padding-bottom: 4px; }
-                              .course { font-size: 18px; color: #333; margin: 15px 0; }
-                              .date { font-size: 13px; color: #666; margin: 8px 0; }
-                              .cert-num { font-size: 11px; color: #999; margin-top: 20px; }
-                              .grade { font-size: 16px; color: #b8860b; font-weight: bold; margin: 8px 0; }
-                              .footer { position: absolute; bottom: 30px; left: 50px; right: 50px; display: flex; justify-content: space-between; }
-                              .sign-line { width: 180px; border-top: 1px solid #333; padding-top: 6px; font-size: 12px; color: #333; text-align: center; }
-                            </style></head><body>
-                            <div class="cert"><div class="inner">
-                              <div class="logo">SpacECE</div>
-                              <div class="title">Certificate of Completion</div>
-                              <div class="subtitle">This is to certify that</div>
-                              <div class="name">${cert.teacher?.name || "Teacher"}</div>
-                              <div class="course">has successfully completed the course<br><strong>${cert.course?.title || "Training Program"}</strong></div>
-                              ${cert.grade ? `<div class="grade">Grade: ${cert.grade}</div>` : ""}
-                              ${cert.score != null ? `<div class="date">Score: ${cert.score}%</div>` : ""}
-                              <div class="date">Date of Issue: ${new Date(cert.issuedAt).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}</div>
-                              <div class="cert-num">Certificate No: ${cert.certificateNumber || "N/A"}</div>
-                              <div class="footer">
-                                <div class="sign-line">Admin Signature</div>
-                                <div class="sign-line">Director, SpacECE</div>
-                              </div>
-                            </div></div>
-                            <script>window.onload = function() { window.print(); }</script>
-                          </body></html>`);
-                          printWindow.document.close();
-                        }} style={{ ...S.tblBtn, color: "#2563eb", borderColor: "#bfdbfe" }}>📥 Download PDF</button>
+                        <button
+  onClick={() => downloadCertificatePdf(cert._id, `Certificate-${cert.certificateNumber}.pdf`)}
+  style={{ ...S.tblBtn, color: "#2563eb", borderColor: "#bfdbfe" }}
+>
+  📥 Download PDF
+</button>
                         <button onClick={() => handleRevoke(cert._id)} style={{ ...S.tblBtn, color: "#dc2626", borderColor: "#fca5a5" }}>
                           🚫 Revoke
                         </button>

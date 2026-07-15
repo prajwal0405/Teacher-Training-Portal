@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Logo, Toast, Particles, S, globalCSS } from "../components/Shared";
-import { loginUser, registerTeacher, registerMentor, requestPasswordReset, resetPassword, verifyPasswordResetToken, requestPasswordResetOtp, verifyPasswordOtp } from "../services/api";
+import { loginUser, registerTeacher, requestPasswordReset, resetPassword, verifyPasswordResetToken, requestPasswordResetOtp, verifyPasswordOtp } from "../services/api";
 
 /* ── Animated illustration (UNCHANGED — original animation kept as-is) ── */
 function LoginIllustration() {
@@ -583,7 +583,6 @@ function ResetPasswordForm({ token, onDone }) {
 
 /* ── Register Form ── */
 function RegisterForm({ onBack }) {
-  const [role, setRole]         = useState("teacher"); // teacher | mentor
   const [form, setForm]         = useState({ name: "", email: "", phone: "", address: "", subject: "", photo: "", password: "", confirmPassword: "" });
   const [showPass, setShowPass] = useState(false);
   const [toast, setToast]       = useState({ msg: "", type: "" });
@@ -622,44 +621,23 @@ function RegisterForm({ onBack }) {
       return;
     }
 
-    if (role === "teacher") {
-      registerTeacher({
-        name: name.trim(),
-        email: email.trim().toLowerCase(),
-        phone,
-        password,
-        qualification: "B.Ed",
-        subject,
-        experience: "2 years",
-        address,
+    registerTeacher({
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      phone,
+      password,
+      qualification: "B.Ed",
+      subject,
+      experience: "2 years",
+      address,
+    })
+      .then(() => {
+        setToast({ msg: "Registration submitted! Awaiting admin approval.", type: "success" });
+        setTimeout(onBack, 2000);
       })
-        .then(() => {
-          setToast({ msg: "Registration submitted! Awaiting admin approval.", type: "success" });
-          setTimeout(onBack, 2000);
-        })
-        .catch((err) => {
-          setToast({ msg: err.message || "Failed to submit registration.", type: "error" });
-        });
-    } else {
-      registerMentor({
-        name: name.trim(),
-        email: email.trim().toLowerCase(),
-        phone,
-        password,
-        qualification: "Graduate",
-        specialization: subject, // Reusing subject field for specialization
-        experience: "2 years",
-        address,
-        fellowshipSemester: 3,
-      })
-        .then(() => {
-          setToast({ msg: "Registration submitted! Awaiting admin approval.", type: "success" });
-          setTimeout(onBack, 2000);
-        })
-        .catch((err) => {
-          setToast({ msg: err.message || "Failed to submit registration.", type: "error" });
-        });
-    }
+      .catch((err) => {
+        setToast({ msg: err.message || "Failed to submit registration.", type: "error" });
+      });
   };
 
   return (
@@ -667,12 +645,8 @@ function RegisterForm({ onBack }) {
       <Toast msg={toast.msg} type={toast.type} onClose={() => setToast({ msg: "", type: "" })} />
       <Logo size={100} />
       <div style={{ textAlign: "center", marginBottom: 14 }}>
-        <span style={ls.badge}>{role === "teacher" ? "Teacher" : "Mentor"} Registration</span>
+        <span style={ls.badge}>Teacher Registration</span>
         <p style={{ fontSize: 11, color: "#9ca3af", marginTop: 4, fontStyle: "italic" }}>Admin will approve your account</p>
-      </div>
-      <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: 16 }}>
-        <button type="button" onClick={() => setRole("teacher")} style={{ padding: "6px 12px", fontSize: 12, borderRadius: 20, border: role === "teacher" ? "none" : "1px solid #d1d5db", background: role === "teacher" ? "#d97706" : "transparent", color: role === "teacher" ? "white" : "#6b7280", cursor: "pointer" }}>Teacher</button>
-        <button type="button" onClick={() => setRole("mentor")} style={{ padding: "6px 12px", fontSize: 12, borderRadius: 20, border: role === "mentor" ? "none" : "1px solid #d1d5db", background: role === "mentor" ? "#d97706" : "transparent", color: role === "mentor" ? "white" : "#6b7280", cursor: "pointer" }}>Mentor</button>
       </div>
       <form onSubmit={handleRegister}>
         <div style={{ display: "flex", gap: 10 }}>
@@ -684,10 +658,10 @@ function RegisterForm({ onBack }) {
             </div>
           </div>
           <div style={{ flex: 1, ...ci.mb }}>
-            <label style={ci.label}>{role === "teacher" ? "Subject" : "Specialization"}</label>
+            <label style={ci.label}>Subject</label>
             <div style={{ position: "relative" }}>
               <span style={ci.fieldIcon}>📘</span>
-              <input style={{ ...S.input, ...ci.input }} value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} placeholder={role === "teacher" ? "Mathematics" : "Early Childhood"} />
+              <input style={{ ...S.input, ...ci.input }} value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} placeholder="Mathematics" />
             </div>
           </div>
         </div>
