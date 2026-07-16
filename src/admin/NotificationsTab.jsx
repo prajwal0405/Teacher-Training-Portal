@@ -1,578 +1,676 @@
-import { useEffect, useMemo, useState } from "react";
-import { Modal, S, StatCard } from "../components/Shared";
-import { getAdminNotifications, sendAdminNotification, deleteNotification, markAllNotificationsRead } from "../services/api";
-
-const NOTIFICATION_TEMPLATES = [
-  { name: "Welcome", subject: "Welcome to SpacECE Teacher Training Portal", channel: "in_app" },
-  { name: "Assignment", subject: "Assignment Submission Reminder", channel: "in_app" },
-  { name: "Session", subject: "Upcoming Live Session Reminder", channel: "in_app" },
-  { name: "Course Update", subject: "New Course Content Available", channel: "in_app" },
-  { name: "Feedback", subject: "We Value Your Feedback — Share Your Thoughts", channel: "in_app" },
-  { name: "Announcement", subject: "Important Announcement for All Teachers", channel: "in_app" },
-];
-
-const CHANNEL_CONFIG = {
-  in_app: { icon: "📱", label: "In-app", color: "#6366f1", bg: "#e0e7ff" },
-  email: { icon: "📧", label: "Email", color: "#0ea5e9", bg: "#cffafe" },
-  sms: { icon: "💬", label: "SMS", color: "#10b981", bg: "#d1fae5" },
-  whatsapp: { icon: "🟢", label: "WhatsApp", color: "#25d366", bg: "#dcfce7" },
-};
-
-export default function NotificationsTab({ teachers = [], setToast }) {
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
-  const [audience, setAudience] = useState("all");
-  const [selectedTeacherId, setSelectedTeacherId] = useState("");
-  const [channel, setChannel] = useState("in_app");
-  const [sending, setSending] = useState(false);
-  const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showPreview, setShowPreview] = useState(false);
-  const [logSearch, setLogSearch] = useState("");
-  const [logChannelFilter, setLogChannelFilter] = useState("all");
-  const [logStatusFilter, setLogStatusFilter] = useState("all");
-  const [deletingId, setDeletingId] = useState(null);
-  const [retryingId, setRetryingId] = useState(null);
-
-  const refreshNotifications = async () => {
-    setLoading(true);
-    try {
-      const data = await getAdminNotifications();
-      setNotifications(data?.notifications || []);
-    } catch (error) {
-      setToast?.({ msg: error.message || "Failed to load notifications.", type: "error" });
-    } finally {
-      setLoading(false);
-    }
+import { useState } from "react";
+import { Modal, S, Toast } from "../components/Shared";
+import { MOCK_CHANNEL_CONFIG, MOCK_NOTIFICATION_LOG, MOCK_NOTIFICATION_TEMPLATES } from "../data/mockData";
+import { NT_BTN_GHOST, NT_BTN_PRIMARY, NT_CLOSE, NT_HDR, NT_MODAL, NT_OVERLAY } from "./adminStyles";
+/* ── A10: Notifications ── */
+export default function NotificationsTab({ teachers, setToast }) {
+  const [activeTab,      setActiveTab]      = useState("compose");
+  const [templates,      setTemplates]      = useState(MOCK_NOTIFICATION_TEMPLATES);
+  const [notifLog,       setNotifLog]       = useState(MOCK_NOTIFICATION_LOG);
+  const [channelConfig,  setChannelConfig]  = useState(MOCK_CHANNEL_CONFIG);
+ 
+  // Compose state
+  const [channels,       setChannels]       = useState(["email"]);
+  const [audience,       setAudience]       = useState("all");
+  const [courseAudience, setCourseAudience] = useState("");
+  const [batchAudience,  setBatchAudience]  = useState("");
+  const [subject,        setSubject]        = useState("");
+  const [subjectB,       setSubjectB]       = useState("");     // A/B test
+  const [body,           setBody]           = useState("");
+  const [scheduleMode,   setScheduleMode]   = useState("now");  // now | scheduled
+  const [schedDate,      setSchedDate]      = useState("");
+  const [schedTime,      setSchedTime]      = useState("");
+  const [abTest,         setAbTest]         = useState(false);
+  const [sending,        setSending]        = useState(false);
+  const [sentAnim,       setSentAnim]       = useState(false);
+ 
+  // Template edit
+  const [editTemplate,   setEditTemplate]   = useState(null);
+ 
+  // Channel config edit
+  const [editChannel,    setEditChannel]    = useState(null);
+  const [chanFormData,   setChanFormData]   = useState({});
+ 
+  const ALL_COURSES = [...new Set(teachers.map(t => t.course).filter(Boolean))];
+  const ALL_BATCHES = [...new Set(teachers.map(t => t.batch).filter(Boolean))];
+ 
+  const CHANNEL_META = {
+    email:    { icon:"📧", label:"Email",    color:"#3b82f6", provider:"SendGrid / AWS SES / SMTP"     },
+    sms:      { icon:"💬", label:"SMS",      color:"#10b981", provider:"Twilio / MSG91"                },
+    "in-app": { icon:"🔔", label:"In-App",   color:"#8b5cf6", provider:"Built-in Push"                },
+    whatsapp: { icon:"💚", label:"WhatsApp", color:"#25d366", provider:"WhatsApp Business API"         },
   };
-
-  useEffect(() => {
-    refreshNotifications();
-  }, []);
-
-  const audienceCount = useMemo(() => {
-    if (audience === "approved") return teachers.filter((t) => t.status === "approved").length;
-    if (audience === "pending") return teachers.filter((t) => t.status === "pending").length;
-    return teachers.length;
-  }, [audience, teachers]);
-
-  const deliveryStats = useMemo(() => {
-    const byChannel = {};
-    notifications.forEach((n) => {
-      const ch = n.channel || "in_app";
-      if (!byChannel[ch]) byChannel[ch] = { total: 0, delivered: 0, failed: 0 };
-      byChannel[ch].total += 1;
-      if (n.status === "delivered") byChannel[ch].delivered += 1;
-      if (n.status === "failed") byChannel[ch].failed += 1;
-    });
-    return {
-      total: notifications.length,
-      delivered: notifications.filter((item) => item.status === "delivered").length,
-      sent: notifications.filter((item) => item.status === "sent").length,
-      unread: notifications.filter((item) => !item.read).length,
-      failed: notifications.filter((item) => item.status === "failed").length,
-      byChannel,
-    };
-  }, [notifications]);
-
-  const bodyCharCount = body.length;
-  const bodyMaxChars = 5000;
-
-  const applyTemplate = (template) => {
-    setSubject(template.subject);
-    setBody("");
-    setChannel(template.channel);
-    setAudience("approved");
-    setToast?.({ msg: `Template "${template.name}" applied — compose your message.`, type: "success" });
+ 
+  const getAudienceCount = () => {
+    if (audience === "all")    return teachers.length;
+    if (audience === "course") return teachers.filter(t => t.course === courseAudience).length;
+    if (audience === "batch")  return teachers.filter(t => t.batch  === batchAudience).length;
+    if (audience === "approved") return teachers.filter(t => t.status === "approved").length;
+    if (audience === "pending")  return teachers.filter(t => t.status === "pending").length;
+    return 0;
   };
-
-  const clearForm = () => {
-    setSubject("");
-    setBody("");
-    setAudience("all");
-    setChannel("in_app");
-  };
-
-  const handleSend = async (keepForm = false) => {
-    if (!subject.trim() || !body.trim()) {
-      setToast?.({ msg: "Subject and message are required.", type: "error" });
-      return;
-    }
+ 
+  const toggleChannel = ch => setChannels(p => p.includes(ch) ? p.filter(x => x !== ch) : [...p, ch]);
+ 
+  const handleSend = async () => {
+    if (!subject || !body)    { setToast({ msg:"Fill subject and message.", type:"error" }); return; }
+    if (channels.length === 0){ setToast({ msg:"Select at least one channel.", type:"error" }); return; }
     setSending(true);
-    try {
-      const data = await sendAdminNotification({
-        subject: subject.trim(),
-        body: body.trim(),
-        audience: selectedTeacherId ? "specific" : audience,
-        channel,
-        teacherIds: selectedTeacherId ? [selectedTeacherId] : [],
-      });
-
-      if (!keepForm) clearForm();
-
-      setToast?.({
-        msg: `Notification sent to ${data?.recipientCount || 0} teachers.`,
-        type: "success",
-      });
-
-      setShowPreview(false);
-      await refreshNotifications();
-    } catch (error) {
-      setToast?.({ msg: error.message || "Failed to send notification.", type: "error" });
-    } finally {
-      setSending(false);
-    }
+    await new Promise(r => setTimeout(r, 1800));
+    const count = getAudienceCount();
+    const now   = new Date().toLocaleString("en-IN");
+    // Add to log
+    const newEntries = Array.from({ length: Math.min(count, 5) }, (_, i) => ({
+      id: Date.now() + i,
+      type: "Manual Broadcast",
+      recipient: teachers[i]?.name || `Teacher ${i+1}`,
+      channel: channels[0],
+      subject,
+      sentAt: now,
+      status: "delivered",
+      opened: false,
+      clicked: false,
+    }));
+    setNotifLog(p => [...newEntries, ...p]);
+    setSending(false);
+    setSentAnim(true);
+    setTimeout(() => setSentAnim(false), 3000);
+    setToast({ msg: `${scheduleMode === "now" ? "Sent" : "Scheduled"} to ${count} teachers via ${channels.join(", ")}! 📨`, type:"success" });
+    setSubject(""); setBody(""); setSubjectB(""); setAbTest(false);
   };
-
-  const handleRetry = async (item) => {
-    if (retryingId) return;
-
-    setRetryingId(item._id);
-    try {
-      const retryPayload = {
-        subject: item.subject || item.title || "",
-        body: item.body || "",
-        channel: item.channel || "in_app",
-        audience: item.audience || (item.recipient ? "specific" : "approved"),
-        teacherIds: item.recipient ? [item.recipient._id || item.recipient] : [],
-        isRetry: true,
-        originalNotificationId: item._id,
-      };
-
-      const data = await sendAdminNotification(retryPayload);
-
-      if (data?.recipientCount > 0) {
-        setNotifications((prev) =>
-          prev.map((n) =>
-            n._id === item._id
-              ? {
-                  ...n,
-                  status: "delivered",
-                  error: null,
-                  read: false,
-                  readAt: null,
-                }
-              : n
-          )
-        );
-        setToast?.({
-          msg: `Notification resent successfully to ${data?.recipientCount} teachers.`,
-          type: "success",
-        });
-      } else {
-        setToast?.({ msg: "Retry failed - no recipients found.", type: "error" });
-      }
-    } catch (error) {
-      setToast?.({ msg: error.message || "Retry failed.", type: "error" });
-    } finally {
-      setRetryingId(null);
-    }
+ 
+  // Delivery stats
+  const deliveryStats = {
+    sent:      notifLog.length,
+    delivered: notifLog.filter(n => n.status === "delivered").length,
+    opened:    notifLog.filter(n => n.opened).length,
+    clicked:   notifLog.filter(n => n.clicked).length,
+    bounced:   notifLog.filter(n => n.status === "bounced").length,
   };
-
-  const handleDelete = async (id) => {
-    setDeletingId(id);
-    try {
-      await deleteNotification(id);
-      setNotifications((prev) => prev.filter((n) => n._id !== id));
-      setToast?.({ msg: "Notification deleted.", type: "success" });
-    } catch (error) {
-      setToast?.({ msg: error.message || "Failed to delete.", type: "error" });
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  const handleMarkAllRead = async () => {
-    try {
-      await markAllNotificationsRead();
-      setNotifications((prev) =>
-        prev.map((n) => (n.read ? n : { ...n, read: true, readAt: new Date().toISOString() }))
-      );
-      setToast?.({ msg: "All notifications marked as read.", type: "success" });
-    } catch (err) {
-      setToast?.({ msg: "Failed to mark all as read.", type: "error" });
-    }
-  };
-
-  const filteredNotifications = useMemo(() => {
-    return notifications.filter((item) => {
-      const q = logSearch.toLowerCase().trim();
-
-      const matchSearch =
-        !q ||
-        item.title?.toLowerCase().includes(q) ||
-        item.subject?.toLowerCase().includes(q) ||
-        item.body?.toLowerCase().includes(q) ||
-        item.recipient?.name?.toLowerCase().includes(q) ||
-        item.recipient?.email?.toLowerCase().includes(q);
-
-      const matchChannel = logChannelFilter === "all" || item.channel === logChannelFilter;
-      const matchStatus = logStatusFilter === "all" || item.status === logStatusFilter;
-
-      return matchSearch && matchChannel && matchStatus;
-    });
-  }, [notifications, logSearch, logChannelFilter, logStatusFilter]);
-
-  const channelOptions = ["all", "in_app", "email", "sms", "whatsapp"];
-  const statusOptions = ["all", "sent", "delivered", "failed"];
-  const hasUnread = notifications.some((n) => !n.read);
-
+  const openRate  = deliveryStats.delivered > 0 ? Math.round((deliveryStats.opened   / deliveryStats.delivered) * 100) : 0;
+  const clickRate = deliveryStats.opened    > 0 ? Math.round((deliveryStats.clicked  / deliveryStats.opened)    * 100) : 0;
+ 
+  // ─────────────────────────────────────────────
   return (
-    <div style={{ animation: "fadeIn 0.3s ease" }}>
-      {showPreview && (
-        <Modal title="📨 Preview Notification" onClose={() => setShowPreview(false)}>
-          <div
-            style={{
-              padding: "16px",
-              background: "#f8fafc",
-              borderRadius: 12,
-              border: "1px solid #e2e8f0",
-              marginBottom: 16,
-            }}
-          >
-            <div style={{ fontSize: 11, color: "#64748b", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>
-              To
+    <div style={{ animation:"fadeIn 0.3s ease" }}>
+ 
+      {/* Template Edit Modal */}
+      {editTemplate && (
+        <div style={NT_OVERLAY}>
+          <div style={NT_MODAL}>
+            <div style={NT_HDR}>
+              <span style={{ fontSize:15, fontWeight:800 }}>✏️ Edit Template — {editTemplate.type}</span>
+              <button onClick={() => setEditTemplate(null)} style={NT_CLOSE}>✕</button>
             </div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>
-              {audience === "all" ? "All teachers" : audience === "approved" ? "Approved teachers" : "Pending teachers"}
-            </div>
-            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
-              {audienceCount} recipient(s) · {CHANNEL_CONFIG[channel]?.label || "In-app"}
-            </div>
-            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{audienceCount} recipient(s) · {channel.replace("_", " ")}</div>
-          </div>
-
-          <div
-            style={{
-              padding: "16px",
-              background: "white",
-              borderRadius: 12,
-              border: "1px solid #e2e8f0",
-              marginBottom: 16,
-            }}
-          >
-            <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", marginBottom: 8 }}>{subject}</div>
-            <div style={{ fontSize: 13, color: "#334155", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{body}</div>
-          </div>
-
-          <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => setShowPreview(false)} style={{ ...S.tblBtn, flex: 1, textAlign: "center" }}>
-              Edit
-            </button>
-            <button onClick={() => handleSend(false)} disabled={sending} style={{ ...S.primaryBtn, flex: 2, textAlign: "center" }}>
-              {sending ? "Sending..." : `Send to ${audienceCount} teacher(s)`}
-            </button>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <button
-              onClick={() => handleSend(true)}
-              disabled={sending}
-              style={{ ...S.tblBtn, width: "100%", textAlign: "center", fontSize: 11 }}
-            >
-              {sending ? "Sending..." : "Send & Keep Editing"}
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      <div style={{ marginBottom: 20 }}>
-        <h1 style={S.pageTitle}>Notifications Management</h1>
-        <p style={S.pageSub}>Send real notifications to teachers and review the delivery log.</p>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 14, marginBottom: 20 }}>
-        <StatCard icon="📨" label="Total Sent" val={deliveryStats.total} color="#6366f1" bg="#e0e7ff" />
-        <StatCard icon="✅" label="Delivered" val={deliveryStats.delivered} color="#10b981" bg="#d1fae5" />
-        <StatCard icon="🔔" label="Unread" val={deliveryStats.unread} color="#0ea5e9" bg="#cffafe" />
-        <StatCard icon="⚠️" label="Failed" val={deliveryStats.failed} color="#ef4444" bg="#fee2e2" />
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-        <div style={{ background: "white", borderRadius: 16, border: "1px solid #e5e7eb", padding: 20 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 12 }}>Compose Notification</div>
-
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "#334155", marginBottom: 6 }}>Quick Templates</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {NOTIFICATION_TEMPLATES.map((t, i) => (
-                <button
-                  key={i}
-                  onClick={() => applyTemplate(t)}
-                  style={{
-                    ...S.tblBtn,
-                    fontSize: 11,
-                    padding: "5px 10px",
-                    background: "#f1f5f9",
-                  }}
-                  title={t.name}
-                >
-                  {t.name}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ marginBottom: 12 }}>
-            <label style={S.label}>Audience</label>
-            <select
-              value={audience}
-              onChange={(e) => { setAudience(e.target.value); setSelectedTeacherId(""); }}
-              style={{ ...S.input, marginBottom: 8, background: "white" }}
-            >
-              <option value="all">All teachers ({teachers.length})</option>
-              <option value="approved">Approved teachers ({teachers.filter((t) => t.status === "approved").length})</option>
-              <option value="pending">Pending teachers ({teachers.filter((t) => t.status === "pending").length})</option>
-              <option value="specific">Specific teacher...</option>
-            </select>
-            {audience === "specific" && (
-              <select
-                value={selectedTeacherId}
-                onChange={(e) => setSelectedTeacherId(e.target.value)}
-                style={{ ...S.input, marginBottom: 12, background: "white" }}
-              >
-                <option value="">Select a teacher...</option>
-                {teachers.map((t) => (
-                  <option key={t._id || t.id} value={t._id || t.id}>
-                    {t.name} {t.email ? `(${t.email})` : ""}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          <div style={{ marginBottom: 12 }}>
-            <label style={S.label}>Channel</label>
-            <select value={channel} onChange={(e) => setChannel(e.target.value)} style={{ ...S.input, marginBottom: 8, background: "white" }}>
-              <option value="in_app">📱 In-app notification</option>
-              <option value="email">📧 Email (requires SMTP config)</option>
-              <option value="sms">💬 SMS (requires Twilio config)</option>
-              <option value="whatsapp">🟢 WhatsApp (requires Twilio config)</option>
-            </select>
-          </div>
-
-          <div style={{ marginBottom: 12, fontSize: 12, color: "#64748b" }}>
-            Estimated recipients: <b style={{ color: "#0f172a" }}>{audienceCount}</b>
-          </div>
-
-          <div style={{ marginBottom: 12 }}>
-            <label style={S.label}>Subject *</label>
-            <input
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              style={{ ...S.input, marginBottom: 8, background: "white" }}
-              placeholder="Enter notification subject..."
-            />
-          </div>
-
-          <div style={{ marginBottom: 4 }}>
-            <label style={S.label}>Message *</label>
-            <div style={{ position: "relative" }}>
-              <textarea
-                value={body}
-                onChange={(e) => {
-                  if (e.target.value.length <= bodyMaxChars) setBody(e.target.value);
-                }}
-                style={{ ...S.input, minHeight: 120, resize: "vertical", marginBottom: 4, background: "white" }}
-                placeholder="Write your notification message here..."
-              />
-              <div
-                style={{
-                  fontSize: 10,
-                  color: bodyCharCount > bodyMaxChars * 0.9 ? "#ef4444" : "#94a3b8",
-                  textAlign: "right",
-                  marginBottom: 6,
-                }}
-              >
-                {bodyCharCount}/{bodyMaxChars}
+            <div style={{ padding:"20px 24px 24px", overflowY:"auto", maxHeight:"75vh" }}>
+              <div style={{ marginBottom:12 }}>
+                <label style={S.label}>Notification Type</label>
+                <input style={{ ...S.input, background:"#f9fafb", color:"#9ca3af" }} value={editTemplate.type} readOnly />
+              </div>
+              <div style={{ marginBottom:12 }}>
+                <label style={S.label}>Trigger</label>
+                <input style={S.input} value={editTemplate.trigger}
+                  onChange={e => setEditTemplate(t => ({ ...t, trigger:e.target.value }))} />
+              </div>
+              <div style={{ marginBottom:12 }}>
+                <label style={S.label}>Subject Line</label>
+                <input style={S.input} value={editTemplate.subject}
+                  onChange={e => setEditTemplate(t => ({ ...t, subject:e.target.value }))} />
+                <div style={{ fontSize:10, color:"#9ca3af", marginTop:3 }}>
+                  Variables: {"{{name}}, {{course}}, {{batch}}, {{sessionTitle}}, {{dueDate}}, {{downloadLink}}"}
+                </div>
+              </div>
+              <div style={{ marginBottom:16 }}>
+                <label style={S.label}>Message Body</label>
+                <textarea style={{ ...S.input, height:120, resize:"vertical" }} value={editTemplate.body}
+                  onChange={e => setEditTemplate(t => ({ ...t, body:e.target.value }))} />
+              </div>
+              <div style={{ marginBottom:16 }}>
+                <label style={S.label}>Channels</label>
+                <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                  {Object.entries(CHANNEL_META).map(([ch, meta]) => (
+                    <button key={ch} onClick={() => setEditTemplate(t => ({
+                      ...t,
+                      channel: t.channel.includes(ch) ? t.channel.filter(x => x !== ch) : [...t.channel, ch]
+                    }))}
+                      style={{ padding:"7px 12px", borderRadius:8, border:`1.5px solid ${editTemplate.channel.includes(ch) ? meta.color : "#e5e7eb"}`, background:editTemplate.channel.includes(ch) ? `${meta.color}15` : "white", color:editTemplate.channel.includes(ch) ? meta.color : "#6b7280", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
+                      {meta.icon} {meta.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:10 }}>
+                <button onClick={() => {
+                  setTemplates(p => p.map(t => t.id === editTemplate.id ? editTemplate : t));
+                  setEditTemplate(null);
+                  setToast({ msg:"Template saved!", type:"success" });
+                }} style={{ ...NT_BTN_PRIMARY, flex:1 }}>💾 Save Template</button>
+                <button onClick={() => setEditTemplate(null)} style={{ ...NT_BTN_GHOST, flex:1 }}>Cancel</button>
               </div>
             </div>
           </div>
-
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              onClick={() => {
-                if (!subject.trim() || !body.trim()) {
-                  setToast?.({ msg: "Subject and message are required.", type: "error" });
-                  return;
-                }
-                setShowPreview(true);
-              }}
-              disabled={sending}
-              style={{ ...S.primaryBtn, flex: 1, textAlign: "center", opacity: sending ? 0.7 : 1 }}
-            >
-              {sending ? "Sending..." : "Review & Send"}
-            </button>
-            {(subject || body) && (
-              <button onClick={clearForm} style={{ ...S.tblBtn, fontSize: 11 }}>
-                ✕ Clear
+        </div>
+      )}
+ 
+      {/* Channel Config Modal */}
+      {editChannel && (
+        <div style={NT_OVERLAY}>
+          <div style={{ ...NT_MODAL, maxWidth:480 }}>
+            <div style={NT_HDR}>
+              <span style={{ fontSize:15, fontWeight:800 }}>
+                {CHANNEL_META[editChannel]?.icon} Configure {CHANNEL_META[editChannel]?.label}
+              </span>
+              <button onClick={() => setEditChannel(null)} style={NT_CLOSE}>✕</button>
+            </div>
+            <div style={{ padding:"20px 24px 24px" }}>
+              {editChannel === "email" && (
+                <div>
+                  <div style={{ marginBottom:12 }}>
+                    <label style={S.label}>Provider</label>
+                    <select style={S.input} value={chanFormData.provider || channelConfig.email.provider}
+                      onChange={e => setChanFormData(p => ({ ...p, provider:e.target.value }))}>
+                      {["SendGrid","AWS SES","SMTP","Mailgun"].map(p => <option key={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ marginBottom:12 }}>
+                    <label style={S.label}>API Key</label>
+                    <input style={S.input} type="password" placeholder="••••••••••••••••"
+                      value={chanFormData.apiKey || ""}
+                      onChange={e => setChanFormData(p => ({ ...p, apiKey:e.target.value }))} />
+                  </div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+                    <div>
+                      <label style={S.label}>From Name</label>
+                      <input style={S.input} value={chanFormData.fromName || channelConfig.email.fromName}
+                        onChange={e => setChanFormData(p => ({ ...p, fromName:e.target.value }))} />
+                    </div>
+                    <div>
+                      <label style={S.label}>From Email</label>
+                      <input style={S.input} type="email" value={chanFormData.fromEmail || channelConfig.email.fromEmail}
+                        onChange={e => setChanFormData(p => ({ ...p, fromEmail:e.target.value }))} />
+                    </div>
+                  </div>
+                </div>
+              )}
+              {editChannel === "sms" && (
+                <div>
+                  <div style={{ marginBottom:12 }}>
+                    <label style={S.label}>Provider</label>
+                    <select style={S.input} value={chanFormData.provider || channelConfig.sms.provider}
+                      onChange={e => setChanFormData(p => ({ ...p, provider:e.target.value }))}>
+                      {["MSG91","Twilio","TextLocal","Kaleyra"].map(p => <option key={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ marginBottom:12 }}>
+                    <label style={S.label}>API Key</label>
+                    <input style={S.input} type="password" placeholder="••••••••••••••••"
+                      onChange={e => setChanFormData(p => ({ ...p, apiKey:e.target.value }))} />
+                  </div>
+                  <div style={{ marginBottom:12 }}>
+                    <label style={S.label}>Sender ID</label>
+                    <input style={S.input} value={chanFormData.senderId || channelConfig.sms.senderId}
+                      onChange={e => setChanFormData(p => ({ ...p, senderId:e.target.value }))} placeholder="SPCEDU" />
+                  </div>
+                </div>
+              )}
+              {editChannel === "whatsapp" && (
+                <div>
+                  <div style={{ background:"#dcfce7", border:"1px solid #86efac", borderRadius:10, padding:"10px 14px", marginBottom:14, fontSize:12, color:"#166534" }}>
+                    💚 WhatsApp Business API — requires Meta Business account verification.
+                  </div>
+                  <div style={{ marginBottom:12 }}>
+                    <label style={S.label}>Access Token</label>
+                    <input style={S.input} type="password" placeholder="••••••••••••••••"
+                      onChange={e => setChanFormData(p => ({ ...p, token:e.target.value }))} />
+                  </div>
+                  <div style={{ marginBottom:12 }}>
+                    <label style={S.label}>Phone Number ID</label>
+                    <input style={S.input} value={chanFormData.phoneNumberId || channelConfig.whatsapp.phoneNumberId}
+                      onChange={e => setChanFormData(p => ({ ...p, phoneNumberId:e.target.value }))} />
+                  </div>
+                </div>
+              )}
+              {editChannel === "in-app" && (
+                <div style={{ textAlign:"center", padding:20 }}>
+                  <div style={{ fontSize:36, marginBottom:10 }}>🔔</div>
+                  <div style={{ fontSize:13, color:"#374151", fontWeight:600, marginBottom:6 }}>Built-in Push Notifications</div>
+                  <div style={{ fontSize:12, color:"#9ca3af" }}>In-app notifications are handled natively. No external configuration required.</div>
+                </div>
+              )}
+              <div style={{ display:"flex", gap:10, marginTop:16 }}>
+                <button onClick={() => {
+                  setChannelConfig(p => ({ ...p, [editChannel]: { ...p[editChannel], ...chanFormData, connected:true } }));
+                  setEditChannel(null);
+                  setChanFormData({});
+                  setToast({ msg:`${CHANNEL_META[editChannel]?.label} channel configured!`, type:"success" });
+                }} style={{ ...NT_BTN_PRIMARY, flex:1 }}>💾 Save Configuration</button>
+                <button onClick={() => { setEditChannel(null); setChanFormData({}); }} style={{ ...NT_BTN_GHOST, flex:1 }}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+ 
+      {/* Header */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <div>
+          <h1 style={S.pageTitle}>Notifications Management</h1>
+          <p style={S.pageSub}>Email · SMS · In-App · WhatsApp — templates, bulk messaging & delivery reports</p>
+        </div>
+      </div>
+ 
+      {/* KPI Cards */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))", gap:12, marginBottom:20 }}>
+        {[
+          { icon:"📤", label:"Sent",      val:deliveryStats.sent,      color:"#f59e0b", bg:"#fef9c3" },
+          { icon:"✅", label:"Delivered", val:deliveryStats.delivered, color:"#10b981", bg:"#d1fae5" },
+          { icon:"👁", label:"Open Rate", val:`${openRate}%`,          color:"#3b82f6", bg:"#dbeafe" },
+          { icon:"🖱", label:"Click Rate",val:`${clickRate}%`,         color:"#8b5cf6", bg:"#ede9fe" },
+          { icon:"⚠️", label:"Bounced",   val:deliveryStats.bounced,   color:"#ef4444", bg:"#fee2e2" },
+        ].map((k,i) => (
+          <div key={i} style={{ background:"white", borderRadius:12, padding:"12px 14px", border:`1px solid ${k.color}30`, borderLeft:`3px solid ${k.color}`, boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
+            <div style={{ fontSize:18, marginBottom:4 }}>{k.icon}</div>
+            <div style={{ fontSize:20, fontWeight:800, color:k.color }}>{k.val}</div>
+            <div style={{ fontSize:10, color:"#9ca3af", fontWeight:600, textTransform:"uppercase", letterSpacing:".3px" }}>{k.label}</div>
+          </div>
+        ))}
+      </div>
+ 
+      {/* Sub Tabs */}
+      <div style={{ display:"flex", gap:4, marginBottom:18, borderBottom:"2px solid #f3f4f6" }}>
+        {[
+          { key:"compose",   label:"✉️ Compose & Send"    },
+          { key:"templates", label:"📋 Templates"         },
+          { key:"channels",  label:"⚙️ Channel Config"    },
+          { key:"reports",   label:"📊 Delivery Reports"  },
+        ].map(t => (
+          <button key={t.key} onClick={() => setActiveTab(t.key)}
+            style={{ padding:"10px 18px", border:"none", borderBottom:`2px solid ${activeTab===t.key?"#f59e0b":"transparent"}`, background:"none", color:activeTab===t.key?"#92400e":"#9ca3af", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit", marginBottom:-2 }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+ 
+      {/* ── COMPOSE TAB ── */}
+      {activeTab === "compose" && (
+        <div style={{ display:"grid", gridTemplateColumns:"1.3fr 1fr", gap:20 }}>
+          {/* Compose form */}
+          <div style={{ background:"white", borderRadius:16, padding:22, border:"1px solid #f1f5f9", boxShadow:"0 2px 8px rgba(0,0,0,0.04)" }}>
+            <div style={{ fontSize:14, fontWeight:800, color:"#0f172a", marginBottom:16 }}>✉️ New Notification</div>
+ 
+            {/* Channel selector */}
+            <div style={{ marginBottom:16 }}>
+              <label style={S.label}>Send via (select multiple)</label>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                {Object.entries(CHANNEL_META).map(([ch, meta]) => {
+                  const cfg = channelConfig[ch === "in-app" ? "inapp" : ch];
+                  const connected = ch === "in-app" ? true : cfg?.connected;
+                  return (
+                    <button key={ch} onClick={() => connected && toggleChannel(ch)}
+                      title={!connected ? "Not configured — go to Channel Config" : ""}
+                      style={{ padding:"8px 14px", borderRadius:9, border:`1.5px solid ${channels.includes(ch) ? meta.color : "#e5e7eb"}`, background:channels.includes(ch) ? `${meta.color}15` : connected ? "white" : "#f9fafb", color:channels.includes(ch) ? meta.color : connected ? "#6b7280" : "#d1d5db", fontSize:12, fontWeight:700, cursor:connected ? "pointer" : "not-allowed", fontFamily:"inherit", position:"relative" }}>
+                      {meta.icon} {meta.label}
+                      {!connected && <span style={{ fontSize:9, marginLeft:4 }}>🔴</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+ 
+            {/* Audience */}
+            <div style={{ marginBottom:14 }}>
+              <label style={S.label}>Send To</label>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:8 }}>
+                {[
+                  { val:"all",      label:`All Teachers (${teachers.length})`                                        },
+                  { val:"approved", label:`Active Only (${teachers.filter(t=>t.status==="approved").length})`         },
+                  { val:"pending",  label:`Pending (${teachers.filter(t=>t.status==="pending").length})`              },
+                  { val:"course",   label:"By Course"                                                                 },
+                  { val:"batch",    label:"By Batch"                                                                  },
+                ].map(opt => (
+                  <button key={opt.val} onClick={() => setAudience(opt.val)}
+                    style={{ padding:"8px 12px", borderRadius:8, border:`1.5px solid ${audience===opt.val?"#f59e0b":"#e5e7eb"}`, background:audience===opt.val?"#fef3c7":"white", color:audience===opt.val?"#92400e":"#6b7280", fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"inherit", textAlign:"left" }}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              {audience === "course" && (
+                <select style={{ ...S.input, marginBottom:0 }} value={courseAudience} onChange={e => setCourseAudience(e.target.value)}>
+                  <option value="">Select course...</option>
+                  {ALL_COURSES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              )}
+              {audience === "batch" && (
+                <select style={{ ...S.input, marginBottom:0 }} value={batchAudience} onChange={e => setBatchAudience(e.target.value)}>
+                  <option value="">Select batch...</option>
+                  {ALL_BATCHES.map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+              )}
+              <div style={{ fontSize:12, color:"#9ca3af", marginTop:6 }}>
+                📨 Reaching <b style={{ color:"#f59e0b" }}>{getAudienceCount()} teachers</b>
+              </div>
+            </div>
+ 
+            {/* Subject with A/B toggle */}
+            <div style={{ marginBottom:14 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:5 }}>
+                <label style={{ ...S.label, margin:0 }}>Subject Line</label>
+                <button onClick={() => setAbTest(!abTest)}
+                  style={{ padding:"3px 10px", borderRadius:20, border:`1px solid ${abTest?"#8b5cf6":"#e5e7eb"}`, background:abTest?"#ede9fe":"white", color:abTest?"#7c3aed":"#9ca3af", fontSize:10, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
+                  {abTest ? "🧪 A/B ON" : "🧪 A/B Test"}
+                </button>
+              </div>
+              <input style={{ ...S.input, marginBottom: abTest ? 8 : 0 }} value={subject} onChange={e => setSubject(e.target.value)} placeholder={abTest ? "Version A subject..." : "Notification subject..."} />
+              {abTest && (
+                <input style={{ ...S.input, marginBottom:0, borderColor:"#c4b5fd" }} value={subjectB} onChange={e => setSubjectB(e.target.value)} placeholder="Version B subject..." />
+              )}
+              {abTest && (
+                <div style={{ fontSize:10, color:"#7c3aed", marginTop:4, fontWeight:600 }}>
+                  🧪 A/B test: 50% will receive Version A, 50% Version B. Results shown in Delivery Reports.
+                </div>
+              )}
+            </div>
+ 
+            {/* Message body */}
+            <div style={{ marginBottom:14 }}>
+              <label style={S.label}>Message Body</label>
+              <textarea style={{ ...S.input, height:130, resize:"vertical", fontFamily:"inherit", lineHeight:1.6 }}
+                value={body} onChange={e => setBody(e.target.value)}
+                placeholder="Write your message... Use {{name}}, {{course}}, {{batch}} for personalisation." />
+              <div style={{ fontSize:10, color:"#9ca3af", marginTop:3 }}>
+                {body.length} chars · Variables: {"{{name}}, {{course}}, {{batch}}, {{dueDate}}"}
+              </div>
+            </div>
+ 
+            {/* Schedule */}
+            <div style={{ marginBottom:16 }}>
+              <label style={S.label}>Send</label>
+              <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+                {[["now","Send Now"],["scheduled","Schedule"]].map(([val, label]) => (
+                  <button key={val} onClick={() => setScheduleMode(val)}
+                    style={{ flex:1, padding:"8px", borderRadius:8, border:`1.5px solid ${scheduleMode===val?"#f59e0b":"#e5e7eb"}`, background:scheduleMode===val?"#fef3c7":"white", color:scheduleMode===val?"#92400e":"#6b7280", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+                    {val === "now" ? "⚡ " : "📅 "}{label}
+                  </button>
+                ))}
+              </div>
+              {scheduleMode === "scheduled" && (
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                  <div>
+                    <label style={S.label}>Date</label>
+                    <input type="date" style={{ ...S.input, marginBottom:0 }} value={schedDate} onChange={e => setSchedDate(e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={S.label}>Time</label>
+                    <input type="time" style={{ ...S.input, marginBottom:0 }} value={schedTime} onChange={e => setSchedTime(e.target.value)} />
+                  </div>
+                </div>
+              )}
+            </div>
+ 
+            {/* Send button */}
+            {sentAnim ? (
+              <div style={{ background:"#d1fae5", border:"1px solid #86efac", borderRadius:12, padding:"16px", textAlign:"center" }}>
+                <div style={{ fontSize:28, marginBottom:4 }}>✅</div>
+                <div style={{ fontSize:13, fontWeight:800, color:"#065f46" }}>
+                  {scheduleMode === "now" ? "Sent successfully!" : "Scheduled!"}
+                </div>
+              </div>
+            ) : (
+              <button onClick={handleSend} disabled={sending}
+                style={{ ...NT_BTN_PRIMARY, width:"100%", padding:"12px", fontSize:14, opacity:sending?0.7:1 }}>
+                {sending ? "⏳ Sending..." : scheduleMode === "now" ? `📤 Send to ${getAudienceCount()} Teachers` : `📅 Schedule for ${schedDate} ${schedTime}`}
               </button>
             )}
           </div>
-        </div>
-
-        <div style={{ background: "white", borderRadius: 16, border: "1px solid #e5e7eb", padding: 20, display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#111827" }}>Delivery Log</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {hasUnread && (
-                <button onClick={handleMarkAllRead} style={{ ...S.tblBtn, fontSize: 11, color: "#2563eb", borderColor: "#93c5fd" }}>
-                  ✓ Mark all read
-                </button>
-              )}
-              <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 500 }}>{filteredNotifications.length} shown</span>
+ 
+          {/* Quick templates panel */}
+          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+            <div style={{ background:"white", borderRadius:16, padding:20, border:"1px solid #f1f5f9", boxShadow:"0 2px 8px rgba(0,0,0,0.04)" }}>
+              <div style={{ fontSize:14, fontWeight:800, color:"#0f172a", marginBottom:14 }}>⚡ Quick Templates</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                {templates.filter(t => t.active).slice(0,6).map(t => (
+                  <div key={t.id} onClick={() => { setSubject(t.subject); setBody(t.body); setChannels(t.channel); }}
+                    style={{ padding:"12px 14px", background:"#f9fafb", borderRadius:10, cursor:"pointer", border:"1px solid #f3f4f6", transition:"all .15s" }}>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:"#0f172a" }}>{t.type}</div>
+                      <div style={{ display:"flex", gap:4 }}>
+                        {t.channel.map(ch => (
+                          <span key={ch} style={{ fontSize:14 }}>{CHANNEL_META[ch]?.icon || "📢"}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ fontSize:11, color:"#9ca3af", marginTop:2 }}>{t.trigger}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+ 
+            {/* Channel status */}
+            <div style={{ background:"white", borderRadius:16, padding:20, border:"1px solid #f1f5f9", boxShadow:"0 2px 8px rgba(0,0,0,0.04)" }}>
+              <div style={{ fontSize:13, fontWeight:800, color:"#0f172a", marginBottom:12 }}>⚙️ Channel Status</div>
+              {Object.entries(CHANNEL_META).map(([ch, meta]) => {
+                const cfgKey = ch === "in-app" ? "inapp" : ch;
+                const cfg = channelConfig[cfgKey];
+                const connected = ch === "in-app" ? true : cfg?.connected;
+                return (
+                  <div key={ch} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderBottom:"1px solid #f9fafb" }}>
+                    <span style={{ fontSize:18 }}>{meta.icon}</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:12, fontWeight:700, color:"#0f172a" }}>{meta.label}</div>
+                      <div style={{ fontSize:10, color:"#9ca3af" }}>{ch !== "in-app" ? cfg?.provider : "Built-in"}</div>
+                    </div>
+                    <span style={{ padding:"2px 9px", borderRadius:20, fontSize:10, fontWeight:700, background:connected?"#d1fae5":"#fee2e2", color:connected?"#059669":"#dc2626" }}>
+                      {connected ? "✓ Connected" : "✕ Not Connected"}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
-
-          <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
-            <input
-              value={logSearch}
-              onChange={(e) => setLogSearch(e.target.value)}
-              placeholder="Search..."
-              style={{ ...S.input, marginBottom: 0, flex: 1, minWidth: 120, fontSize: 12, padding: "6px 10px", background: "white" }}
-            />
-            <select
-              value={logChannelFilter}
-              onChange={(e) => setLogChannelFilter(e.target.value)}
-              style={{ ...S.input, marginBottom: 0, width: 110, fontSize: 12, padding: "6px 8px", background: "white" }}
-            >
-              {channelOptions.map((o) => (
-                <option key={o} value={o}>
-                  {o === "all" ? "All channels" : CHANNEL_CONFIG[o]?.label || o}
-                </option>
-              ))}
-            </select>
-            <select
-              value={logStatusFilter}
-              onChange={(e) => setLogStatusFilter(e.target.value)}
-              style={{ ...S.input, marginBottom: 0, width: 100, fontSize: 12, padding: "6px 8px", background: "white" }}
-            >
-              {statusOptions.map((o) => (
-                <option key={o} value={o}>
-                  {o === "all" ? "All status" : o}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {loading ? (
-            <div style={{ color: "#9ca3af", fontSize: 13 }}>Loading notification history...</div>
-          ) : filteredNotifications.length === 0 ? (
-            <div style={{ textAlign: "center", padding: 30, color: "#9ca3af" }}>
-              <div style={{ fontSize: 28, marginBottom: 6 }}>📭</div>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>No notifications found</div>
-            </div>
-          ) : (
-            <div style={{ flex: 1, overflowY: "auto", maxHeight: 300 }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr style={{ background: "#f8fafc" }}>
-                    <th style={{ padding: "8px 10px", fontSize: 11, fontWeight: 600, color: "#64748b", textAlign: "left" }}>Date</th>
-                    <th style={{ padding: "8px 10px", fontSize: 11, fontWeight: 600, color: "#64748b", textAlign: "left" }}>Subject</th>
-                    <th style={{ padding: "8px 10px", fontSize: 11, fontWeight: 600, color: "#64748b", textAlign: "left" }}>Recipient</th>
-                    <th style={{ padding: "8px 10px", fontSize: 11, fontWeight: 600, color: "#64748b", textAlign: "center" }}>Status</th>
-                    <th style={{ padding: "8px 10px", fontSize: 11, fontWeight: 600, color: "#64748b", textAlign: "center" }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredNotifications.map((item) => {
-                    return (
-                      <tr key={item._id} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                        <td style={{ padding: "10px", fontSize: 12, color: "#64748b" }}>
-                          {item.createdAt ? new Date(item.createdAt).toLocaleDateString("en-IN") : "—"}
-                        </td>
-                        <td style={{ padding: "10px", fontSize: 13, color: "#111827", fontWeight: 500 }}>
-                          {item.subject || item.title}
-                        </td>
-                        <td style={{ padding: "10px", fontSize: 12, color: "#64748b" }}>
-                          {item.recipient?.name || "All teachers"}
-                        </td>
-                        <td style={{ padding: "10px", textAlign: "center" }}>
-                          <span
-                            style={{
-                              padding: "3px 10px",
-                              borderRadius: 20,
-                              fontSize: 11,
-                              fontWeight: 600,
-                              background: item.status === "failed" ? "#fee2e2" : item.status === "delivered" ? "#d1fae5" : "#fef3c7",
-                              color: item.status === "failed" ? "#991b1b" : item.status === "delivered" ? "#065f46" : "#92400e",
-                            }}
-                          >
-                            {item.status}
-                          </span>
-                        </td>
-                        <td style={{ padding: "10px", textAlign: "center" }}>
-                          {item.status === "failed" && (
-                            <button
-                              onClick={() => handleRetry(item)}
-                              disabled={retryingId === item._id}
-                              style={{
-                                ...S.tblBtn,
-                                color: "#2563eb",
-                                borderColor: "#93c5fd",
-                                fontSize: 11,
-                                padding: "4px 10px",
-                              }}
-                            >
-                              {retryingId === item._id ? "Retrying..." : "🔄 Retry"}
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleDelete(item._id)}
-                            disabled={deletingId === item._id}
-                            style={{
-                              ...S.tblBtn,
-                              color: "#dc2626",
-                              borderColor: "#fca5a5",
-                              fontSize: 11,
-                              padding: "4px 10px",
-                              marginLeft: 6,
-                            }}
-                          >
-                            {deletingId === item._id ? "..." : "🗑️"}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
         </div>
-      </div>
-
-      {/* Auto-Triggered Notifications Summary */}
-      <div style={{ background: "white", borderRadius: 16, border: "1px solid #e5e7eb", padding: 20, marginTop: 20 }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 6 }}>⚡ Auto-Triggered Notifications</div>
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16 }}>System-generated notifications sent automatically on key events.</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
-          {[
-            { icon: "👤", title: "New Teacher Registration", desc: "Sent to Admin when a teacher registers", color: "#3b82f6", bg: "#dbeafe" },
-            { icon: "⏰", title: "Activity Overdue (>24h)", desc: "Sent to Admin + Teacher", color: "#ef4444", bg: "#fee2e2" },
-            { icon: "✅", title: "Submission Approved", desc: "Sent to Teacher on admin approval", color: "#10b981", bg: "#d1fae5" },
-            { icon: "🔄", title: "Revision Requested", desc: "Sent to Teacher with admin comment", color: "#f59e0b", bg: "#fef3c7" },
-            { icon: "🚨", title: "Child Absent 3+ Days", desc: "Sent to Admin for consecutive absences", color: "#dc2626", bg: "#fee2e2" },
-            { icon: "📋", title: "Lesson Plan Published", desc: "Sent to Teacher when plan is assigned", color: "#8b5cf6", bg: "#ede9fe" },
-            { icon: "📚", title: "Training Scheduled", desc: "Sent to assigned Teachers", color: "#06b6d4", bg: "#cffafe" },
-            { icon: "📝", title: "Attendance Not Submitted", desc: "Sent to Teacher if not marked by 10:30 AM", color: "#f97316", bg: "#ffedd5" },
-          ].map((item, i) => {
-            const autoCount = notifications.filter(n => {
-              const t = (n.title || n.subject || "").toLowerCase();
-              return t.includes(item.title.toLowerCase().split(" ")[0].toLowerCase());
-            }).length;
-            return (
-              <div key={i} style={{ padding: 14, borderRadius: 12, background: item.bg, border: `1px solid ${item.color}30` }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <span style={{ fontSize: 18 }}>{item.icon}</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: item.color }}>{item.title}</span>
+      )}
+ 
+      {/* ── TEMPLATES TAB ── */}
+      {activeTab === "templates" && (
+        <div>
+          <div style={{ fontSize:13, color:"#6b7280", marginBottom:16 }}>
+            Manage auto-triggered notification templates. Click Edit to customise any template.
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {templates.map(t => (
+              <div key={t.id} style={{ background:"white", borderRadius:14, padding:"16px 20px", border:"1px solid #f1f5f9", boxShadow:"0 1px 4px rgba(0,0,0,0.04)", display:"flex", alignItems:"center", gap:16 }}>
+                <div style={{ width:44, height:44, borderRadius:12, background:t.active?"#fef3c7":"#f3f4f6", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>
+                  {t.channel[0] ? CHANNEL_META[t.channel[0]]?.icon : "📢"}
                 </div>
-                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 8 }}>{item.desc}</div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: item.color }}>Sent: {autoCount} times</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                    <div style={{ fontSize:14, fontWeight:800, color:"#0f172a" }}>{t.type}</div>
+                    {t.channel.map(ch => (
+                      <span key={ch} style={{ padding:"1px 7px", borderRadius:20, fontSize:10, fontWeight:700, background:`${CHANNEL_META[ch]?.color}15`, color:CHANNEL_META[ch]?.color || "#6b7280" }}>
+                        {CHANNEL_META[ch]?.icon} {CHANNEL_META[ch]?.label}
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ fontSize:11, color:"#9ca3af" }}>🔁 {t.trigger}</div>
+                  <div style={{ fontSize:11, color:"#6b7280", marginTop:2 }}>Subject: {t.subject}</div>
+                </div>
+                <div style={{ textAlign:"center", flexShrink:0 }}>
+                  <div style={{ fontSize:16, fontWeight:800, color:"#0f172a" }}>{t.sentCount}</div>
+                  <div style={{ fontSize:10, color:"#9ca3af" }}>sent</div>
+                  <div style={{ fontSize:10, color:"#9ca3af" }}>{t.lastSent}</div>
+                </div>
+                <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+                  {/* Toggle active */}
+                  <div onClick={() => setTemplates(p => p.map(x => x.id===t.id ? {...x,active:!x.active} : x))}
+                    style={{ width:40, height:22, borderRadius:11, background:t.active?"#10b981":"#e5e7eb", position:"relative", cursor:"pointer", transition:"background .3s", flexShrink:0 }}>
+                    <div style={{ position:"absolute", top:2, left:t.active?18:2, width:18, height:18, borderRadius:"50%", background:"white", transition:"left .3s", boxShadow:"0 1px 3px rgba(0,0,0,.2)" }}/>
+                  </div>
+                  <button onClick={() => setEditTemplate({ ...t })} style={NT_BTN_GHOST}>✏️ Edit</button>
+                  <button onClick={() => { setSubject(t.subject); setBody(t.body); setChannels(t.channel); setActiveTab("compose"); setToast({ msg:"Template loaded in Compose!", type:"success" }); }}
+                    style={NT_BTN_PRIMARY}>Use →</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+ 
+      {/* ── CHANNEL CONFIG TAB ── */}
+      {activeTab === "channels" && (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:16 }}>
+          {Object.entries(CHANNEL_META).map(([ch, meta]) => {
+            const cfgKey = ch === "in-app" ? "inapp" : ch;
+            const cfg    = channelConfig[cfgKey];
+            const connected = ch === "in-app" ? true : cfg?.connected;
+            return (
+              <div key={ch} style={{ background:"white", borderRadius:16, padding:20, border:`1px solid ${meta.color}30`, boxShadow:"0 2px 8px rgba(0,0,0,0.04)" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
+                  <div style={{ width:48, height:48, borderRadius:14, background:`${meta.color}15`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>{meta.icon}</div>
+                  <div>
+                    <div style={{ fontSize:15, fontWeight:800, color:"#0f172a" }}>{meta.label}</div>
+                    <div style={{ fontSize:11, color:"#9ca3af" }}>{meta.provider}</div>
+                  </div>
+                  <span style={{ marginLeft:"auto", padding:"3px 10px", borderRadius:20, fontSize:10, fontWeight:700, background:connected?"#d1fae5":"#fee2e2", color:connected?"#059669":"#dc2626" }}>
+                    {connected ? "✓ Live" : "✕ Off"}
+                  </span>
+                </div>
+ 
+                {ch !== "in-app" && cfg && (
+                  <div style={{ background:"#f9fafb", borderRadius:10, padding:"10px 12px", marginBottom:12, fontSize:11, color:"#6b7280" }}>
+                    <div>Provider: <b>{cfg.provider}</b></div>
+                    {cfg.fromEmail && <div>From: <b>{cfg.fromEmail}</b></div>}
+                    {cfg.senderId  && <div>Sender ID: <b>{cfg.senderId}</b></div>}
+                    {cfg.phoneNumberId && <div>Phone ID: <b>{cfg.phoneNumberId}</b></div>}
+                  </div>
+                )}
+ 
+                {ch === "whatsapp" && !connected && (
+                  <div style={{ background:"#dcfce7", border:"1px solid #86efac", borderRadius:8, padding:"8px 12px", marginBottom:12, fontSize:11, color:"#166534" }}>
+                    💚 Optional advanced feature. Requires Meta Business verification.
+                  </div>
+                )}
+ 
+                <div style={{ display:"flex", gap:8 }}>
+                  <button onClick={() => { setEditChannel(ch); setChanFormData({}); }}
+                    style={{ ...NT_BTN_PRIMARY, flex:1 }}>{connected ? "⚙️ Reconfigure" : "🔗 Connect"}</button>
+                  {connected && ch !== "in-app" && (
+                    <button onClick={() => {
+                      setChannelConfig(p => ({ ...p, [cfgKey]: { ...p[cfgKey], connected:false } }));
+                      setToast({ msg:`${meta.label} disconnected.`, type:"error" });
+                    }} style={{ ...NT_BTN_GHOST, color:"#dc2626", borderColor:"#fca5a5" }}>Disconnect</button>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
-      </div>
+      )}
+ 
+      {/* ── DELIVERY REPORTS TAB ── */}
+      {activeTab === "reports" && (
+        <div style={{ display:"flex", flexDirection:"column", gap:18 }}>
+          {/* Summary bars */}
+          <div style={{ background:"white", borderRadius:16, padding:20, border:"1px solid #f1f5f9", boxShadow:"0 2px 8px rgba(0,0,0,0.04)" }}>
+            <div style={{ fontSize:14, fontWeight:800, color:"#0f172a", marginBottom:16 }}>📊 Delivery Performance</div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:16 }}>
+              {[
+                { label:"Delivery Rate", val:deliveryStats.delivered, total:deliveryStats.sent,      pct:Math.round((deliveryStats.delivered/Math.max(deliveryStats.sent,1))*100), color:"#10b981" },
+                { label:"Open Rate",     val:deliveryStats.opened,    total:deliveryStats.delivered, pct:openRate,  color:"#3b82f6" },
+                { label:"Click Rate",    val:deliveryStats.clicked,   total:deliveryStats.opened,    pct:clickRate, color:"#8b5cf6" },
+                { label:"Bounce Rate",   val:deliveryStats.bounced,   total:deliveryStats.sent,      pct:Math.round((deliveryStats.bounced/Math.max(deliveryStats.sent,1))*100), color:"#ef4444" },
+              ].map((stat,i) => (
+                <div key={i} style={{ padding:14, background:"#f9fafb", borderRadius:12, border:"1px solid #f3f4f6" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
+                    <span style={{ fontSize:12, fontWeight:700, color:"#374151" }}>{stat.label}</span>
+                    <span style={{ fontSize:16, fontWeight:900, color:stat.color }}>{stat.pct}%</span>
+                  </div>
+                  <div style={{ height:6, background:"#e5e7eb", borderRadius:4, overflow:"hidden", marginBottom:4 }}>
+                    <div style={{ height:"100%", width:`${stat.pct}%`, background:stat.color, borderRadius:4 }} />
+                  </div>
+                  <div style={{ fontSize:10, color:"#9ca3af" }}>{stat.val} of {stat.total}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+ 
+          {/* A/B Test results simulation */}
+          <div style={{ background:"white", borderRadius:16, padding:20, border:"1px solid #f1f5f9", boxShadow:"0 2px 8px rgba(0,0,0,0.04)" }}>
+            <div style={{ fontSize:14, fontWeight:800, color:"#0f172a", marginBottom:14 }}>🧪 A/B Test Results</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
+              {[
+                { label:"Version A", subject:"Live Session Tomorrow: Classroom Management", openRate:68, clickRate:42, sent:Math.floor(getAudienceCount()/2), winner:true  },
+                { label:"Version B", subject:"Don't Miss Tomorrow's Live Session!",         openRate:54, clickRate:35, sent:Math.ceil(getAudienceCount()/2),  winner:false },
+              ].map((v,i) => (
+                <div key={i} style={{ padding:16, background:v.winner?"#ecfdf5":"#f9fafb", borderRadius:12, border:`1.5px solid ${v.winner?"#86efac":"#f3f4f6"}` }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                    <span style={{ fontSize:13, fontWeight:800, color:"#0f172a" }}>{v.label}</span>
+                    {v.winner && <span style={{ padding:"2px 9px", borderRadius:20, fontSize:10, fontWeight:700, background:"#d1fae5", color:"#059669" }}>🏆 Winner</span>}
+                  </div>
+                  <div style={{ fontSize:11, color:"#6b7280", marginBottom:10, fontStyle:"italic" }}>"{v.subject}"</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+                    {[{l:"Sent",v:v.sent,c:"#374151"},{l:"Open Rate",v:`${v.openRate}%`,c:"#3b82f6"},{l:"Click Rate",v:`${v.clickRate}%`,c:"#8b5cf6"}].map((s,j) => (
+                      <div key={j} style={{ textAlign:"center", background:"white", borderRadius:8, padding:"8px 4px" }}>
+                        <div style={{ fontSize:14, fontWeight:800, color:s.c }}>{s.v}</div>
+                        <div style={{ fontSize:9, color:"#9ca3af", fontWeight:600, textTransform:"uppercase" }}>{s.l}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+ 
+          {/* Notification log table */}
+          <div style={{ background:"white", borderRadius:16, border:"1px solid #f1f5f9", overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,0.04)" }}>
+            <div style={{ padding:"14px 18px", borderBottom:"1px solid #f3f4f6", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div style={{ fontSize:13, fontWeight:800, color:"#0f172a" }}>📋 Notification Log ({notifLog.length})</div>
+              <button onClick={() => {
+                const csv = [["Recipient","Type","Channel","Subject","Sent At","Status","Opened","Clicked"],
+                  ...notifLog.map(n => [n.recipient,n.type,n.channel,n.subject,n.sentAt,n.status,n.opened?"Yes":"No",n.clicked?"Yes":"No"])
+                ].map(r => r.map(v=>`"${v}"`).join(",")).join("\n");
+                const a = document.createElement("a"); a.href="data:text/csv;charset=utf-8,"+encodeURI(csv); a.download="notification_log.csv"; a.click();
+                setToast({ msg:"Log exported!", type:"success" });
+              }} style={NT_BTN_GHOST}>⬇ Export CSV</button>
+            </div>
+            <div style={{ overflowX:"auto" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                <thead>
+                  <tr style={{ background:"#f9fafb", borderBottom:"1px solid #f1f5f9" }}>
+                    {["Recipient","Type","Channel","Subject","Sent At","Status","Opened","Clicked"].map(h => (
+                      <th key={h} style={{ padding:"10px 12px", fontSize:10.5, fontWeight:700, color:"#9ca3af", textAlign:"left", textTransform:"uppercase", letterSpacing:".4px", whiteSpace:"nowrap" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {notifLog.map((n,i) => (
+                    <tr key={n.id} style={{ borderBottom:"1px solid #f9fafb", background:i%2===0?"white":"#fafafa" }}>
+                      <td style={{ padding:"10px 12px", fontSize:13, fontWeight:700, color:"#0f172a" }}>{n.recipient}</td>
+                      <td style={{ padding:"10px 12px", fontSize:11, color:"#6b7280" }}>{n.type}</td>
+                      <td style={{ padding:"10px 12px" }}>
+                        <span style={{ fontSize:14 }}>{CHANNEL_META[n.channel]?.icon || "📢"}</span>
+                        <span style={{ fontSize:11, color:"#6b7280", marginLeft:4 }}>{CHANNEL_META[n.channel]?.label || n.channel}</span>
+                      </td>
+                      <td style={{ padding:"10px 12px", fontSize:11, color:"#374151", maxWidth:160, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{n.subject}</td>
+                      <td style={{ padding:"10px 12px", fontSize:11, color:"#9ca3af" }}>{n.sentAt}</td>
+                      <td style={{ padding:"10px 12px" }}>
+                        <span style={{ padding:"2px 9px", borderRadius:20, fontSize:10, fontWeight:700, background:n.status==="delivered"?"#d1fae5":"#fee2e2", color:n.status==="delivered"?"#059669":"#dc2626" }}>
+                          {n.status}
+                        </span>
+                      </td>
+                      <td style={{ padding:"10px 12px", textAlign:"center" }}>
+                        <span style={{ fontSize:14 }}>{n.opened ? "👁" : "—"}</span>
+                      </td>
+                      <td style={{ padding:"10px 12px", textAlign:"center" }}>
+                        <span style={{ fontSize:14 }}>{n.clicked ? "🖱" : "—"}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -11,8 +11,6 @@ node_modules
 dist
 dist-ssr
 *.local
-.env
-backend/.env
 
 # Editor directories and files
 .vscode/*
@@ -24,18 +22,3 @@ backend/.env
 *.njsproj
 *.sln
 *.sw?
-
-# AI agent tool directories
-.kilo/
-.kilocode/
-.agents/
-
-# Duplicate/backup directories
-teacher-training-backend/
-
-# Build artifacts
-*.snippet.js
-
-# Empty directories
-uploads/
-

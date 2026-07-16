@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { SectionCard, S, Badge } from "../components/Shared";
-import { getTeacherMe, getTeacherChildren, getChildAttendance, saveChildAttendance, createTeacherChild, getTeacherClasses } from "../services/api";
+import { getTeacherMe, getTeacherChildren, getChildAttendance, saveChildAttendance, createTeacherChild } from "../services/api";
 
 const EMAILJS_SERVICE_ID  = "service_ckzt1le";
 const EMAILJS_TEMPLATE_ID = "template_xycsvf7";
@@ -13,22 +13,15 @@ let emailJsLoaded = false;
 
 export default function AttendanceManager({ user }) {
   const [teacherProfile, setTeacherProfile] = useState(null);
-  const [classes, setClasses] = useState([]);
-  const [selectedClassId, setSelectedClassId] = useState("");
   const [students, setStudents] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
   const [attendanceDict, setAttendanceDict] = useState({});
   const [isSavedRecord, setIsSavedRecord] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newStudentName, setNewStudentName] = useState("");
-  const [newStudentAge, setNewStudentAge] = useState("");
-  const [newStudentGender, setNewStudentGender] = useState("");
-  const [newStudentParentName, setNewStudentParentName] = useState("");
-  const [newStudentParentPhone, setNewStudentParentPhone] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(true);
-  const [rosterVersion, setRosterVersion] = useState(0);
 
   // OTP state
   const [showOtpModal, setShowOtpModal] = useState(false);
@@ -49,21 +42,6 @@ export default function AttendanceManager({ user }) {
     getTeacherMe()
       .then(res => {
         setTeacherProfile(res.teacher);
-        const defaultClassId = (res.teacher?.teacherProfile?.classes || [])[0]?._id || (res.teacher?.teacherProfile?.classes || [])[0];
-        
-        getTeacherClasses()
-          .then(classRes => {
-            const cls = classRes.classes || [];
-            setClasses(cls);
-            if (defaultClassId) {
-              setSelectedClassId(defaultClassId);
-            } else if (cls.length > 0) {
-              setSelectedClassId(cls[0]._id || cls[0].id);
-            }
-          })
-          .catch(err => {
-            console.error("Error fetching teacher classes:", err);
-          });
       })
       .catch(err => {
         console.error("Error fetching teacher profile:", err);
@@ -71,14 +49,13 @@ export default function AttendanceManager({ user }) {
   }, []);
 
   // Fetch children list and attendance for selected date
-  useEffect(() => {
+  const loadRosterAndAttendance = () => {
     if (!teacherProfile) return;
-    const classId = selectedClassId || (teacherProfile?.teacherProfile?.classes || [])[0]?._id || (teacherProfile?.teacherProfile?.classes || [])[0];
     setLoading(true);
 
     Promise.all([
-      getTeacherChildren(classId),
-      getChildAttendance({ date: selectedDate, classId: classId })
+      getTeacherChildren(),
+      getChildAttendance({ date: selectedDate })
     ]).then(([childrenRes, attendanceRes]) => {
       const dbChildren = childrenRes.children || [];
       const roster = dbChildren.map(c => ({
@@ -89,6 +66,7 @@ export default function AttendanceManager({ user }) {
       setStudents(roster);
 
       const sessions = attendanceRes.sessions || [];
+      const classId = teacherProfile?.teacherProfile?.class?._id || teacherProfile?.teacherProfile?.class;
       const classSession = sessions.find(s => {
         const scid = s.class?._id || s.class?.id || s.class;
         return scid === classId;
@@ -117,7 +95,13 @@ export default function AttendanceManager({ user }) {
       setLoading(false);
       triggerToast("Failed to fetch records from database.", true);
     });
-  }, [selectedDate, teacherProfile, selectedClassId, rosterVersion]);
+  };
+
+  useEffect(() => {
+    if (teacherProfile) {
+      loadRosterAndAttendance();
+    }
+  }, [selectedDate, teacherProfile]);
 
   // OTP expiry countdown
   useEffect(() => {
@@ -244,7 +228,7 @@ export default function AttendanceManager({ user }) {
 
   const saveAttendanceToDb = (dict) => {
     const centerId = teacherProfile?.teacherProfile?.center?._id || teacherProfile?.teacherProfile?.center;
-    const classId = selectedClassId || (teacherProfile?.teacherProfile?.classes || [])[0]?._id || (teacherProfile?.teacherProfile?.classes || [])[0];
+    const classId = teacherProfile?.teacherProfile?.class?._id || teacherProfile?.teacherProfile?.class;
 
     if (!centerId || !classId) {
       return Promise.reject(new Error("Center/Class assignment missing in teacher profile."));
@@ -320,25 +304,12 @@ export default function AttendanceManager({ user }) {
     e.preventDefault();
     if (!newStudentName.trim()) return;
 
-    const classId = selectedClassId || (teacherProfile?.teacherProfile?.classes || [])[0]?._id || (teacherProfile?.teacherProfile?.classes || [])[0];
-    createTeacherChild({
-      fullName: newStudentName.trim(),
-      age: newStudentAge ? Number(newStudentAge) : undefined,
-      gender: newStudentGender || undefined,
-      guardianName: newStudentParentName || undefined,
-      guardianPhone: newStudentParentPhone || undefined,
-      classId,
-      status: "active"
-    })
+    createTeacherChild({ fullName: newStudentName.trim(), status: "active" })
       .then(() => {
         triggerToast("Child enrolled successfully in database!");
         setNewStudentName("");
-        setNewStudentAge("");
-        setNewStudentGender("");
-        setNewStudentParentName("");
-        setNewStudentParentPhone("");
         setShowAddModal(false);
-        setRosterVersion(v => v + 1);
+        loadRosterAndAttendance();
       })
       .catch(err => {
         console.error("Error adding child:", err);
@@ -417,9 +388,9 @@ export default function AttendanceManager({ user }) {
       )}
 
       {/* Date picker */}
-      <SectionCard title="📅 Daily Register Date & Class Lookup">
+      <SectionCard title="📅 Daily Register Date Lookup">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <label style={{ ...S.label, margin: 0, fontWeight: 700 }}>Select Sheet Date:</label>
             <input
               type="date"
@@ -427,30 +398,12 @@ export default function AttendanceManager({ user }) {
               onChange={e => setSelectedDate(e.target.value)}
               style={{ ...S.input, width: "auto", padding: "8px 12px" }}
             />
-
-            {classes.length > 0 && (
-              <>
-                <label style={{ ...S.label, margin: 0, fontWeight: 700, marginLeft: 12 }}>Select Class:</label>
-                <select
-                  value={selectedClassId}
-                  onChange={e => setSelectedClassId(e.target.value)}
-                  style={{ ...S.input, width: "auto", padding: "8px 12px", minWidth: 150 }}
-                >
-                  {classes.map(c => (
-                    <option key={c._id || c.id} value={c._id || c.id}>{c.name} ({c.ageGroup || "All Ages"})</option>
-                  ))}
-                </select>
-              </>
-            )}
-
             {isSavedRecord
               ? <Badge children="📝 Reviewing Saved Sheet History" color="#1e40af" bg="#dbeafe" />
               : <Badge children="✨ New Unsaved Data Register"     color="#854d0e" bg="#fef9c3" />
             }
           </div>
-          {classes.length > 0 && selectedClassId && (
-            <Badge children={`Class: ${classes.find(c => (c._id || c.id) === selectedClassId)?.name || "Selected"}`} color="#d97706" bg="#fef3c7" />
-          )}
+          <Badge children={`Class: ${teacherProfile?.teacherProfile?.class?.name || "Unassigned"}`} color="#d97706" bg="#fef3c7" />
         </div>
 
         {isSavedRecord && (
@@ -527,52 +480,15 @@ export default function AttendanceManager({ user }) {
               <button onClick={() => setShowAddModal(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9ca3af" }}>✕</button>
             </div>
             <form onSubmit={handleAddStudent}>
-              <label style={S.label}>Student Full Name *</label>
+              <label style={S.label}>Student Full Name</label>
               <input
                 required
-                style={{ ...S.input, marginBottom: 12 }}
+                style={{ ...S.input, marginBottom: 20 }}
                 placeholder="Enter first and last name…"
                 value={newStudentName}
                 onChange={e => setNewStudentName(e.target.value)}
               />
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-                <div>
-                  <label style={S.label}>Age</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="18"
-                    style={S.input}
-                    placeholder="Age"
-                    value={newStudentAge}
-                    onChange={e => setNewStudentAge(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label style={S.label}>Gender</label>
-                  <select style={S.input} value={newStudentGender} onChange={e => setNewStudentGender(e.target.value)}>
-                    <option value="">Select…</option>
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-              </div>
-              <label style={S.label}>Parent/Guardian Name</label>
-              <input
-                style={{ ...S.input, marginBottom: 12 }}
-                placeholder="Parent or guardian name"
-                value={newStudentParentName}
-                onChange={e => setNewStudentParentName(e.target.value)}
-              />
-              <label style={S.label}>Parent Phone</label>
-              <input
-                style={{ ...S.input, marginBottom: 20 }}
-                placeholder="Parent phone number"
-                value={newStudentParentPhone}
-                onChange={e => setNewStudentParentPhone(e.target.value)}
-              />
-              <button type="submit" style={{ ...S.primaryBtn, width: "100%" }}>Enroll Child →</button>
+              <button type="submit" style={{ ...S.primaryBtn, width: "100%" }}>Enrole Pupil →</button>
             </form>
           </div>
         </div>

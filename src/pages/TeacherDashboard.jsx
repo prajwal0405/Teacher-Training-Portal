@@ -1,256 +1,111 @@
 import { useState, useEffect, useRef } from "react";
 import { Logo, Toast, Badge, StatusBadge, StatCard, SectionCard, S, globalCSS } from "../components/Shared";
-import { t, setLanguage, getLanguageList, getCurrentLanguage, LANG_CHANGE_EVENT } from "../services/i18n";
-import { updateTeacherNotificationPreference } from "../services/api";
 import AttendanceManager from "./AttendanceManager";
 import TrainingAndClassroomManager from "./TrainingAndClassroomManager";
 import GeotagAttendance from "./GeotagAttendance";
-import ProctoredAssessment from "./Proctoredassessment";      // now reading/notes based, same filename
-import TeacherCourseNotes from "./TeacherCourseNotes";         // NEW — replaces the old video CoursesTab
+import ProctoredAssessment from "./Proctoredassessment";
 import {
   getTeacherProgress,
   getNotifications,
   markNotificationRead,
   askTeacherChatbot,
   updateCourseAssignmentProgress,
-  updateTeacherMe,
-  getTeacherMe,
-  uploadFile,
-  changeTeacherPassword,
-  submitFeedback,
-  getFeedbacks,
-  updateTeacherLanguage,
-  getTeacherCertificates,
-  getTeacherChildren,
-  createTeacherChild,
-  getTeacherClasses
+  getCourses,
+  uploadFile
 } from "../services/api";
-import { downloadCertificatePdf } from "../services/api";
+const MOCK_SCHEDULE = [
+  { time: "08:00 AM", class: "Grade 5A", topic: "Number Patterns",        room: "101", status: "completed" },
+  { time: "09:30 AM", class: "Grade 6B", topic: "Algebraic Expressions",  room: "203", status: "ongoing"   },
+  { time: "11:00 AM", class: "Grade 5B", topic: "Fractions & Decimals",   room: "101", status: "upcoming"  },
+  { time: "01:00 PM", class: "Grade 7A", topic: "Geometry Basics",        room: "305", status: "upcoming"  },
+  { time: "02:30 PM", class: "Grade 6A", topic: "Statistics",             room: "203", status: "upcoming"  },
+  { time: "04:00 PM", class: "Grade 7B", topic: "Problem Solving Workshop",room: "Lab", status: "upcoming" },
+];
 
-/* Resolve a profile photo path to a full URL */
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+const MOCK_GRADES = [
+  { class: "Grade 5A", students: 38, avg: 82, highest: 98, lowest: 54, assignments: 8, completed: 7 },
+  { class: "Grade 5B", students: 35, avg: 78, highest: 95, lowest: 48, assignments: 8, completed: 6 },
+  { class: "Grade 6A", students: 40, avg: 85, highest: 100,lowest: 62, assignments: 8, completed: 8 },
+  { class: "Grade 6B", students: 42, avg: 79, highest: 97, lowest: 50, assignments: 8, completed: 5 },
+  { class: "Grade 7A", students: 36, avg: 88, highest: 99, lowest: 65, assignments: 8, completed: 8 },
+  { class: "Grade 7B", students: 39, avg: 76, highest: 94, lowest: 45, assignments: 8, completed: 6 },
+];
 
-/* Returns teacher's real photo URL or DiceBear fallback */
-const getTeacherPhotoUrl = (teacher) => {
-  const photo = teacher?.teacherProfile?.profilePhoto || teacher?.teacherProfile?.photo || teacher?.photoUrl || teacher?.profilePhoto;
-  if (!photo) return null;
-  if (typeof photo === "string") return photo.startsWith("http") ? photo : `${API_BASE_URL}${photo}`;
-  const url = photo.publicUrl || photo.url || photo.path;
-  return url || null;
-};
+const MOCK_ATTENDANCE_MONTHLY = [
+  { month: "Jan", val: 95 },{ month: "Feb", val: 88 },{ month: "Mar", val: 92 },
+  { month: "Apr", val: 87 },{ month: "May", val: 90 },{ month: "Jun", val: 94 },
+];
 
-/* ── Sidebar Avatar Component ── */
-function SidebarAvatar({ teacher, size = 34 }) {
-  const [imgError, setImgError] = useState(false);
-  const photoUrl = getTeacherPhotoUrl(teacher);
-  
-  if (!photoUrl || imgError) {
-    return (
-      <div style={{ width: size, height: size, borderRadius: "50%", background: "linear-gradient(135deg,#3b82f6,#1d4ed8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: "white", flexShrink: 0 }}>
-        {teacher?.name?.[0] || "?"}
-      </div>
-    );
-  }
-  
-  return (
-    <div style={{ position: "relative", flexShrink: 0 }}>
-      <img src={photoUrl} alt={teacher?.name} onError={() => setImgError(true)}
-        style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", border: "2px solid #e2e8f0" }} />
-      <span style={{ position: "absolute", bottom: 0, right: 0, background: "#10b981", borderRadius: "50%", width: 12, height: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, border: "1.5px solid white" }}>📷</span>
-    </div>
-  );
-}
+const MOCK_ASSIGNMENTS = [
+  { id: 1, title: "Lesson Plan — Number Patterns",      course: "Pre-Primary Training", due: "05/06/2026", status: "pending",  score: null },
+  { id: 2, title: "Activity Worksheet Set",             course: "Pre-Primary Training", due: "01/06/2026", status: "approved", score: 95   },
+  { id: 3, title: "Assessment Tool Design",             course: "Pre-Primary Training", due: "28/05/2026", status: "revision", score: null },
+  { id: 4, title: "Classroom Management Report",        course: "Pre-Primary Training", due: "20/05/2026", status: "approved", score: 88   },
+];
 
-/* ── Under Construction Placeholder ── */
-function UnderConstructionTab({ label = "This page", icon = "🚧" }) {
-  return (
-    <div style={{ animation: "fadeIn 0.3s ease", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
-      <div style={{
-        background: "white",
-        borderRadius: 20,
-        padding: "48px 56px",
-        textAlign: "center",
-        border: "1px dashed #fbbf24",
-        boxShadow: "0 4px 20px rgba(0,0,0,0.06)",
-        maxWidth: 460
-      }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>{icon}</div>
-        <div style={{ fontSize: 18, fontWeight: 800, color: "#1c1917", marginBottom: 8 }}>
-          {label} is under work
-        </div>
-        <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.6 }}>
-          This section is currently being built and is not connected yet. Please check back soon — thank you for your patience!
-        </div>
-      </div>
-    </div>
-  );
-}
+const MOCK_COURSES = [
+  { id: 1, title: "Pre-Primary Teacher Training",      progress: 72, total: 24, completed: 17, nextSession: "02/06/2026", status: "active"   },
+  { id: 2, title: "Child Psychology & Development",    progress: 45, total: 16, completed: 7,  nextSession: "08/06/2026", status: "active"   },
+  { id: 3, title: "Curriculum Design & Lesson Planning",progress: 0, total: 20, completed: 0,  nextSession: "15/06/2026", status: "enrolled" },
+];
 
-/* ── OverviewTab ── */
+const MOCK_CERTIFICATES = [
+  { id: 1, title: "Pre-Primary Teacher Training — Level 1", issued: "15/03/2026", grade: "A+", credentialId: "SPC-2026-001" },
+  { id: 2, title: "Child Safety & Wellbeing",               issued: "10/02/2026", grade: "A",  credentialId: "SPC-2026-002" },
+];
+
+const MOCK_NOTIFICATIONS = [
+  { id: 1, type: "session",     msg: "Live session tomorrow at 10:00 AM — Classroom Management",  time: "2h ago",  read: false },
+  { id: 2, type: "assignment",  msg: "Assignment reviewed — Activity Worksheet scored 95/100",     time: "5h ago",  read: false },
+  { id: 3, type: "approval",    msg: "Assignment needs revision — Reattempt by 05/06/2026",        time: "1d ago",  read: true  },
+  { id: 4, type: "certificate", msg: "Your certificate for Child Safety has been issued",           time: "3d ago",  read: true  },
+  { id: 5, type: "course",      msg: "New course available — Curriculum Design & Lesson Planning", time: "5d ago",  read: true  },
+];
+
+/* ═══════════════════════════════════════════
+   TAB COMPONENTS
+═══════════════════════════════════════════ */
+
 function OverviewTab({ user, setActiveTab, courses = [], assignments = [], lessons = [], activities = [], summary = {} }) {
-  const attendance = summary.attendanceRate !== undefined ? summary.attendanceRate : 0;
+  const attendance = summary.attendanceRate !== undefined ? summary.attendanceRate : (user.attendance || 90);
   const attColor   = attendance>=85 ? "#10b981" : attendance>=70 ? "#f59e0b" : "#ef4444";
-  const photoUrl = getTeacherPhotoUrl(user);
 
+  // Calculate certificates based on completed courses
   const certificatesCount = courses.filter(c => c.status === "completed" || c.progressPercent === 100).length;
+  // Calculate pending tasks (assignments in assigned or revision status)
   const pendingTasksCount = assignments.filter(a => a.status === "assigned" || a.status === "revision").length;
-  const gradedAssignments = assignments.filter(a => a.score !== null && a.score !== undefined);
-  const averageScore = gradedAssignments.length ? Math.round(gradedAssignments.reduce((sum, a) => sum + Number(a.score || 0), 0) / gradedAssignments.length) : 0;
-  const centerName = user.teacherProfile?.center
-    ? [user.teacherProfile.center.name, user.teacherProfile.center.city].filter(Boolean).join(", ")
-    : (user.workingCenter || "Center not assigned");
-  const classNames = (user.teacherProfile?.classes || []).map(c => c?.name).filter(Boolean);
-  const className = classNames.length > 0 ? classNames.join(", ") : "No class assigned";
-  const studentsCount = summary.totalChildren || user.students || 0;
-  
-  // Get full class details for the assigned classes (use only classes array, ignore old class field)
-  const allAssignedClasses = user.teacherProfile?.classes || [];
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
       <div style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)", borderRadius: 20, padding: "24px 28px", marginBottom: 24, color: "white", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 900, margin: "0 0 6px", letterSpacing: "-0.3px" }}>Good morning, {user.name?.split(" ")[0] || "Teacher"}!</h1>
-          <p style={{ fontSize: 13, margin: 0, opacity: 0.88 }}>{user.subject || user.teacherProfile?.subject || "Teacher"} - {className} - {new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long"})}</p>
+          <h1 style={{ fontSize: 22, fontWeight: 900, margin: "0 0 6px", letterSpacing: "-0.3px" }}>Good morning, {user.name?.split(" ")[0]}! 👋</h1>
+          <p style={{ fontSize: 13, margin: 0, opacity: 0.88 }}>{user.subject} Teacher · {user.batch || "SpacECE"} · {new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long"})}</p>
         </div>
-        <div style={{ position: "relative", flexShrink: 0 }}>
-          <div style={{ width: 48, height: 48, borderRadius: "50%", overflow: "hidden", border: "3px solid rgba(255,255,255,0.3)", background: "#f59e0b", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {photoUrl ? (
-              <img src={photoUrl} alt={user.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => { e.target.style.display = "none"; }} />
-            ) : (
-              <span style={{ fontSize: 22, fontWeight: 800, color: "white" }}>{user.name?.[0] || "?"}</span>
-            )}
-          </div>
-          {photoUrl && <span style={{ position: "absolute", bottom: 0, right: 0, background: "#10b981", borderRadius: "50%", width: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, border: "2px solid white" }}>📷</span>}
-        </div>
+        <div style={{ fontSize: 48, opacity: 0.7 }}>🎓</div>
       </div>
 
       <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700 }}>
-        <span style={{ fontSize: 18 }}>@</span>
-        <span>Working Center: {centerName}</span>
-      </div>
-
-      {/* ── My Assigned Class Section ── */}
-      <div style={{ marginBottom: 20, marginTop: 20 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: "#1c1917", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 18 }}>📚</span> My Assigned Class
-        </div>
-        
-        {allAssignedClasses.length > 0 ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 12 }}>
-            {allAssignedClasses.map((cls, i) => (
-              <div key={cls?._id || cls?.id || i} style={{
-                background: "white", borderRadius: 14, padding: "16px",
-                border: "1px solid #e5e7eb", boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
-                borderLeft: "4px solid #f59e0b"
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                  <div style={{
-                    width: 40, height: 40, borderRadius: 10,
-                    background: "linear-gradient(135deg,#fef3c7,#fbbf24)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 18, flexShrink: 0
-                  }}>🏫</div>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917" }}>{cls?.name || "Unknown Class"}</div>
-                    {cls?.ageGroup && <div style={{ fontSize: 11, color: "#6b7280" }}>Age: {cls.ageGroup}</div>}
-                  </div>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {cls?.curriculumLevel && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#374151" }}>
-                      <span style={{ color: "#f59e0b" }}>📚</span> {cls.curriculumLevel}
-                    </div>
-                  )}
-                  {cls?.schedule && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#374151" }}>
-                      <span style={{ color: "#f59e0b" }}>⏰</span> {cls.schedule}
-                    </div>
-                  )}
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#374151" }}>
-                    <span style={{ color: "#f59e0b" }}>🏫</span> {centerName}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={{
-            background: "white", borderRadius: 14, padding: "24px",
-            border: "1px solid #e5e7eb", textAlign: "center"
-          }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#6b7280" }}>No class assigned yet</div>
-            <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>Contact admin to assign you to a class</div>
-          </div>
-        )}
+        <span style={{ fontSize: 18 }}>📍</span>
+        <span>Working Center : {user.workingCenter || "Dhayri, Pune, Maharashtra"}</span>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 16, marginBottom: 24, marginTop: 16 }}>
-        <StatCard icon="ST" label="Total Students" val={studentsCount} color="#3b82f6" bg="#dbeafe"/>
-        <StatCard icon="AT" label="Attendance" val={`${attendance}%`} color={attColor} bg={attendance>=85?"#d1fae5":attendance>=70?"#fef3c7":"#fee2e2"}/>
-        <StatCard icon="GR" label="Avg Grade" val={gradedAssignments.length ? `${averageScore}%` : "N/A"} color="#8b5cf6" bg="#ede9fe"/>
-        <StatCard icon="CE" label="Certificates" val={certificatesCount} color="#06b6d4" bg="#cffafe"/>
-        <StatCard icon="TK" label="Pending Tasks" val={pendingTasksCount} color="#ef4444" bg="#fee2e2"/>
+        <StatCard icon="📚" label="My Classes"     val={user.classes||6}   color="#f59e0b" bg="#fef3c7"/>
+        <StatCard icon="👥" label="Total Students" val={user.students||230} color="#3b82f6" bg="#dbeafe"/>
+        <StatCard icon="📊" label="Attendance"     val={`${attendance}%`}  color={attColor} bg={attendance>=85?"#d1fae5":attendance>=70?"#fef3c7":"#fee2e2"}/>
+        <StatCard icon="📝" label="Avg Grade"      val="82%"               color="#8b5cf6" bg="#ede9fe"/>
+        <StatCard icon="🏆" label="Certificates"   val={certificatesCount} color="#06b6d4" bg="#cffafe"/>
+        <StatCard icon="⏳" label="Pending Tasks"  val={pendingTasksCount} color="#ef4444" bg="#fee2e2"/>
       </div>
 
-      {/* Today's Activities Widget */}
-      {(() => {
-        const today = new Date().toISOString().split("T")[0];
-        const todayLessons = lessons.filter(l => {
-          const d = l.lessonPlan?.scheduleDate ? new Date(l.lessonPlan.scheduleDate).toISOString().split("T")[0] : "";
-          return d === today;
-        });
-        const todayAssignments = assignments.filter(a => {
-          if (a.status === "completed" || a.status === "approved") return false;
-          return true;
-        }).slice(0, 5);
-        if (todayLessons.length === 0 && todayAssignments.length === 0) return null;
-        return (
-          <div style={{ background: "linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%)", borderRadius: 16, border: "1px solid #fcd34d", padding: 20, marginBottom: 20 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-              <span style={{ fontSize: 20 }}>📋</span>
-              <span style={{ fontSize: 16, fontWeight: 800, color: "#92400e" }}>Today's Activities</span>
-              <span style={{ fontSize: 12, color: "#b45309", fontWeight: 600 }}>{new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}</span>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              {todayLessons.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", marginBottom: 8 }}>📚 Lessons Today ({todayLessons.length})</div>
-                  {todayLessons.map((l, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "white", borderRadius: 8, marginBottom: 6, border: "1px solid #fde68a" }}>
-                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: l.status === "completed" ? "#10b981" : "#f59e0b", flexShrink: 0 }} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: "#1c1917" }}>{l.lessonPlan?.title || "Lesson"}</div>
-                      </div>
-                      <StatusBadge status={l.status} />
-                    </div>
-                  ))}
-                </div>
-              )}
-              {todayAssignments.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", marginBottom: 8 }}>📝 Pending Tasks ({todayAssignments.length})</div>
-                  {todayAssignments.map((a, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "white", borderRadius: 8, marginBottom: 6, border: "1px solid #fde68a" }}>
-                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: a.status === "revision" ? "#ef4444" : "#f59e0b", flexShrink: 0 }} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: "#1c1917" }}>{(a.title || a.course?.title || "Task").substring(0, 30)}</div>
-                      </div>
-                      <StatusBadge status={a.status} />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
-
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
-        <SectionCard title="My Attendance Summary">
+        <SectionCard title="📈 My Monthly Attendance">
           <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", height: 220, paddingTop: 15 }}>
-            {[{ month: "Current", val: attendance }].map((d, i) => (
+            {[
+              { month: "Jan", val: 95 },{ month: "Feb", val: 88 },{ month: "Mar", val: 92 },
+              { month: "Apr", val: 87 },{ month: "May", val: 90 },{ month: "Jun", val: attendance || 94 },
+            ].map((d, i) => (
               <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1 }}>
                 <span style={{ marginBottom: 8, fontSize: 12, fontWeight: 800, color: d.val >= 90 ? "#10b981" : d.val >= 80 ? "#f59e0b" : "#ef4444" }}>{d.val}%</span>
                 <div style={{ width: 36, height: `${d.val * 1.6}px`, borderRadius: "12px 12px 0 0", background: d.val >= 90 ? "linear-gradient(180deg,#34d399,#10b981)" : d.val >= 80 ? "linear-gradient(180deg,#fbbf24,#f59e0b)" : "linear-gradient(180deg,#f87171,#ef4444)", transition: "all .6s ease" }}/>
@@ -260,7 +115,7 @@ function OverviewTab({ user, setActiveTab, courses = [], assignments = [], lesso
           </div>
         </SectionCard>
 
-        <SectionCard title="Course Progress">
+        <SectionCard title="📚 Course Progress">
           {courses.length === 0 ? (
             <div style={{ padding: 20, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>No assigned courses yet.</div>
           ) : (
@@ -285,25 +140,24 @@ function OverviewTab({ user, setActiveTab, courses = [], assignments = [], lesso
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-        <SectionCard title="Upcoming Lessons">
-          {lessons.length === 0 ? (
-            <div style={{ padding: 20, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>No lessons assigned yet.</div>
-          ) : (
-            lessons.slice(0, 4).map((item) => (
-              <div key={item._id} style={{ display: "flex", gap: 12, padding: "8px 0", borderBottom: "1px solid #f3f4f6" }}>
-                <div style={{ width: 8, height: 8, borderRadius: "50%", background: item.status === "completed" ? "#10b981" : "#f59e0b", marginTop: 5, flexShrink: 0 }}/>
+        <SectionCard title="📅 Today's Classes">
+          {MOCK_SCHEDULE.slice(0,4).map((cl,i)=>{
+            const statusColor = { completed: "#10b981", ongoing: "#f59e0b", upcoming: "#6b7280" };
+            return (
+              <div key={i} style={{ display: "flex", gap: 12, padding: "8px 0", borderBottom: "1px solid #f3f4f6" }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor[cl.status], marginTop: 5, flexShrink: 0 }}/>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1c1917" }}>{item.lessonPlan?.title || "Assigned lesson"}</div>
-                  <div style={{ fontSize: 10, color: "#9ca3af" }}>{item.lessonPlan?.scheduleDate ? new Date(item.lessonPlan.scheduleDate).toLocaleDateString("en-IN") : "No date"}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1c1917" }}>{cl.class} — {cl.topic}</div>
+                  <div style={{ fontSize: 10, color: "#9ca3af" }}>{cl.time} · Room {cl.room}</div>
                 </div>
-                <StatusBadge status={item.status}/>
+                <StatusBadge status={cl.status}/>
               </div>
-            ))
-          )}
-          <button onClick={()=>setActiveTab("schedule")} style={{ fontSize: 12, color: "#d97706", fontWeight: 700, background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 8 }}>Full schedule {">"}</button>
+            );
+          })}
+          <button onClick={()=>setActiveTab("schedule")} style={{ fontSize: 12, color: "#d97706", fontWeight: 700, background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 8 }}>Full schedule →</button>
         </SectionCard>
 
-        <SectionCard title="Assignment Status">
+        <SectionCard title="📝 Assignment Status">
           {assignments.length === 0 ? (
             <div style={{ padding: 20, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>No assignments available.</div>
           ) : (
@@ -328,143 +182,499 @@ function OverviewTab({ user, setActiveTab, courses = [], assignments = [], lesso
   );
 }
 
-/* NOTE: the old video-based `getCourseContent()` helper and `CoursesTab`
-   component that used to live here have been removed. Course content is
-   now topic-wise reading notes (no video), rendered by the imported
-   `TeacherCourseNotes` component — see the "courses" case in
-   renderContent() below. */
-
-const formatTeacherDate = (value, options = {}) => {
-  if (!value) return "Not scheduled";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Not scheduled";
-  return date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", ...options });
+/* ═══════════════════════════════════════════
+   COURSE CONTENT DATA
+═══════════════════════════════════════════ */
+const COURSE_CONTENT = {
+  1: { // Pre-Primary Teacher Training
+    color: "#f59e0b",
+    icon: "👩‍🏫",
+    modules: [
+      {
+        id: "m1", title: "Introduction to Pre-Primary Education",
+        videos: [
+          { id: "v1", title: "What is Pre-Primary Education?", ytId: "Y5KmNaoMEVM", duration: "12:34" },
+          { id: "v2", title: "Developmental Stages of Early Childhood", ytId: "cWgCGKnUbZo", duration: "18:22" },
+          { id: "v3", title: "Role of a Pre-Primary Teacher", ytId: "vQnFgLxVJhU", duration: "14:10" },
+        ],
+        notes: `## Introduction to Pre-Primary Education\n\n**Key Concepts:**\n- Pre-primary education covers ages 3–6 years\n- It forms the foundation for lifelong learning\n- Focus areas: cognitive, social, emotional, physical development\n\n**The 5 Pillars of Early Childhood Education:**\n1. Play-based learning\n2. Holistic development\n3. Child-centered approach\n4. Family involvement\n5. Safe & nurturing environment\n\n**Important Theories:**\n- Piaget's Cognitive Development Theory\n- Vygotsky's Zone of Proximal Development (ZPD)\n- Bronfenbrenner's Ecological Systems Theory\n\n**Key Terms:** Scaffolding · Parallel Play · Sensorimotor Stage · Preoperational Stage`
+      },
+      {
+        id: "m2", title: "Classroom Setup & Environment",
+        videos: [
+          { id: "v4", title: "Designing a Child-Friendly Classroom", ytId: "I3mKV3UlCiE", duration: "16:45" },
+          { id: "v5", title: "Learning Corners & Activity Zones", ytId: "QlJif-4NWOE", duration: "11:30" },
+          { id: "v6", title: "Safety & Hygiene in Early Classrooms", ytId: "5TGp6X0KSAM", duration: "9:50" },
+        ],
+        notes: `## Classroom Setup & Environment\n\n**Key Areas to Set Up:**\n- Reading Corner: soft seating, picture books, literacy materials\n- Art & Craft Zone: easels, non-toxic supplies, display boards\n- Dramatic Play Area: dress-up, kitchen set, puppets\n- Construction Zone: blocks, LEGO, puzzles\n- Science Discovery Table: magnifiers, nature items\n\n**Arrangement Principles:**\n- Low shelves for child independence\n- Clear pathways for movement\n- Defined zones reduce conflict\n- Natural light when possible\n\n**Safety Checklist:**\n✅ No sharp corners at child height\n✅ Non-toxic materials only\n✅ Secure heavy furniture to walls\n✅ Clear emergency exit paths`
+      },
+      {
+        id: "m3", title: "Lesson Planning & Activity Design",
+        videos: [
+          { id: "v7", title: "Writing an Effective Lesson Plan", ytId: "1L_jKoiAb8c", duration: "20:15" },
+          { id: "v8", title: "Theme-Based Teaching Approach", ytId: "N6pCIqxtWE8", duration: "15:00" },
+          { id: "v9", title: "Circle Time & Group Activities", ytId: "sTRCTbmJMsc", duration: "13:40" },
+        ],
+        notes: `## Lesson Planning & Activity Design\n\n**Lesson Plan Template:**\n1. **Objective** — What will children learn?\n2. **Materials** — What do you need?\n3. **Introduction** (5 min) — Hook/story/song\n4. **Main Activity** (15–20 min) — Core learning\n5. **Review** (5 min) — Recap & discussion\n6. **Assessment** — Observation notes\n\n**Theme-Based Planning Examples:**\n- Week Theme: "Animals"\n  - Art: animal masks\n  - Science: habitat sorting\n  - Literacy: animal sound books\n  - Math: counting legs\n\n**Circle Time Essentials:**\n- Greeting ritual\n- Calendar & weather\n- Story or song\n- Day preview`
+      },
+    ]
+  },
+  2: { // Child Psychology
+    color: "#8b5cf6",
+    icon: "🧠",
+    modules: [
+      {
+        id: "m4", title: "Foundations of Child Psychology",
+        videos: [
+          { id: "v10", title: "Introduction to Child Psychology", ytId: "O5BOxhqHEUQ", duration: "17:20" },
+          { id: "v11", title: "Attachment Theory — Bowlby & Ainsworth", ytId: "WjOowWxOXCg", duration: "21:05" },
+          { id: "v12", title: "Emotional Development in Children", ytId: "m2jU92NqBMw", duration: "14:55" },
+        ],
+        notes: `## Foundations of Child Psychology\n\n**Core Theories:**\n\n**Bowlby's Attachment Theory:**\n- Secure attachment → confident exploration\n- Types: Secure, Anxious-Ambivalent, Avoidant, Disorganized\n- Primary caregiver relationship is critical (0–2 years)\n\n**Piaget's Stages (Cognitive):**\n| Stage | Age | Key Feature |\n|---|---|---|\n| Sensorimotor | 0–2 | Object permanence |\n| Preoperational | 2–7 | Symbolic thinking |\n| Concrete Op. | 7–11 | Logical thinking |\n| Formal Op. | 12+ | Abstract reasoning |\n\n**Erikson's Psychosocial Stages (Early Childhood):**\n- Trust vs Mistrust (0–18 months)\n- Autonomy vs Shame (18m–3 years)\n- Initiative vs Guilt (3–5 years)`
+      },
+      {
+        id: "m5", title: "Behavioural & Social Development",
+        videos: [
+          { id: "v13", title: "Social Learning Theory — Bandura", ytId: "eGSB1GKbJQE", duration: "16:30" },
+          { id: "v14", title: "Play & Peer Relationships", ytId: "yT-lSxHMGbg", duration: "19:10" },
+          { id: "v15", title: "Understanding Child Behaviour Problems", ytId: "RX2pjGIiS4w", duration: "22:45" },
+        ],
+        notes: `## Behavioural & Social Development\n\n**Bandura's Social Learning Theory:**\n- Children learn by observation (modeling)\n- 4 Steps: Attention → Retention → Reproduction → Motivation\n- Self-efficacy: belief in one's own ability\n\n**Types of Play (Parten's Social Stages):**\n1. Solitary Play (2–3 years)\n2. Parallel Play (2.5–3.5 years)\n3. Associative Play (3–4 years)\n4. Cooperative Play (4+ years)\n\n**Common Behaviour Challenges:**\n- Tantrums: validate emotion, stay calm\n- Aggression: teach words for feelings\n- Separation anxiety: consistent goodbye routine\n- Refusal: offer limited choices\n\n**Positive Reinforcement Tips:**\n✅ Praise effort, not outcome\n✅ Be specific: "I love how you shared your blocks"\n✅ Use visual reward charts`
+      },
+      {
+        id: "m6", title: "Special Needs & Inclusive Education",
+        videos: [
+          { id: "v16", title: "Introduction to Inclusive Education", ytId: "iVt5CX3BLGU", duration: "18:00" },
+          { id: "v17", title: "Identifying Learning Difficulties Early", ytId: "BVoCN5lD6rg", duration: "15:30" },
+        ],
+        notes: `## Special Needs & Inclusive Education\n\n**Key Principles of Inclusion:**\n- Every child has the right to education\n- Adapt environment, not the child\n- Collaboration: teachers, parents, specialists\n\n**Common Learning Differences:**\n- **Dyslexia**: difficulty with reading/writing → use multi-sensory methods\n- **ADHD**: attention/hyperactivity → structured routines, movement breaks\n- **Autism Spectrum**: social/communication differences → visual schedules, sensory awareness\n- **Developmental Delay**: slower milestone achievement → differentiated activities\n\n**Classroom Adaptations:**\n- Flexible seating arrangements\n- Visual timetables on walls\n- Quiet zones for sensory breaks\n- Peer buddy systems\n- Modified instructions & materials`
+      },
+    ]
+  },
+  3: { // Curriculum Design
+    color: "#10b981",
+    icon: "📐",
+    modules: [
+      {
+        id: "m7", title: "Principles of Curriculum Design",
+        videos: [
+          { id: "v18", title: "What is Curriculum? Types & Models", ytId: "sXpPDcBMBzs", duration: "20:00" },
+          { id: "v19", title: "Bloom's Taxonomy Explained", ytId: "ayefSTAnCR8", duration: "16:45" },
+          { id: "v20", title: "Backward Design — Understanding by Design", ytId: "d8F1SnWaIfE", duration: "18:30" },
+        ],
+        notes: `## Principles of Curriculum Design\n\n**Types of Curriculum:**\n- **Formal/Explicit**: planned, written syllabus\n- **Hidden**: unwritten social norms taught\n- **Null**: what is NOT taught\n- **Extracurricular**: beyond formal classes\n\n**Bloom's Taxonomy (Revised):**\n1. Remember (recall facts)\n2. Understand (explain ideas)\n3. Apply (use in new situations)\n4. Analyze (draw connections)\n5. Evaluate (justify decisions)\n6. Create (produce new work)\n\n**Backward Design (Wiggins & McTighe):**\n1. Identify desired results (What should students know?)\n2. Determine acceptable evidence (How will you know?)\n3. Plan learning experiences (How will you teach it?)\n\n**Key Curriculum Models:**\n- Tyler's Rational Model\n- Spiral Curriculum (Bruner)\n- Integrated/Thematic Model`
+      },
+      {
+        id: "m8", title: "Assessment & Evaluation Methods",
+        videos: [
+          { id: "v21", title: "Formative vs Summative Assessment", ytId: "FuBEpGpnGr0", duration: "14:20" },
+          { id: "v22", title: "Portfolio Assessment in Early Childhood", ytId: "U8ORh-l_i9Y", duration: "17:55" },
+          { id: "v23", title: "Observation as an Assessment Tool", ytId: "nWXD_bVQ-Ro", duration: "12:10" },
+        ],
+        notes: `## Assessment & Evaluation Methods\n\n**Formative Assessment (ongoing):**\n- Observations during activities\n- Questioning & discussion\n- Exit tickets / quick checks\n- Peer feedback\n\n**Summative Assessment (end of unit):**\n- Projects & presentations\n- Portfolios\n- Performance tasks\n- Written tests (older children)\n\n**Portfolio Assessment:**\n- Collects work samples over time\n- Shows growth, not just achievement\n- Involves child in self-reflection\n- Contents: drawings, photos, writing samples, teacher notes\n\n**Observation Checklist Items:**\n✅ Can follow 2-step instructions\n✅ Uses scissors with control\n✅ Recognises own name in print\n✅ Takes turns in group play\n✅ Expresses needs verbally`
+      },
+      {
+        id: "m9", title: "Technology Integration in Curriculum",
+        videos: [
+          { id: "v25", title: "SAMR Model for Technology Integration", ytId: "SC5ARwUkVyg", duration: "11:25" },
+        ],
+        notes: `## Technology Integration in Curriculum\n\n**SAMR Model:**\n- **S**ubstitution: tech replaces traditional tool (digital worksheet)\n- **A**ugmentation: tech with functional improvement (auto-spell check)\n- **M**odification: tech allows significant redesign (collaborative docs)\n- **R**edefinition: tech creates new tasks previously inconceivable (global collaboration)\n\n**Recommended EdTech for Early Childhood:**\n| Tool | Use Case |\n|---|---|\n| Seesaw | Digital portfolios |\n| Kahoot | Interactive quizzes |\n| Book Creator | Digital storytelling |\n| Canva for Edu | Visual projects |\n| Google Classroom | Assignment management |\n\n**Screen Time Guidelines (WHO):**\n- Under 2: no screen time\n- 2–4: max 1 hour/day, with adult supervision\n- Quality over quantity — co-view & discuss`
+      },
+    ]
+  }
 };
 
-const getAssignmentTitle = (item) => item.title || item.course?.title || "Assignment";
-const isReviewedAssignment = (item) => item.score !== null && item.score !== undefined;
-const isCertificateReady = (item) => item.status === "completed" || item.progressPercent === 100 || item.status === "approved" || item.status === "reviewed";
-
-function ScheduleTab({ user, lessons = [] }) {
-  const [filter, setFilter] = useState("all");
-  const classNames = (user.teacherProfile?.classes || []).map(c => c?.name).filter(Boolean);
-  const items = lessons
-    .map((item) => ({
-      id: item._id,
-      title: item.lessonPlan?.title || "Assigned lesson",
-      course: item.lessonPlan?.course?.title || "Training",
-      date: item.lessonPlan?.scheduleDate || item.assignedDate,
-      status: item.status || "pending",
-      objectives: item.lessonPlan?.objectives || item.lessonPlan?.description || ""
+const getEnrichedCourseContent = (assignment) => {
+  const dbCourse = assignment?.course;
+  if (!dbCourse) return null;
+  const title = dbCourse.title.toLowerCase();
+  let template = null;
+  if (title.includes("pre-primary") || title.includes("teacher training")) {
+    template = COURSE_CONTENT[1];
+  } else if (title.includes("psychology") || title.includes("development")) {
+    template = COURSE_CONTENT[2];
+  } else if (title.includes("curriculum") || title.includes("lesson")) {
+    template = COURSE_CONTENT[3];
+  }
+  
+  if (template) {
+    return {
+      ...template,
+      modules: template.modules.map((m, mIdx) => {
+        const dbMod = dbCourse.modules?.[mIdx];
+        return {
+          ...m,
+          id: dbMod?._id || m.id,
+          videos: m.videos.map((v, vIdx) => {
+            const dbContent = dbMod?.contents?.[vIdx];
+            return {
+              ...v,
+              id: dbContent?._id || v.id
+            };
+          })
+        };
+      })
+    };
+  }
+  
+  return {
+    color: "#fbbf24",
+    icon: "📚",
+    modules: (dbCourse.modules || []).map((m, mIdx) => ({
+      id: m._id || `mod-${mIdx}`,
+      title: m.title,
+      videos: (m.contents || [])
+        .filter(c => c.type === "video" || c.type === "link")
+        .map((c, cIdx) => {
+          let ytId = "Y5KmNaoMEVM";
+          if (c.externalUrl) {
+            if (c.externalUrl.includes("youtube.com") || c.externalUrl.includes("youtu.be")) {
+              const match = c.externalUrl.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+              if (match) ytId = match[1];
+            }
+          }
+          return {
+            id: c._id || `vid-${cIdx}`,
+            title: c.title,
+            ytId,
+            duration: "10:00"
+          };
+        }),
+      notes: m.description || `Notes for ${m.title}`
     }))
-    .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const upcoming = items.filter((item) => item.date && new Date(item.date) >= today && item.status !== "completed");
-  const completed = items.filter((item) => item.status === "completed").length;
-  const visibleItems = items.filter((item) => {
-    if (filter === "upcoming") return item.date && new Date(item.date) >= today && item.status !== "completed";
-    if (filter === "completed") return item.status === "completed";
-    if (filter === "pending") return item.status !== "completed";
-    return true;
-  });
-  const filterBtn = (key, label) => (
-    <button onClick={() => setFilter(key)} style={{ ...S.exportBtn, background: filter === key ? "#1e40af" : "white", color: filter === key ? "white" : "#6b7280", borderColor: filter === key ? "#1e40af" : "#e5e7eb" }}>
-      {label}
-    </button>
-  );
+  };
+};
+
+function CoursesTab({ assignments = [], onMarkDone }) {
+  const [activeAssignmentId, setActiveAssignmentId] = useState(null);
+  const [activeModuleId, setActiveModuleId]   = useState(null);
+  const [activeVideoId,  setActiveVideoId]    = useState(null);
+  const [activeTab,      setActiveTab]        = useState("video"); // "video"|"notes"
+
+  const activeAssignment = assignments.find(a => a._id === activeAssignmentId);
+  const enrichedContent  = getEnrichedCourseContent(activeAssignment);
+
+  const isVideoDone = (assign, videoId) => {
+    return assign?.completedContent?.includes(videoId) || false;
+  };
+
+  const getModuleProgress = (assign, module) => {
+    const allKeys = module.videos.map(v => v.id);
+    const done = allKeys.filter(k => isVideoDone(assign, k)).length;
+    return { done, total: allKeys.length };
+  };
+
+  const handleMarkDone = (assign, videoId) => {
+    if (!assign) return;
+    const completedContent = [...(assign.completedContent || [])];
+    if (!completedContent.includes(videoId)) {
+      completedContent.push(videoId);
+    }
+    const allVids = enrichedContent.modules.flatMap(m => m.videos);
+    const progressPercent = Math.round((completedContent.length / allVids.length) * 100);
+    
+    onMarkDone && onMarkDone(assign._id, {
+      completedContent,
+      progressPercent,
+      status: progressPercent === 100 ? "completed" : "ongoing"
+    });
+  };
+
+  // ── Course list view ──
+  if (!activeAssignmentId) {
+    return (
+      <div style={{ animation: "fadeIn 0.3s ease" }}>
+        <h1 style={S.pageTitle}>My Courses</h1>
+        <p style={S.pageSub}>Your enrolled courses and learning progress</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {assignments.length === 0 ? (
+            <div style={{ padding: 40, textAlign: "center", background: "white", borderRadius: 16, border: "1px dashed #cbd5e1", color: "#94a3b8" }}>
+              No enrolled courses found.
+            </div>
+          ) : (
+            assignments.map((c) => {
+              const progress = c.progressPercent || 0;
+              const content  = getEnrichedCourseContent(c);
+              const totalVids = content ? content.modules.reduce((a,m)=>a+m.videos.length,0) : 0;
+              const doneVids  = content ? content.modules.reduce((a,m)=>a+m.videos.filter(v=>isVideoDone(c, v.id)).length,0) : 0;
+              return (
+                <div key={c._id} style={{ background: "white", borderRadius: 16, padding: "22px 24px", border: "1px solid #f1f5f9", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", borderLeft: `4px solid ${content?.color || "#f59e0b"}` }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
+                    <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                      <div style={{ fontSize: 36 }}>{content?.icon || "📚"}</div>
+                      <div>
+                        <h3 style={{ fontSize: 16, fontWeight: 800, color: "#1c1917", margin: "0 0 6px" }}>{c.course?.title}</h3>
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                          <StatusBadge status={c.status}/>
+                          <span style={{ fontSize: 11, color: "#9ca3af" }}>📅 Due: {c.dueDate ? new Date(c.dueDate).toLocaleDateString() : "No due date"}</span>
+                          <span style={{ fontSize: 11, color: "#6b7280" }}>🎬 {doneVids}/{totalVids} videos</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 28, fontWeight: 900, color: content?.color || "#f59e0b" }}>{progress}%</div>
+                      <div style={{ fontSize: 11, color: "#9ca3af" }}>Complete</div>
+                    </div>
+                  </div>
+                  <div style={{ height: 8, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", marginBottom: 12 }}>
+                    <div style={{ height: "100%", width: `${progress}%`, background: `linear-gradient(90deg,${content?.color||"#f59e0b"},${content?.color||"#d97706"})`, borderRadius: 4, transition: "width 0.8s ease" }}/>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 12, color: "#6b7280" }}>📖 {content?.modules?.length || 0} modules · {doneVids}/{totalVids} videos done</span>
+                    <button
+                      onClick={() => {
+                        setActiveAssignmentId(c._id);
+                        const firstModule = content?.modules[0];
+                        setActiveModuleId(firstModule?.id || null);
+                        setActiveVideoId(firstModule?.videos[0]?.id || null);
+                        setActiveTab("video");
+                      }}
+                      style={{ ...S.primaryBtn, padding: "8px 20px", fontSize: 12, background: `linear-gradient(135deg,${content?.color||"#f59e0b"},${content?.color||"#d97706"})` }}
+                    >
+                      {progress > 0 ? "Continue →" : "Start Course →"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Course player view ──
+  const activeModule  = enrichedContent?.modules.find(m => m.id === activeModuleId);
+  const activeVideo   = activeModule?.videos.find(v => v.id === activeVideoId);
+  const overallProg   = activeAssignment?.progressPercent || 0;
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
-      <h1 style={S.pageTitle}>Schedule</h1>
-      <p style={S.pageSub}>Subject: {user.subject || user.teacherProfile?.subject || "Assigned teacher"} · {classNames.length > 0 ? classNames.join(", ") : "Class not assigned"}</p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(190px,1fr))", gap: 16, marginBottom: 20 }}>
-        <StatCard icon="📅" label="Scheduled Lessons" val={items.length} color="#3b82f6" bg="#dbeafe" />
-        <StatCard icon="⏳" label="Upcoming" val={upcoming.length} color="#f59e0b" bg="#fef3c7" />
-        <StatCard icon="✅" label="Completed" val={completed} color="#10b981" bg="#d1fae5" />
-      </div>
-      <SectionCard title="Assigned Lesson Schedule">
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-          {filterBtn("all", "All")}
-          {filterBtn("upcoming", "Upcoming")}
-          {filterBtn("pending", "Pending")}
-          {filterBtn("completed", "Completed")}
-        </div>
-        {visibleItems.length === 0 ? (
-          <div style={{ padding: 30, textAlign: "center", color: "#94a3b8", border: "1px dashed #cbd5e1", borderRadius: 12 }}>No lesson schedule found for this filter.</div>
-        ) : visibleItems.map((item) => (
-          <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 16px", background: "white", borderRadius: 10, marginBottom: 8, border: "1px solid #f3f4f6", borderLeft: `4px solid ${item.status === "completed" ? "#10b981" : "#f59e0b"}` }}>
-            <div style={{ width: 118, fontSize: 13, fontWeight: 800, color: "#d97706", flexShrink: 0 }}>{formatTeacherDate(item.date)}</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "#1c1917" }}>{item.title}</div>
-              <div style={{ fontSize: 12, color: "#6b7280", marginTop: 1 }}>{item.course}</div>
-              {item.objectives && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4, lineHeight: 1.4 }}>{String(item.objectives).slice(0, 120)}</div>}
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+        <button onClick={() => setActiveAssignmentId(null)} style={{ background: "#f3f4f6", border: "none", borderRadius: 10, padding: "8px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer", color: "#374151" }}>← Back</button>
+        <div style={{ flex: 1 }}>
+          <h1 style={{ ...S.pageTitle, margin: 0 }}>{enrichedContent?.icon} {activeAssignment?.course?.title}</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
+            <div style={{ flex: 1, height: 6, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", maxWidth: 300 }}>
+              <div style={{ height: "100%", width: `${overallProg}%`, background: `linear-gradient(90deg,${enrichedContent?.color || "#f59e0b"},${enrichedContent?.color || "#f59e0b"})`, borderRadius: 4, transition: "width 0.6s" }}/>
             </div>
-            <StatusBadge status={item.status}/>
+            <span style={{ fontSize: 12, fontWeight: 800, color: enrichedContent?.color || "#f59e0b" }}>{overallProg}% complete</span>
           </div>
-        ))}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 20, alignItems: "start" }}>
+        {/* ── Sidebar: module/video list ── */}
+        <div style={{ background: "white", borderRadius: 16, border: "1px solid #f1f5f9", overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+          <div style={{ padding: "14px 16px", background: "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1917" }}>Course Content</div>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{enrichedContent?.modules?.length} modules</div>
+          </div>
+          <div style={{ overflowY: "auto", maxHeight: 600 }}>
+            {enrichedContent?.modules.map((mod) => {
+              const mp = getModuleProgress(activeAssignment, mod);
+              const isModActive = mod.id === activeModuleId;
+              return (
+                <div key={mod.id}>
+                  {/* Module header */}
+                  <div
+                    onClick={() => { setActiveModuleId(mod.id); setActiveVideoId(mod.videos[0]?.id); setActiveTab("video"); }}
+                    style={{ padding: "12px 16px", background: isModActive ? "#fffbeb" : "white", borderBottom: "1px solid #f9fafb", cursor: "pointer", borderLeft: `3px solid ${isModActive ? (enrichedContent?.color || "#f59e0b") : "transparent"}` }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 700, color: isModActive ? "#92400e" : "#374151" }}>{mod.title}</div>
+                    <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 3 }}>
+                      {mp.done}/{mp.total} videos
+                      <span style={{ marginLeft: 6, background: mp.done===mp.total?"#d1fae5":"#f3f4f6", color: mp.done===mp.total?"#065f46":"#9ca3af", padding: "1px 6px", borderRadius: 10, fontWeight: 700 }}>
+                        {mp.done===mp.total?"✓ Done":`${Math.round((mp.done/mp.total)*100)}%`}
+                      </span>
+                    </div>
+                  </div>
+                  {/* Videos under module */}
+                  {isModActive && mod.videos.map((vid) => {
+                    const isActive = vid.id === activeVideoId;
+                    const done = isVideoDone(activeAssignment, vid.id);
+                    return (
+                      <div
+                        key={vid.id}
+                        onClick={() => { setActiveVideoId(vid.id); setActiveTab("video"); }}
+                        style={{ padding: "9px 16px 9px 28px", background: isActive ? "#fef3c7" : "#fafafa", borderBottom: "1px solid #f3f4f6", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+                      >
+                        <div style={{ width: 20, height: 20, borderRadius: "50%", background: done ? "#10b981" : isActive ? (enrichedContent?.color || "#f59e0b") : "#e5e7eb", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "white", flexShrink: 0 }}>
+                          {done ? "✓" : isActive ? "▶" : ""}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 11, fontWeight: isActive?700:500, color: isActive?"#92400e":"#374151", lineHeight: 1.3 }}>{vid.title}</div>
+                          <div style={{ fontSize: 10, color: "#9ca3af" }}>⏱ {vid.duration}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Main content area ── */}
+        <div>
+          {activeVideo ? (
+            <>
+              {/* Video + Notes tabs */}
+              <div style={{ background: "white", borderRadius: 16, border: "1px solid #f1f5f9", overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", marginBottom: 16 }}>
+                {/* Tab bar */}
+                <div style={{ display: "flex", borderBottom: "1px solid #f1f5f9" }}>
+                  {["video","notes"].map(t => (
+                    <button key={t} onClick={() => setActiveTab(t)} style={{ flex: 1, padding: "12px", border: "none", background: activeTab===t?"#fffbeb":"white", color: activeTab===t?"#92400e":"#6b7280", fontWeight: activeTab===t?800:600, fontSize: 13, cursor: "pointer", borderBottom: `2px solid ${activeTab===t?(enrichedContent?.color || "#f59e0b"):"transparent"}`, transition: "all 0.15s" }}>
+                      {t === "video" ? "🎬 Video Lesson" : "📝 Notes"}
+                    </button>
+                  ))}
+                </div>
+
+                {activeTab === "video" ? (
+                  <div>
+                    {/* YouTube embed */}
+                    <div style={{ position: "relative", paddingBottom: "56.25%", height: 0, background: "#000" }}>
+                      <iframe
+                        src={`https://www.youtube.com/embed/${activeVideo.ytId}?rel=0&modestbranding=1`}
+                        title={activeVideo.title}
+                        style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none" }}
+                        allowFullScreen
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      />
+                    </div>
+                    <div style={{ padding: "16px 20px" }}>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", marginBottom: 4 }}>{activeVideo.title}</div>
+                      <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 16 }}>{activeModule?.title} · ⏱ {activeVideo.duration}</div>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                        {isVideoDone(activeAssignment, activeVideoId) ? (
+                          <span style={{ background: "#d1fae5", color: "#065f46", padding: "8px 18px", borderRadius: 10, fontSize: 13, fontWeight: 800 }}>✓ Completed</span>
+                        ) : (
+                          <button
+                            onClick={() => handleMarkDone(activeAssignment, activeVideoId)}
+                            style={{ ...S.primaryBtn, background: `linear-gradient(135deg,${enrichedContent?.color || "#f59e0b"},${enrichedContent?.color || "#f59e0b"})`, fontSize: 13 }}
+                          >
+                            ✅ Mark as Complete
+                          </button>
+                        )}
+                        <button onClick={() => setActiveTab("notes")} style={{ ...S.exportBtn, fontSize: 12 }}>📝 View Notes</button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ padding: "20px 24px", maxHeight: 520, overflowY: "auto" }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", marginBottom: 12 }}>📝 Notes — {activeModule?.title}</div>
+                    <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.8, whiteSpace: "pre-line", fontFamily: "inherit" }}>
+                      {activeModule?.notes?.split('\n').map((line, i) => {
+                        if (line.startsWith('## ')) return <h3 key={i} style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", margin: "16px 0 8px" }}>{line.replace('## ','')}</h3>;
+                        if (line.startsWith('**') && line.endsWith('**')) return <div key={i} style={{ fontWeight: 700, color: "#374151", margin: "8px 0 4px" }}>{line.replace(/\*\*/g,'')}</div>;
+                        if (line.startsWith('- ')) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#4b5563" }}>• {line.slice(2)}</div>;
+                        if (line.match(/^\d+\./)) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#4b5563" }}>{line}</div>;
+                        if (line.startsWith('✅')) return <div key={i} style={{ paddingLeft: 16, margin: "3px 0", color: "#059669", fontWeight: 600 }}>{line}</div>;
+                        if (line.startsWith('|')) return <div key={i} style={{ fontFamily: "monospace", fontSize: 12, background: "#f8fafc", padding: "3px 8px", margin: "1px 0" }}>{line}</div>;
+                        if (line === '') return <div key={i} style={{ height: 6 }}/>;
+                        return <div key={i} style={{ margin: "3px 0" }}>{line}</div>;
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Next video navigation */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>
+                  {(() => {
+                    const allVids = enrichedContent.modules.flatMap(m => m.videos.map(v => ({ ...v, moduleId: m.id })));
+                    const idx = allVids.findIndex(v => v.id === activeVideoId);
+                    return `Video ${idx+1} of ${allVids.length}`;
+                  })()}
+                </div>
+                <button
+                  onClick={() => {
+                    const allVids = enrichedContent.modules.flatMap(m => m.videos.map(v => ({ ...v, moduleId: m.id })));
+                    const idx = allVids.findIndex(v => v.id === activeVideoId);
+                    if (idx < allVids.length - 1) {
+                      handleMarkDone(activeAssignment, activeVideoId);
+                      const next = allVids[idx + 1];
+                      setActiveModuleId(next.moduleId);
+                      setActiveVideoId(next.id);
+                      setActiveTab("video");
+                    }
+                  }}
+                  style={{ ...S.primaryBtn, fontSize: 12, background: `linear-gradient(135deg,${enrichedContent?.color || "#f59e0b"},${enrichedContent?.color || "#f59e0b"})` }}
+                >
+                  Next Video →
+                </button>
+              </div>
+            </>
+          ) : (
+            <div style={{ background: "white", borderRadius: 16, padding: 40, textAlign: "center", border: "1px solid #f1f5f9" }}>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>👆</div>
+              <div style={{ fontSize: 14, color: "#6b7280" }}>Select a video from the left to start learning</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScheduleTab({ user }) {
+  return (
+    <div style={{ animation: "fadeIn 0.3s ease" }}>
+      <h1 style={S.pageTitle}>My Schedule</h1>
+      <p style={S.pageSub}>Subject: {user.subject} · {user.classes||6} classes today</p>
+      <SectionCard title="📅 Today's Timetable">
+        {MOCK_SCHEDULE.map((cl,i)=>{
+          const bg = { completed: "#f0fdf4", ongoing: "#fffbeb", upcoming: "white" };
+          const dot= { completed: "#10b981", ongoing: "#f59e0b", upcoming: "#d1d5db" };
+          return (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 16px", background: bg[cl.status], borderRadius: 10, marginBottom: 8, border: "1px solid #f3f4f6" }}>
+              <div style={{ width: 10, height: 10, borderRadius: "50%", background: dot[cl.status], flexShrink: 0 }}/>
+              <div style={{ width: 90, fontSize: 13, fontWeight: 800, color: "#d97706", flexShrink: 0 }}>{cl.time}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#1c1917" }}>{cl.class}</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 1 }}>📖 {cl.topic}</div>
+              </div>
+              <div style={{ fontSize: 12, color: "#9ca3af" }}>🚪 Room {cl.room}</div>
+              <StatusBadge status={cl.status}/>
+            </div>
+          );
+        })}
       </SectionCard>
     </div>
   );
 }
 
-function GradesTab({ assignments = [] }) {
-  const [filter, setFilter] = useState("all");
-  const graded = assignments.filter(isReviewedAssignment);
-  const average = graded.length ? Math.round(graded.reduce((sum, item) => sum + Number(item.score || 0), 0) / graded.length) : 0;
-  const topScore = graded.length ? Math.max(...graded.map((item) => Number(item.score || 0))) : 0;
-  const revisions = assignments.filter((item) => item.status === "revision").length;
-  const visibleGrades = graded.filter((item) => {
-    if (filter === "excellent") return Number(item.score || 0) >= 85;
-    if (filter === "needs-work") return Number(item.score || 0) < 60;
-    return true;
-  });
-  const filterBtn = (key, label) => (
-    <button onClick={() => setFilter(key)} style={{ ...S.exportBtn, background: filter === key ? "#7c3aed" : "white", color: filter === key ? "white" : "#6b7280", borderColor: filter === key ? "#7c3aed" : "#e5e7eb" }}>
-      {label}
-    </button>
-  );
-
+function GradesTab() {
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
-      <h1 style={S.pageTitle}>{t("Grades")}</h1>
-      <p style={S.pageSub}>{t("Scores and feedback added by admin after review.")}</p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 16, marginBottom: 20 }}>
-        <StatCard icon="%" label={t("Average Score")} val={graded.length ? average + "%" : "--"} color="#8b5cf6" bg="#ede9fe" />
-        <StatCard icon="#" label={t("Reviewed Assignments")} val={graded.length} color="#10b981" bg="#d1fae5" />
-        <StatCard icon="★" label={t("Best Score")} val={graded.length ? topScore + "%" : "--"} color="#f59e0b" bg="#fef3c7" />
-        <StatCard icon="↻" label={t("Needs Revision")} val={revisions} color="#ef4444" bg="#fee2e2" />
-      </div>
-      <SectionCard title={t("Reviewed Work")}>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-          {filterBtn("all", t("All reviewed"))}
-          {filterBtn("excellent", t("85% and above"))}
-          {filterBtn("needs-work", t("Below 60%"))}
-        </div>
-        {visibleGrades.length === 0 ? (
-          <div style={{ padding: 30, textAlign: "center", color: "#94a3b8", border: "1px dashed #cbd5e1", borderRadius: 12 }}>{t("No grades published for this filter.")}</div>
-        ) : visibleGrades.map((item) => (
-          <div key={item._id} style={{ padding: 14, border: "1px solid #f1f5f9", borderRadius: 10, marginBottom: 10, background: "white" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917" }}>{getAssignmentTitle(item)}</div>
-                <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{item.feedback || t("No written feedback added.")}</div>
-                <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 5 }}>{t("Reviewed:")} {formatTeacherDate(item.reviewedAt || item.updatedAt || item.createdAt)}</div>
-              </div>
-              <div style={{ minWidth: 92, textAlign: "right" }}>
-                <div style={{ fontSize: 24, fontWeight: 900, color: Number(item.score) >= 75 ? "#10b981" : Number(item.score) >= 60 ? "#f59e0b" : "#ef4444" }}>{item.score}/100</div>
-                <StatusBadge status={item.status}/>
-              </div>
+      <h1 style={S.pageTitle}>Grades Overview</h1>
+      <p style={S.pageSub}>Student performance across all classes</p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 16 }}>
+        {MOCK_GRADES.map((g,i)=>(
+          <div key={i} style={{ background: "white", borderRadius: 16, padding: "20px", border: "1px solid #f1f5f9", boxShadow: "0 2px 8px rgba(0,0,0,0.04)", borderTop: `3px solid ${g.avg>=85?"#10b981":g.avg>=75?"#f59e0b":"#ef4444"}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: "#1c1917" }}>{g.class}</div>
+              <Badge children={`${g.students} students`} color="#d97706" bg="#fef3c7"/>
             </div>
+            <div style={{ fontSize: 32, fontWeight: 900, color: "#f59e0b", letterSpacing: "-1px", marginBottom: 8 }}>{g.avg}%</div>
+            <div style={{ height: 8, background: "#f3f4f6", borderRadius: 4, overflow: "hidden", marginBottom: 12 }}>
+              <div style={{ height: "100%", width: `${g.avg}%`, borderRadius: 4, background: g.avg>=85?"#10b981":g.avg>=75?"#f59e0b":"#ef4444" }}/>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#9ca3af", marginBottom: 10 }}>
+              <span>🏆 Highest: <b style={{ color: "#10b981" }}>{g.highest}%</b></span>
+              <span>📉 Lowest: <b style={{ color: "#ef4444" }}>{g.lowest}%</b></span>
+            </div>
+            <div style={{ fontSize: 11, color: "#6b7280", paddingTop: 10, borderTop: "1px solid #f3f4f6" }}>📝 Assignments: {g.completed}/{g.assignments} submitted</div>
           </div>
         ))}
-      </SectionCard>
+      </div>
     </div>
   );
 }
 
 function AssignmentsTab({ assignments = [], onSubmitAssignment }) {
-  const [filter, setFilter] = useState("all");
   const [uploadModal, setUploadModal] = useState(false);
   const [selectedFileObj, setSelectedFileObj] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -498,25 +708,19 @@ function AssignmentsTab({ assignments = [], onSubmitAssignment }) {
     if (!selectedAssignmentId) return;
     setSubmitting(true);
     try {
-      let uploadedFile = null;
+      let fileUrl = "";
       if (selectedFileObj) {
         const uploadRes = await uploadFile(selectedFileObj);
         if (uploadRes && uploadRes.asset) {
-          uploadedFile = {
-            asset: uploadRes.asset._id,
-            name: uploadRes.asset.originalName || selectedFileObj.name,
-            url: uploadRes.asset.publicUrl,
-            uploadedAt: new Date().toISOString()
-          };
+          fileUrl = uploadRes.asset.publicUrl;
         }
       }
       
       await onSubmitAssignment(selectedAssignmentId, {
-        status: "submitted",
+        status: "pending",
         title: title || undefined,
-        feedback: note || "",
-        submissionFiles: uploadedFile ? [uploadedFile] : undefined,
-        score: null
+        feedback: note || "", // Save notes
+        score: null // Reset score
       });
       handleCloseModal();
     } catch (err) {
@@ -528,19 +732,6 @@ function AssignmentsTab({ assignments = [], onSubmitAssignment }) {
 
   const pendingCount = assignments.filter(a => a.status === "assigned").length;
   const revisionCount = assignments.filter(a => a.status === "revision").length;
-  const submittedCount = assignments.filter(a => a.status === "submitted" || a.status === "pending").length;
-  const reviewedCount = assignments.filter(isReviewedAssignment).length;
-  const visibleAssignments = assignments.filter((item) => {
-    if (filter === "todo") return item.status === "assigned" || item.status === "revision";
-    if (filter === "submitted") return item.status === "submitted" || item.status === "pending";
-    if (filter === "reviewed") return isReviewedAssignment(item) || item.status === "approved" || item.status === "reviewed";
-    return true;
-  });
-  const filterBtn = (key, label) => (
-    <button onClick={() => setFilter(key)} style={{ ...S.exportBtn, background: filter === key ? "#d97706" : "white", color: filter === key ? "white" : "#6b7280", borderColor: filter === key ? "#d97706" : "#e5e7eb" }}>
-      {label}
-    </button>
-  );
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
@@ -551,30 +742,18 @@ function AssignmentsTab({ assignments = [], onSubmitAssignment }) {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(180px,1fr))", gap: 16, marginBottom: 18 }}>
-        <StatCard icon="✏️" label="To Submit" val={pendingCount + revisionCount} color="#f59e0b" bg="#fef3c7" />
-        <StatCard icon="📤" label="Submitted" val={submittedCount} color="#3b82f6" bg="#dbeafe" />
-        <StatCard icon="✅" label="Reviewed" val={reviewedCount} color="#10b981" bg="#d1fae5" />
-      </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-        {filterBtn("all", "All")}
-        {filterBtn("todo", "To submit")}
-        {filterBtn("submitted", "Submitted")}
-        {filterBtn("reviewed", "Reviewed")}
-      </div>
-
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {visibleAssignments.length === 0 ? (
+        {assignments.length === 0 ? (
           <div style={{ padding: 40, textAlign: "center", background: "white", borderRadius: 16, border: "1px dashed #cbd5e1", color: "#94a3b8" }}>
             No assignments assigned yet.
           </div>
         ) : (
-          visibleAssignments.map(a => (
+          assignments.map(a => (
             <div key={a._id} style={{ background: "white", borderRadius: 14, padding: "16px 20px", border: "1px solid #f1f5f9", boxShadow: "0 1px 4px rgba(0,0,0,0.04)", borderLeft: `4px solid ${a.status==="approved"||a.status==="reviewed"?"#10b981":a.status==="revision"?"#ef4444":"#f59e0b"}` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <div style={{ fontSize: 24 }}>{a.status==="approved"||a.status==="reviewed"?"✅":a.status==="revision"?"🔁":"📝"}</div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1c1917" }}>{getAssignmentTitle(a)}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1c1917" }}>{a.title || a.course?.title || "Assignment"}</div>
                   <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{a.course?.title} · Due: {a.dueDate ? new Date(a.dueDate).toLocaleDateString() : "No deadline"}</div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -647,601 +826,233 @@ function AssignmentsTab({ assignments = [], onSubmitAssignment }) {
   );
 }
 
-function CertificatesTab({ assignments = [], certificates: certs = [] }) {
-  const displayCerts = certs.length > 0 ? certs : 
-    assignments.filter((item) => item.status === "completed" || item.progressPercent === 100 || item.status === "approved");
-
+function CertificatesTab() {
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
-      <h1 style={S.pageTitle}>Certificates</h1>
-      <p style={S.pageSub}>{displayCerts.length} certificate eligible course{displayCerts.length === 1 ? "" : "s"}</p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))", gap: 16 }}>
-        {displayCerts.length === 0 ? (
-          <div style={{ gridColumn: "1 / -1", padding: 40, textAlign: "center", background: "white", borderRadius: 16, border: "1px dashed #cbd5e1", color: "#94a3b8" }}>
-            Certificates will appear after an assigned course is completed and reviewed.
-          </div>
-        ) : displayCerts.map((item) => {
-          const isRealCert = !!item.certificateNumber;
-          const issuedDate = isRealCert ? item.issuedAt : (item.completedAt || item.updatedAt || item.createdAt);
-          const courseTitle = item.course?.title || item.title || "Completed Course";
-          const certId = isRealCert ? item.certificateNumber : `SPC-${String(item._id || "pending").slice(-8).toUpperCase()}`;
-          return (
-            <div key={item._id} style={{ background: isRealCert ? "linear-gradient(135deg,#fffbeb,#fef3c7)" : "linear-gradient(135deg,#f0fdf4,#dcfce7)", borderRadius: 16, padding: "24px", border: isRealCert ? "2px solid #fbbf24" : "2px solid #86efac", boxShadow: isRealCert ? "0 4px 20px rgba(245,158,11,0.15)" : "0 4px 20px rgba(34,197,94,0.15)" }}>
-              <div style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", marginBottom: 8, lineHeight: 1.4 }}>{courseTitle}</div>
-              <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-                {isRealCert && item.grade && <Badge children={`Grade: ${item.grade}`} color="#059669" bg="#d1fae5"/>}
-                {item.score !== null && item.score !== undefined && <Badge children={`Score: ${item.score}/100`} color="#059669" bg="#d1fae5"/>}
-                <Badge children={issuedDate ? new Date(issuedDate).toLocaleDateString("en-IN") : "Date pending"} color="#d97706" bg="#fef3c7"/>
-                {isRealCert && <Badge children={item.status === "issued" ? "Issued" : item.status} color="#7c3aed" bg="#ede9fe"/>}
-              </div>
-              <div style={{ fontSize: 11, color: "#6b7280" }}>Credential ID: {certId}</div>
-              {isRealCert && (
-  <button
-    onClick={() => downloadCertificatePdf(item._id, `Certificate-${item.certificateNumber}.pdf`)}
-    style={{ marginTop: 12, width: "100%", padding: "8px 0", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#f59e0b,#d97706)", color: "white", fontWeight: 700, fontSize: 12, cursor: "pointer" }}
-  >
-    ⬇ Download Certificate
-  </button>
-)}
+      <h1 style={S.pageTitle}>My Certificates</h1>
+      <p style={S.pageSub}>{MOCK_CERTIFICATES.length} certificates earned</p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(340px,1fr))", gap: 16 }}>
+        {MOCK_CERTIFICATES.map((c,i)=>(
+          <div key={i} style={{ background: "linear-gradient(135deg,#fffbeb,#fef3c7)", borderRadius: 20, padding: "28px 24px", border: "2px solid #fbbf24", position: "relative", overflow: "hidden", boxShadow: "0 4px 20px rgba(245,158,11,0.15)" }}>
+            <div style={{ position: "absolute", top: -20, right: -20, width: 80, height: 80, borderRadius: "50%", background: "#fbbf24", opacity: 0.15 }}/>
+            <div style={{ position: "absolute", bottom: -30, left: -20, width: 100, height: 100, borderRadius: "50%", background: "#f59e0b", opacity: 0.1 }}/>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🏆</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "#1c1917", marginBottom: 8, lineHeight: 1.4 }}>{c.title}</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+              <Badge children={`Grade: ${c.grade}`} color="#059669" bg="#d1fae5"/>
+              <Badge children={c.issued} color="#d97706" bg="#fef3c7"/>
             </div>
-          );
-        })}
+            <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 16 }}>🔑 Credential ID: <span style={{ fontWeight: 700, color: "#374151" }}>{c.credentialId}</span></div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button style={{ ...S.primaryBtn, flex: 1, textAlign: "center" }}>⬇ Download PDF</button>
+              <button style={{ ...S.exportBtn, flex: 1, textAlign: "center" }}>🔗 Share</button>
+            </div>
+          </div>
+        ))}
+        <div style={{ background: "#f9fafb", borderRadius: 20, padding: "28px 24px", border: "2px dashed #e5e7eb", opacity: 0.7 }}>
+          <div style={{ fontSize: 40, marginBottom: 12, filter: "grayscale(1)" }}>🔒</div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "#9ca3af", marginBottom: 8 }}>Curriculum Design Certificate</div>
+          <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 16 }}>Complete the course to unlock this certificate</div>
+          <div style={{ height: 6, background: "#e5e7eb", borderRadius: 4, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: "45%", background: "#d1d5db", borderRadius: 4 }}/>
+          </div>
+          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 6 }}>45% complete</div>
+        </div>
       </div>
     </div>
   );
 }
 
 /* ─────────────────────────────────────────
-   PROFILE TAB  (Complete Implementation)
+   PROFILE TAB  (with editable Working Center)
 ───────────────────────────────────────── */
-function ProfileTab({ user, onWorkingCenterChange, onUserUpdate }) {
+function ProfileTab({ user, onWorkingCenterChange }) {
   const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState(""); // "success" | "error"
-  
-  const [profilePhoto, setProfilePhoto] = useState(user.photoUrl || null);
-  const [imageLoadError, setImageLoadError] = useState(false);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const fileInputRef = useRef(null);
-  
-  const [passwordForm, setPasswordForm] = useState({
-    currentPassword: "",
-    newPassword: "",
-    confirmPassword: ""
-  });
-  const [changingPassword, setChangingPassword] = useState(false);
-  const [showPassword, setShowPassword] = useState({ current: false, new: false, confirm: false });
-  
-  const teacherProfile = user.teacherProfile || {};
-  const center = teacherProfile.center;
-  const centerName = center && typeof center === "object" ? [center.name, center.city].filter(Boolean).join(", ") : user.workingCenter;
 
   const [form, setForm] = useState({
-    name:          user.name          || "",
-    phone:         user.phone         || "",
-    address:       teacherProfile.address || user.address || "",
-    workingCenter: centerName || "",
-    subject:       teacherProfile.subject || user.subject || "",
-    degree:        teacherProfile.qualification || user.qualification || "",
-    expBio:        teacherProfile.experience || user.experience || ""
+    name:          user.name          || "Bhavarth Surgude",
+    phone:         user.phone         || "+91 98765 43210",
+    address:       user.address       || "Pune, Maharashtra, India",
+    workingCenter: user.workingCenter || "Dhayri, Pune, Maharashtra",
+    subject:       user.subject       || "Computer Applications",
+    degree:        "M.Sc. Computer Applications",
+    university:    "University of Pune",
+    netStatus:     "UGC NET Qualified",
+    netDesc:       "Assistant Professor Eligibility",
+    expYears:      "3+ Years Active",
+    expBio:        "Senior Pre-Primary Core Instructor & Curriculum Designer specializing in childhood developmental tracking logic and technology-based pedagogy framework."
   });
 
   const [savedForm, setSavedForm] = useState({ ...form });
 
-  useEffect(() => {
-    if (user.photoUrl && user.photoUrl !== profilePhoto) {
-      setProfilePhoto(user.photoUrl);
-      setImageLoadError(false);
-    }
-  }, [user.photoUrl]);
-
-  const handlePhotoUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    if (!file.type.startsWith("image/")) {
-      setMessage("Please upload an image file (PNG/JPG/JPEG).");
-      setMessageType("error");
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      setMessage("Image is too large. Please select a photo under 2MB.");
-      setMessageType("error");
-      return;
-    }
-
-    setUploadingPhoto(true);
-    setMessage("");
-    try {
-      const uploadRes = await uploadFile(file);
-      
-      if (uploadRes && uploadRes.asset) {
-        let photoUrl = uploadRes.asset.publicUrl;
-        
-        if (photoUrl.startsWith("/uploads/")) {
-          const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
-          photoUrl = `${API_BASE_URL}${photoUrl}`;
-        }
-        
-        setProfilePhoto(photoUrl);
-        setImageLoadError(false);
-        
-        const res = await updateTeacherMe({ photoUrl });
-        
-        if (res.teacher && onUserUpdate) {
-          onUserUpdate(res.teacher);
-        }
-        
-        setMessage("Profile picture updated successfully!");
-        setMessageType("success");
-      }
-    } catch (error) {
-      setMessage(error.message || "Failed to upload profile picture.");
-      setMessageType("error");
-    } finally {
-      setUploadingPhoto(false);
-    }
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    setMessage("");
-    try {
-      const payload = {
-        name: form.name,
-        phone: form.phone,
-        photoUrl: profilePhoto,
-        teacherProfile: {
-          address: form.address,
-          subject: form.subject,
-          qualification: form.degree,
-          experience: form.expBio
-        }
-      };
-      console.log("Profile save payload:", payload);
-      
-      const res = await updateTeacherMe(payload);
-      
-      const updated = res.teacher || {};
-      
-      const updatedCenter = updated.teacherProfile?.center;
-      const updatedCenterName = typeof updatedCenter === "object" ? [updatedCenter.name, updatedCenter.city].filter(Boolean).join(", ") : form.workingCenter;
-      
-      const nextForm = {
-        ...form,
-        name: updated.name || form.name,
-        phone: updated.phone || form.phone,
-        address: updated.teacherProfile?.address || form.address,
-        subject: updated.teacherProfile?.subject || form.subject,
-        degree: updated.teacherProfile?.qualification || form.degree,
-        expBio: updated.teacherProfile?.experience || form.expBio,
-        workingCenter: updatedCenterName
-      };
-      
-      setForm(nextForm);
-      setSavedForm(nextForm);
-      
-      if (updated.photoUrl && updated.photoUrl !== profilePhoto) {
-        setProfilePhoto(updated.photoUrl);
-      }
-      
-      if (onUserUpdate) {
-        onUserUpdate(updated);
-      }
-      
-      onWorkingCenterChange && onWorkingCenterChange(updatedCenterName);
-      setMessage("Profile saved successfully!");
-      setMessageType("success");
-      setEditing(false);
-    } catch (error) {
-      setMessage(error.message || "Profile update failed.");
-      setMessageType("error");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handlePasswordChange = async (e) => {
-    e.preventDefault();
-    setMessage("");
-    
-    if (!passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
-      setMessage("Please fill in all password fields.");
-      setMessageType("error");
-      return;
-    }
-    
-    if (passwordForm.newPassword.length < 8) {
-      setMessage("New password must be at least 8 characters long.");
-      setMessageType("error");
-      return;
-    }
-    
-    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      setMessage("New password and confirm password do not match.");
-      setMessageType("error");
-      return;
-    }
-
-    setChangingPassword(true);
-    try {
-      await changeTeacherPassword(passwordForm.currentPassword, passwordForm.newPassword);
-      setMessage("Password changed successfully!");
-      setMessageType("success");
-      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-    } catch (error) {
-      setMessage(error.message || "Failed to change password.");
-      setMessageType("error");
-    } finally {
-      setChangingPassword(false);
-    }
+  const handleSave = () => {
+    setSavedForm({ ...form });
+    onWorkingCenterChange && onWorkingCenterChange(form.workingCenter);
+    setEditing(false);
   };
 
   const handleCancel = () => {
     setForm({ ...savedForm });
     setEditing(false);
-    setMessage("");
   };
 
   return (
-    <div style={{ animation: "fadeIn 0.3s ease", maxWidth: 800 }}>
-      <Toast msg={message} type={messageType} onClose={() => { setMessage(""); setMessageType(""); }} />
-      
+    <div style={{ animation: "fadeIn 0.3s ease", maxWidth: 640 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
         <div>
           <h1 style={S.pageTitle}>My Profile</h1>
-          <p style={S.pageSub}>View and manage your account information</p>
+          <p style={S.pageSub}>Your account information and settings</p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           {editing && (
-            <button onClick={handleCancel} style={S.exportBtn} disabled={saving}>✕ Cancel</button>
+            <button onClick={handleCancel} style={S.exportBtn}>✕ Cancel</button>
           )}
           <button
             onClick={editing ? handleSave : () => setEditing(true)}
-            style={editing ? { ...S.primaryBtn, background: "linear-gradient(135deg,#10b981,#059669)", opacity: saving ? 0.7 : 1 } : S.primaryBtn}
-            disabled={saving}
+            style={editing ? { ...S.primaryBtn, background: "linear-gradient(135deg,#10b981,#059669)" } : S.primaryBtn}
           >
-            {editing ? (saving ? "💾 Saving..." : "💾 Save Changes") : "✏️ Edit Profile"}
+            {editing ? "💾 Save Changes" : "✏️ Edit Profile"}
           </button>
         </div>
       </div>
 
+      {/* Basic info card */}
       <div style={{ background: "white", borderRadius: 20, padding: "28px", border: "1px solid #f1f5f9", boxShadow: "0 4px 20px rgba(0,0,0,0.06)", marginBottom: 20 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", margin: "0 0 16px" }}>📷 Profile Picture</h3>
-        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-          <div style={{ position: "relative" }}>
-            {profilePhoto && !imageLoadError ? (
-              <img 
-                src={profilePhoto} 
-                alt="Profile" 
-                style={{ width: 100, height: 100, borderRadius: "50%", objectFit: "cover", border: "3px solid #f59e0b" }}
-                onError={(e) => {
-                  console.error("Image failed to load:", profilePhoto);
-                  console.error("Error event:", e);
-                  setImageLoadError(true);
-                }}
-                onLoad={() => {
-                  console.log("Image loaded successfully:", profilePhoto);
-                  setImageLoadError(false);
-                }}
-              />
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24, paddingBottom: 20, borderBottom: "1px solid #f3f4f6" }}>
+          <div style={{ width: 72, height: 72, borderRadius: 16, background: "linear-gradient(135deg,#3b82f6,#1d4ed8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, fontWeight: 800, color: "white" }}>
+            {form.name?.[0]}
+          </div>
+          <div style={{ flex: 1 }}>
+            {editing ? (
+              <input style={{ ...S.input, padding: "6px 10px", fontSize: 16, fontWeight: 700, width: "80%" }} value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
             ) : (
-              <div style={{ width: 100, height: 100, borderRadius: "50%", background: "linear-gradient(135deg,#3b82f6,#1d4ed8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, fontWeight: 800, color: "white" }}>
-                {form.name?.[0] || "U"}
-              </div>
+              <h2 style={{ fontSize: 20, fontWeight: 800, color: "#1c1917", margin: "0 0 6px" }}>{form.name}</h2>
             )}
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              style={{ position: "absolute", bottom: 0, right: 0, width: 32, height: 32, borderRadius: "50%", background: "#f59e0b", border: "2px solid white", color: "white", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-              disabled={uploadingPhoto}
-            >
-              {uploadingPhoto ? "⏳" : "📷"}
-            </button>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+              <Badge children={`${form.subject} Teacher`} color="#1d4ed8" bg="#dbeafe"/>
+              <Badge children={user.batch || "SpacECE"} color="#d97706" bg="#fef3c7"/>
+            </div>
+          </div>
+        </div>
+
+        {/* 2-column info fields */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {[
+            { icon: "📧", label: "Email",      val: user.email,         key: "email",   editable: false },
+            { icon: "📱", label: "Phone",      val: form.phone,         key: "phone",   editable: true  },
+            { icon: "📍", label: "Address",    val: form.address,       key: "address", editable: true  },
+            { icon: "📅", label: "Joined",     val: user.joined,        key: "joined",  editable: false },
+            { icon: "📚", label: "Subject",    val: form.subject,       key: "subject", editable: true  },
+            { icon: "📊", label: "Attendance", val: `${user.attendance||90}%`, key: "", editable: false },
+          ].map((r,i)=>(
+            <div key={i} style={{ background: "#f9fafb", borderRadius: 10, padding: "10px 14px", border: "1px solid #f3f4f6" }}>
+              <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 4 }}>{r.label}</div>
+              {editing && r.editable ? (
+                <input style={{ ...S.input, padding: "5px 8px", fontSize: 12, background: "white" }} value={r.val} onChange={e=>setForm({...form,[r.key]:e.target.value})}/>
+              ) : (
+                <div style={{ fontSize: 13, color: "#374151", fontWeight: 600 }}>{r.icon} {r.val}</div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Working Center — full-width, always visible, editable when editing */}
+        <div style={{ marginTop: 12, background: editing ? "#fffbeb" : "#f9fafb", borderRadius: 10, padding: "12px 14px", border: `1px solid ${editing ? "#fbbf24" : "#f3f4f6"}`, transition: "background 0.2s, border-color 0.2s" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+            <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>Working Center</div>
+            {editing && (
+              <span style={{ fontSize: 10, background: "#fef3c7", color: "#92400e", fontWeight: 700, borderRadius: 20, padding: "1px 8px", border: "1px solid #fbbf24" }}>Editable</span>
+            )}
+          </div>
+          {editing ? (
             <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handlePhotoUpload}
-              accept="image/*"
-              style={{ display: "none" }}
-            />
-          </div>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 4 }}>
-              {uploadingPhoto ? "Uploading..." : profilePhoto && !imageLoadError ? "Profile picture uploaded" : "No profile picture"}
-            </div>
-            <div style={{ fontSize: 11, color: "#6b7280" }}>
-              Upload a professional photo (PNG/JPG, max 2MB)
-            </div>
-            {imageLoadError && (
-              <div style={{ fontSize: 10, color: "#ef4444", marginTop: 4 }}>
-                Failed to load image
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div style={{ background: "white", borderRadius: 20, padding: "28px", border: "1px solid #f1f5f9", boxShadow: "0 4px 20px rgba(0,0,0,0.06)", marginBottom: 20 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", margin: "0 0 16px" }}>👤 Personal Information</h3>
-        
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-          <div>
-            <label style={S.label}>Full Name</label>
-            {editing ? (
-              <input 
-                style={{ ...S.input, padding: "8px 12px", fontSize: 14, background: "white" }} 
-                value={form.name} 
-                onChange={e => setForm({ ...form, name: e.target.value })}
-                placeholder="Your full name"
-              />
-            ) : (
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#1c1917", padding: "8px 0" }}>{form.name}</div>
-            )}
-          </div>
-          
-          <div>
-            <label style={S.label}>Email Address</label>
-            <div style={{ fontSize: 14, color: "#6b7280", padding: "8px 0" }}>{user.email}</div>
-          </div>
-          
-          <div>
-            <label style={S.label}>Phone Number</label>
-            {editing ? (
-              <input 
-                style={{ ...S.input, padding: "8px 12px", fontSize: 14, background: "white" }} 
-                value={form.phone} 
-                onChange={e => setForm({ ...form, phone: e.target.value })}
-                placeholder="+91 98765 43210"
-              />
-            ) : (
-              <div style={{ fontSize: 14, color: "#374151", padding: "8px 0" }}>{form.phone || "Not added"}</div>
-            )}
-          </div>
-          
-          <div>
-            <label style={S.label}>Subject Specialization</label>
-            {editing ? (
-              <input 
-                style={{ ...S.input, padding: "8px 12px", fontSize: 14, background: "white" }} 
-                value={form.subject} 
-                onChange={e => setForm({ ...form, subject: e.target.value })}
-                placeholder="e.g. Mathematics"
-              />
-            ) : (
-              <div style={{ fontSize: 14, color: "#374151", padding: "8px 0" }}>{form.subject || "Not specified"}</div>
-            )}
-          </div>
-        </div>
-        
-        <div>
-          <label style={S.label}>Residential Address</label>
-          {editing ? (
-            <textarea 
-              style={{ ...S.input, height: 80, fontSize: 14, background: "white", resize: "vertical" }} 
-              value={form.address} 
-              onChange={e => setForm({ ...form, address: e.target.value })}
-              placeholder="Your complete address"
+              style={{ ...S.input, padding: "7px 10px", fontSize: 13, background: "white", width: "100%", boxSizing: "border-box" }}
+              value={form.workingCenter}
+              onChange={e => setForm({ ...form, workingCenter: e.target.value })}
+              placeholder="e.g. Dhayri, Pune, Maharashtra"
             />
           ) : (
-            <div style={{ fontSize: 14, color: "#374151", padding: "8px 0", lineHeight: 1.5 }}>{form.address || "Not added"}</div>
+            <div style={{ fontSize: 13, color: "#374151", fontWeight: 600 }}>📍 {form.workingCenter}</div>
           )}
         </div>
       </div>
 
-      <div style={{ background: "white", borderRadius: 20, padding: "28px", border: "1px solid #f1f5f9", boxShadow: "0 4px 20px rgba(0,0,0,0.06)", marginBottom: 20 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", margin: "0 0 16px" }}>💼 Professional Information</h3>
-        
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-          <div>
-            <label style={S.label}>Highest Qualification</label>
+      {/* Portfolio & Qualifications */}
+      <div style={{ background: "white", borderRadius: 20, padding: "24px 28px", border: "1px solid #f1f5f9", boxShadow: "0 4px 20px rgba(0,0,0,0.06)", marginBottom: 20 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", margin: "0 0 16px" }}>🎓 Portfolio & Qualifications</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div style={{ border: "1px solid #e2e8f0", borderRadius: 12, padding: "14px 16px", background: "#f8fafc" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+              <span style={{ fontSize: 18 }}>📜</span>
+              <Badge children="Highest Degree" color="#1e40af" bg="#dbeafe"/>
+            </div>
             {editing ? (
-              <input 
-                style={{ ...S.input, padding: "8px 12px", fontSize: 14, background: "white" }} 
-                value={form.degree} 
-                onChange={e => setForm({ ...form, degree: e.target.value })}
-                placeholder="e.g. B.Ed, M.Ed"
-              />
+              <>
+                <input style={{ ...S.input, padding: "4px 8px", fontSize: 12, background: "white", marginBottom: 4 }} value={form.degree} onChange={e=>setForm({...form,degree:e.target.value})}/>
+                <input style={{ ...S.input, padding: "4px 8px", fontSize: 11, background: "white" }} value={form.university} onChange={e=>setForm({...form,university:e.target.value})}/>
+              </>
             ) : (
-              <div style={{ fontSize: 14, color: "#374151", padding: "8px 0" }}>{form.degree || "Not specified"}</div>
+              <>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", marginTop: 8 }}>{form.degree}</div>
+                <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{form.university}</div>
+              </>
             )}
           </div>
-          
-<div>
-             <label style={S.label}>Working Center</label>
-             <div style={{ fontSize: 14, color: "#374151", padding: "8px 0" }}>{form.workingCenter || "Not assigned"}</div>
-             <div style={{ fontSize: 10, color: "#9ca3af", marginTop: -4 }}>(Assigned by admin)</div>
-           </div>
+          <div style={{ border: "1px solid #e2e8f0", borderRadius: 12, padding: "14px 16px", background: "#f8fafc" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+              <span style={{ fontSize: 18 }}>âš¡</span>
+              <Badge children="National Level" color="#065f46" bg="#d1fae5"/>
+            </div>
+            {editing ? (
+              <>
+                <input style={{ ...S.input, padding: "4px 8px", fontSize: 12, background: "white", marginBottom: 4 }} value={form.netStatus} onChange={e=>setForm({...form,netStatus:e.target.value})}/>
+                <input style={{ ...S.input, padding: "4px 8px", fontSize: 11, background: "white" }} value={form.netDesc} onChange={e=>setForm({...form,netDesc:e.target.value})}/>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", marginTop: 8 }}>{form.netStatus}</div>
+                <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{form.netDesc}</div>
+              </>
+            )}
+          </div>
         </div>
-        
-        <div>
-          <label style={S.label}>Professional Work Experience</label>
+
+        <div style={{ border: "1px solid #f1f5f9", borderRadius: 12, padding: "14px 16px", background: "#fffbeb" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 16 }}>💼</span>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>Professional Work Experience</div>
+            </div>
+            {editing ? (
+              <input style={{ ...S.input, padding: "3px 6px", fontSize: 11, background: "white", width: 100, textAlign: "right" }} value={form.expYears} onChange={e=>setForm({...form,expYears:e.target.value})}/>
+            ) : (
+              <span style={{ fontSize: 11, fontWeight: 800, color: "#b45309" }}>{form.expYears}</span>
+            )}
+          </div>
           {editing ? (
-            <textarea 
-              style={{ ...S.input, height: 100, fontSize: 14, background: "white", resize: "vertical" }} 
-              value={form.expBio} 
-              onChange={e => setForm({ ...form, expBio: e.target.value })}
-              placeholder="Describe your teaching experience, previous roles, and achievements..."
-            />
+            <textarea style={{ ...S.input, height: 60, fontSize: 12, background: "white", resize: "none", lineHeight: 1.4 }} value={form.expBio} onChange={e=>setForm({...form,expBio:e.target.value})}/>
           ) : (
-            <div style={{ fontSize: 14, color: "#374151", padding: "8px 0", lineHeight: 1.6 }}>{form.expBio || "No experience details added"}</div>
+            <div style={{ marginTop: 6, fontSize: 13, color: "#374151", fontWeight: 600, lineHeight: 1.5 }}>{form.expBio}</div>
           )}
         </div>
-      </div>
 
-      <div style={{ background: "white", borderRadius: 20, padding: "28px", border: "1px solid #f1f5f9", boxShadow: "0 4px 20px rgba(0,0,0,0.06)", marginBottom: 20 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", margin: "0 0 16px" }}>🔐 Account Information</h3>
-        
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-          <div>
-            <label style={S.label}>Account Status</label>
-            <div style={{ padding: "8px 0" }}>
-              <Badge children={user.status || "Active"} color={user.status === "approved" ? "#059669" : "#d97706"} bg={user.status === "approved" ? "#d1fae5" : "#fef3c7"} />
-            </div>
-          </div>
-          
-          <div>
-            <label style={S.label}>Role</label>
-            <div style={{ fontSize: 14, color: "#374151", padding: "8px 0", textTransform: "capitalize" }}>{user.role || "Teacher"}</div>
-          </div>
-          
-          <div>
-            <label style={S.label}>Batch/Cohort</label>
-            <div style={{ fontSize: 14, color: "#374151", padding: "8px 0" }}>{user.batch || "SpacECE"}</div>
-          </div>
-          
-          <div>
-            <label style={S.label}>Member Since</label>
-            <div style={{ fontSize: 14, color: "#374151", padding: "8px 0" }}>
-              {user.createdAt ? new Date(user.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "Not available"}
-            </div>
-          </div>
-
-<div>
-              <label style={S.label}>{t("teacherLanguage")}</label>
-              <div style={{ padding: "4px 0" }}>
-                <select
-                  style={{ ...S.input, padding: "6px 10px", background: "white", maxWidth: 160, fontSize: 12 }}
-                  value={getCurrentLanguage()}
-                  onChange={async (e) => {
-                    const newLang = e.target.value;
-                    setLanguage(newLang);
-                    try {
-                      await updateTeacherLanguage(newLang);
-                      setMessage(t("Language") + " updated! Changes applied instantly.");
-                      setMessageType("success");
-                    } catch (err) {
-                      console.error("Failed to save language preference:", err);
-                      setMessage("Language updated locally");
-                      setMessageType("success");
-                    }
-                  }}
-                >
-                  {getLanguageList().map((l) => (
-                    <option key={l}>{l}</option>
-                  ))}
-                </select>
-                <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>Language applies instantly — no reload needed.</div>
-              </div>
-            </div>
-
-<div>
-              <label style={S.label}>{t("preferredNotification") || "Preferred Notification Channel"}</label>
-              <div style={{ padding: "4px 0" }}>
-                <select
-                  style={{ ...S.input, padding: "6px 10px", background: "white", maxWidth: 160, fontSize: 12 }}
-                  value={user.preferredNotificationChannel || "in_app"}
-                  onChange={async (e) => {
-                    const newChannel = e.target.value;
-                    try {
-                      await updateTeacherNotificationPreference(newChannel);
-                      setMessage("Notification preference saved!");
-                      setMessageType("success");
-                    } catch (err) {
-                      console.error("Failed to save notification preference:", err);
-                      setMessage("Notification preference updated locally");
-                      setMessageType("success");
-                    }
-                  }}
-                >
-                  <option value="in_app">In-App Only</option>
-                  <option value="email">Email</option>
-                  <option value="sms">SMS</option>
-                  <option value="whatsapp">WhatsApp</option>
-                  <option value="all">All Channels</option>
-                </select>
-                <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>Choose how you receive notifications.</div>
-              </div>
-            </div>
-        </div>
-      </div>
-
-      <div style={{ background: "white", borderRadius: 20, padding: "28px", border: "1px solid #f1f5f9", boxShadow: "0 4px 20px rgba(0,0,0,0.06)" }}>
-        <h3 style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", margin: "0 0 16px" }}>🔒 Change Password</h3>
-        
-        <form onSubmit={handlePasswordChange}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
-            <div>
-              <label style={S.label}>Current Password</label>
-              <div style={{ position: "relative" }}>
-                <input 
-                  style={{ ...S.input, paddingRight: "40px" }} 
-                  type={showPassword.current ? "text" : "password"} 
-                  value={passwordForm.currentPassword}
-                  onChange={e => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
-                  placeholder="••••••••"
-                  disabled={changingPassword}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword({ ...showPassword, current: !showPassword.current })}
-                  style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 14, color: "#9ca3af" }}
-                >
-                  {showPassword.current ? "🙈" : "👁️"}
-                </button>
-              </div>
-            </div>
-            
-            <div>
-              <label style={S.label}>New Password</label>
-              <div style={{ position: "relative" }}>
-                <input 
-                  style={{ ...S.input, paddingRight: "40px" }} 
-                  type={showPassword.new ? "text" : "password"} 
-                  value={passwordForm.newPassword}
-                  onChange={e => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
-                  placeholder="Min. 8 characters"
-                  disabled={changingPassword}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword({ ...showPassword, new: !showPassword.new })}
-                  style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 14, color: "#9ca3af" }}
-                >
-                  {showPassword.new ? "🙈" : "👁️"}
-                </button>
-              </div>
-            </div>
-            
-            <div>
-              <label style={S.label}>Confirm New Password</label>
-              <div style={{ position: "relative" }}>
-                <input 
-                  style={{ ...S.input, paddingRight: "40px" }} 
-                  type={showPassword.confirm ? "text" : "password"} 
-                  value={passwordForm.confirmPassword}
-                  onChange={e => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
-                  placeholder="Re-enter new password"
-                  disabled={changingPassword}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword({ ...showPassword, confirm: !showPassword.confirm })}
-                  style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 14, color: "#9ca3af" }}
-                >
-                  {showPassword.confirm ? "🙈" : "👁️"}
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          <button 
-            type="submit" 
-            style={{ ...S.primaryBtn, background: "linear-gradient(135deg,#ef4444,#dc2626)", opacity: changingPassword ? 0.7 : 1 }}
-            disabled={changingPassword}
-          >
-            {changingPassword ? "Updating Password..." : "🔒 Update Password"}
+        {editing && (
+          <button onClick={handleSave} style={{ ...S.primaryBtn, width: "100%", marginTop: 16, background: "linear-gradient(135deg,#f59e0b,#d97706)" }}>
+            💾 Save Portfolio Details
           </button>
-        </form>
-        
-        <div style={{ marginTop: 12, padding: "12px", background: "#fef3c7", borderRadius: 8, border: "1px solid #fbbf24" }}>
-          <div style={{ fontSize: 11, color: "#92400e", fontWeight: 700, marginBottom: 4 }}>🔐 Security Tips:</div>
-          <ul style={{ fontSize: 11, color: "#78350f", margin: 0, paddingLeft: 16, lineHeight: 1.6 }}>
-            <li>Use a strong password with at least 8 characters</li>
-            <li>Include a mix of letters, numbers, and special characters</li>
-            <li>Don't reuse passwords from other accounts</li>
-          </ul>
-        </div>
+        )}
+      </div>
+
+      {/* Change Password */}
+      <div style={{ background: "white", borderRadius: 16, padding: "20px 24px", border: "1px solid #f1f5f9", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+        <h3 style={{ fontSize: 14, fontWeight: 800, color: "#1c1917", margin: "0 0 14px" }}>🔒 Change Password</h3>
+        {["Current Password","New Password","Confirm New Password"].map((label,i)=>(
+          <div key={i} style={{ marginBottom: 12 }}>
+            <label style={S.label}>{label}</label>
+            <input style={S.input} type="password" placeholder="••••••••"/>
+          </div>
+        ))}
+        <button style={{ ...S.primaryBtn, marginTop: 4 }}>Update Password</button>
       </div>
     </div>
   );
@@ -1281,194 +1092,24 @@ function NotificationsTab({ notifications = [], onMarkRead, onMarkAllRead }) {
   );
 }
 
-function TeacherFeedbackTab({ user, setToast }) {
-  const [rating, setRating]         = useState(0);
-  const [trainerRating, setTRating] = useState(0);
-  const [suggestion, setSuggestion] = useState("");
-  const [course, setCourse]         = useState("");
-  const [tag, setTag]               = useState("Content Quality");
-  const [anonymous, setAnonymous]   = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [myFeedbacks, setMyFeedbacks] = useState([]);
-  const [loading, setLoading]       = useState(true);
-
-  const TAGS = ["Content Quality", "Platform UX", "Trainer", "Schedule", "Price"];
-  const stars = (n, size=20) => Array.from({length:5},(_,i) => (
-    <span key={i} style={{fontSize:size, cursor:"pointer", color: i < n ? "#f59e0b" : "#e5e7eb"}}>{i < n ? "★" : "☆"}</span>
-  ));
-
-  useEffect(() => {
-    getFeedbacks()
-      .then(data => {
-        const mine = (data.feedbacks || []).filter(f =>
-          (f.learner && f.learner !== "Anonymous" && f.learner === user.name) ||
-          (f.teacherId && String(f.teacherId) === String(user._id))
-        );
-        setMyFeedbacks(mine);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!rating) { setToast?.({ msg: "Please rate the course.", type: "error" }); return; }
-    if (!suggestion.trim()) { setToast?.({ msg: "Please write your feedback.", type: "error" }); return; }
-    setSubmitting(true);
-    try {
-      const trainerRatingPayload = trainerRating > 0 ? trainerRating : undefined;
-      await submitFeedback({
-        learner: anonymous ? "Anonymous" : user.name,
-        teacherId: user._id,
-        course: course || "General Training",
-        ...(trainerRatingPayload !== undefined ? { trainerRating: trainerRatingPayload } : {}),
-        rating,
-        tag,
-        suggestion,
-        anonymous,
-        status: "pending"
-      });
-      setToast?.({ msg: "Feedback submitted successfully! Thank you.", type: "success" });
-      setSuggestion(""); setRating(0); setTRating(0); setCourse(""); setAnonymous(false);
-    } catch(err) {
-      setToast?.({ msg: err.message || "Failed to submit feedback.", type: "error" });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div style={{ animation: "fadeIn 0.3s ease" }}>
-      <h1 style={S.pageTitle}>Submit Feedback</h1>
-      <p style={S.pageSub}>Share your training experience and help us improve.</p>
-
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
-        <SectionCard title="📝 New Feedback">
-          <form onSubmit={handleSubmit}>
-            <label style={S.label}>Course / Training (optional)</label>
-            <input style={{...S.input, marginBottom:12}} value={course} onChange={e=>setCourse(e.target.value)} placeholder="e.g. Child Development Basics"/>
-
-            <label style={S.label}>Tag / Category</label>
-            <div style={{display:"flex", gap:6, flexWrap:"wrap", marginBottom:12}}>
-              {TAGS.map(tg => (
-                <button type="button" key={tg} onClick={()=>setTag(tg)}
-                  style={{padding:"5px 12px", borderRadius:20, border:"1.5px solid", fontSize:11, fontWeight:600, cursor:"pointer",
-                    borderColor: tag===tg ? "#f59e0b" : "#e5e7eb",
-                    background: tag===tg ? "#fef3c7" : "white",
-                    color: tag===tg ? "#92400e" : "#6b7280"}}>
-                  {tg}
-                </button>
-              ))}
-            </div>
-
-            <label style={S.label}>Course Rating *</label>
-            <div style={{display:"flex", gap:4, marginBottom:12, cursor:"pointer"}}>
-              {[1,2,3,4,5].map(i => (
-                <span key={i} onClick={()=>setRating(i)} style={{fontSize:28, color: i<=rating?"#f59e0b":"#e5e7eb"}}>
-                  {i<=rating?"★":"☆"}
-                </span>
-              ))}
-              {rating > 0 && <span style={{fontSize:12, color:"#6b7280", marginLeft:8, alignSelf:"center"}}>{rating}/5</span>}
-            </div>
-
-            <label style={S.label}>Trainer Rating</label>
-            <div style={{display:"flex", gap:4, marginBottom:12, cursor:"pointer"}}>
-              {[1,2,3,4,5].map(i => (
-                <span key={i} onClick={()=>setTRating(i)} style={{fontSize:22, color: i<=trainerRating?"#f59e0b":"#e5e7eb"}}>
-                  {i<=trainerRating?"★":"☆"}
-                </span>
-              ))}
-            </div>
-
-            <label style={S.label}>Your Feedback *</label>
-            <textarea style={{...S.input, height:100, resize:"vertical", marginBottom:12}}
-              value={suggestion} onChange={e=>setSuggestion(e.target.value)}
-              placeholder="Share your thoughts about the course content, trainer, or overall experience..."/>
-
-            <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:16}}>
-              <div onClick={()=>setAnonymous(!anonymous)}
-                style={{width:38, height:22, borderRadius:11, background:anonymous?"#6366f1":"#e5e7eb", position:"relative", cursor:"pointer", transition:"background 0.3s"}}>
-                <div style={{position:"absolute", top:2, left:anonymous?18:2, width:18, height:18, borderRadius:"50%", background:"white", transition:"left 0.3s", boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
-              </div>
-              <label style={{fontSize:12, color:"#374151", fontWeight:600, cursor:"pointer"}} onClick={()=>setAnonymous(!anonymous)}>
-                🔒 Submit anonymously
-              </label>
-            </div>
-
-            <button type="submit" disabled={submitting} style={{...S.primaryBtn, width:"100%"}}>
-              {submitting ? "Submitting..." : "📤 Submit Feedback"}
-            </button>
-          </form>
-        </SectionCard>
-
-        <SectionCard title="📋 My Previous Submissions">
-          {loading ? (
-            <div style={{textAlign:"center", padding:30, color:"#9ca3af"}}>Loading...</div>
-          ) : myFeedbacks.length === 0 ? (
-            <div style={{textAlign:"center", padding:30, color:"#94a3b8"}}>
-              <div style={{fontSize:36, marginBottom:8}}>💬</div>
-              <div style={{fontSize:13}}>You haven't submitted any feedback yet.</div>
-            </div>
-          ) : (
-            <div style={{display:"flex", flexDirection:"column", gap:10}}>
-              {myFeedbacks.map((f,i) => (
-                <div key={f._id||i} style={{padding:"12px 14px", background:"#f9fafb", borderRadius:12, border:"1px solid #f3f4f6"}}>
-                  <div style={{display:"flex", justifyContent:"space-between", marginBottom:4}}>
-                    <div style={{fontSize:13, fontWeight:700, color:"#1c1917"}}>{f.course || "General"}</div>
-                    <StatusBadge status={f.status || "pending"}/>
-                  </div>
-                  <div style={{display:"flex", gap:4, marginBottom:6}}>
-                    {[1,2,3,4,5].map(j=><span key={j} style={{fontSize:14, color:j<=f.rating?"#f59e0b":"#e5e7eb"}}>★</span>)}
-                    <span style={{fontSize:11, color:"#6b7280", marginLeft:4}}>{f.rating}/5</span>
-                  </div>
-                  <div style={{fontSize:12, color:"#6b7280", fontStyle:"italic"}}>"{(f.suggestion||"").substring(0,80)}..."</div>
-                  {f.adminResponse && (
-                    <div style={{marginTop:8, padding:"6px 10px", background:"#f0f9ff", borderRadius:8, fontSize:11, color:"#0369a1"}}>
-                      💬 Admin: {f.adminResponse}
-                    </div>
-                  )}
-                  <div style={{fontSize:10, color:"#9ca3af", marginTop:6}}>
-                    {f.tag} · {f.date || new Date(f.createdAt).toLocaleDateString("en-IN")}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </SectionCard>
-      </div>
-    </div>
-  );
-}
-
 /* ═══════════════════════════════════════════
    MAIN TEACHER DASHBOARD
 ═══════════════════════════════════════════ */
 export default function TeacherDashboard({ user, onLogout }) {
   const [activeTab, setActiveTab]         = useState("overview");
   const [toast, setToast]                 = useState({ msg: "", type: "" });
-  const [currentUser, setCurrentUser]     = useState(user);
-  const [workingCenter, setWorkingCenter] = useState(() => {
-    const center = user?.teacherProfile?.center;
-    if (typeof center === "object" && center?.name) {
-      return [center.name, center.city].filter(Boolean).join(", ");
-    }
-    return user?.workingCenter || "";
-  });
+  const [workingCenter, setWorkingCenter] = useState(user.workingCenter || "Dhayri, Pune, Maharashtra");
 
-  const [courses, setCourses]             = useState([]);
+  // Backend States
+  const [courses, setCourses] = useState([]);
+  const [assignments, setAssignments] = useState([]);
   const [notifications, setNotifications] = useState([]);
-  const [lessons, setLessons]             = useState([]);
-  const [activities, setActivities]       = useState([]);
-  const [summary, setSummary]             = useState({});
-  const [certificates, setCertificates]   = useState([]);
-  const [teacherChildren, setTeacherChildren] = useState([]);
-  const [teacherClasses, setTeacherClasses]  = useState([]);
-  const [selectedChildClassId, setSelectedChildClassId] = useState("");
-  const [childForm, setChildForm]         = useState({ name: "", age: "", gender: "Male", parentName: "", phone: "", email: "", address: "" });
-  const [childSaving, setChildSaving]     = useState(false);
-  const [loading, setLoading]            = useState(true);
-  const [tabLoading, setTabLoading]      = useState(false);
+  const [lessons, setLessons] = useState([]);
+  const [activities, setActivities] = useState([]);
+  const [summary, setSummary] = useState({});
+  const [loading, setLoading] = useState(true);
 
+  // Chatbot States
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([
     { sender: "bot", text: `Hello ${user.name?.split(" ")[0] || "there"}! I'm your SpaceCE AI Assistant. How can I assist you with your class, attendance, courses, or lesson plans today?` }
@@ -1476,28 +1117,21 @@ export default function TeacherDashboard({ user, onLogout }) {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
 
-  const refreshCoreData = async () => {
+  const refreshData = async () => {
     try {
-      const [progressRes, notificationsRes, teacherRes, certificatesRes, classesRes] = await Promise.all([
-        getTeacherProgress(),
-        getNotifications(),
-        getTeacherMe(),
-        getTeacherCertificates(),
-        getTeacherClasses(),
-      ]);
+      const progressRes = await getTeacherProgress();
       if (progressRes) {
         setCourses(progressRes.courses || []);
         setLessons(progressRes.lessons || []);
         setActivities(progressRes.activities || []);
         setSummary(progressRes.summary || {});
       }
-      if (classesRes?.classes) {
-        setTeacherClasses(classesRes.classes);
-        if (!selectedChildClassId && classesRes.classes.length > 0) {
-          setSelectedChildClassId(classesRes.classes[0]._id || classesRes.classes[0].id);
-        }
+      const assignmentsRes = await getCourses();
+      if (assignmentsRes && assignmentsRes.courses) {
+        setAssignments(assignmentsRes.courses);
       }
-      if (notificationsRes?.notifications) {
+      const notificationsRes = await getNotifications();
+      if (notificationsRes && notificationsRes.notifications) {
         const mapped = notificationsRes.notifications.map(n => {
           let timeVal = "Just now";
           if (n.createdAt) {
@@ -1510,51 +1144,32 @@ export default function TeacherDashboard({ user, onLogout }) {
               else timeVal = `${Math.floor(diffHrs / 24)}d ago`;
             }
           }
-          return { id: n._id, type: n.type || "info", msg: n.body ? `${n.title}: ${n.body}` : n.title || "", time: timeVal, read: n.read };
+          return {
+            id: n._id,
+            type: n.type || "info",
+            msg: n.message || n.title || "",
+            time: timeVal,
+            read: n.read
+          };
         });
         setNotifications(mapped);
       }
-      if (teacherRes?.teacher) setCurrentUser(teacherRes.teacher);
-      if (certificatesRes?.certificates) setCertificates(certificatesRes.certificates);
     } catch (err) {
       console.error("Error fetching teacher dashboard data:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    const center = currentUser?.teacherProfile?.center;
-    if (center && typeof center === "object" && center.name) {
-      const name = [center.name, center.city].filter(Boolean).join(", ");
-      setWorkingCenter(name);
-    } else if (currentUser?.workingCenter) {
-      setWorkingCenter(currentUser.workingCenter);
-    }
-  }, [currentUser]);
-
-  useEffect(() => {
-    setLoading(true);
-    refreshCoreData().finally(() => setLoading(false));
+    refreshData();
   }, [user]);
-
-  useEffect(() => {
-    if (selectedChildClassId) {
-      getTeacherChildren(selectedChildClassId)
-        .then(res => { if (res?.children) setTeacherChildren(res.children); })
-        .catch(err => console.error("Error loading children for class:", err));
-    }
-  }, [selectedChildClassId]);
-
-  const handleTabSwitch = (tab) => {
-    if (activeTab !== tab) setTabLoading(true);
-    setActiveTab(tab);
-    setTimeout(() => setTabLoading(false), 300);
-  };
 
   const handleMarkDone = async (assignId, payload) => {
     try {
       await updateCourseAssignmentProgress(assignId, payload);
       setToast({ msg: "Progress saved! ✓", type: "success" });
-      refreshCoreData();
+      refreshData();
     } catch (err) {
       setToast({ msg: "Failed to save progress.", type: "error" });
     }
@@ -1563,13 +1178,13 @@ export default function TeacherDashboard({ user, onLogout }) {
   const handleSubmitAssignment = async (assignId, payload) => {
     await updateCourseAssignmentProgress(assignId, payload);
     setToast({ msg: "Assignment submitted successfully! 📤", type: "success" });
-    refreshCoreData();
+    refreshData();
   };
 
   const handleMarkNotifRead = async (notifId) => {
     try {
       await markNotificationRead(notifId);
-      refreshCoreData();
+      refreshData();
     } catch (err) {
       console.error(err);
     }
@@ -1580,7 +1195,7 @@ export default function TeacherDashboard({ user, onLogout }) {
       const unread = notifications.filter(n => !n.read);
       await Promise.all(unread.map(n => markNotificationRead(n.id)));
       setToast({ msg: "All notifications marked as read.", type: "success" });
-      refreshCoreData();
+      refreshData();
     } catch (err) {
       console.error(err);
     }
@@ -1607,7 +1222,7 @@ export default function TeacherDashboard({ user, onLogout }) {
   };
 
   const unreadCount = notifications.filter(n=>!n.read).length;
-  const pendingAssignmentsCount = courses.filter(a=>a.status==="assigned"||a.status==="revision").length;
+  const pendingAssignmentsCount = assignments.filter(a=>a.status==="assigned"||a.status==="revision").length;
 
   const navItems = [
     { key: "overview",      label: "Teacher's Dashboard", icon: "📊" },
@@ -1616,22 +1231,15 @@ export default function TeacherDashboard({ user, onLogout }) {
     { key: "training",      label: "Training & Lessons",  icon: "🎓" },
     { key: "courses",       label: "My Courses",          icon: "📚" },
     { key: "assessment",    label: "Assessments",         icon: "📝" },
-    //{ key: "schedule",      label: "Schedule",            icon: "📅" },
-    //{ key: "grades",        label: "Grades",              icon: "📊" },
-    //{ key: "assignments",   label: "Assignments",         icon: "✏️", badge: pendingAssignmentsCount },
+    { key: "schedule",      label: "Schedule",            icon: "📅" },
+    { key: "grades",        label: "Grades",              icon: "📊" },
+    { key: "assignments",   label: "Assignments",         icon: "✏️", badge: pendingAssignmentsCount },
     { key: "certificates",  label: "Certificates",        icon: "🏆" },
     { key: "notifications", label: "Notifications",       icon: "🔔", badge: unreadCount },
-    { key: "feedback",      label: "Feedback",             icon: "💬" },
     { key: "profile",       label: "My Profile",          icon: "👤" },
   ];
 
-  const enrichedUser = { ...currentUser, workingCenter };
-
-  // Pages that are fully wired to backend/database and should render normally.
-  // Every other page shows an "Under Construction" placeholder instead.
-  // "courses" and "assessment" are now notes/assessment based (no video) —
-  // both are fully wired, so they're included here.
-  const WORKING_TABS = new Set(["overview", "children_att", "geotag", "profile", "training", "courses", "assessment", "certificates", "notifications", "feedback"]);
+  const enrichedUser = { ...user, workingCenter };
 
   const renderContent = () => {
     if (loading) {
@@ -1641,41 +1249,19 @@ export default function TeacherDashboard({ user, onLogout }) {
         </div>
       );
     }
-    if (tabLoading) {
-      return (
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "40vh", fontSize: 14, fontWeight: 600, color: "#d97706" }}>
-          🔄 Loading...
-        </div>
-      );
-    }
-
-    if (!WORKING_TABS.has(activeTab)) {
-      const navItem = navItems.find(n => n.key === activeTab);
-      return <UnderConstructionTab label={navItem ? t(navItem.label) : "This page"} icon={navItem?.icon || "🚧"} />;
-    }
-
     switch(activeTab) {
-      case "overview":      return <OverviewTab user={enrichedUser} setActiveTab={handleTabSwitch} courses={courses} assignments={courses} lessons={lessons} activities={activities} summary={summary}/>;
+      case "overview":      return <OverviewTab user={enrichedUser} setActiveTab={setActiveTab} courses={courses} assignments={assignments} lessons={lessons} activities={activities} summary={summary}/>;
       case "children_att":  return <AttendanceManager user={enrichedUser}/>;
       case "geotag":        return <GeotagAttendance user={enrichedUser}/>;
       case "training":      return <TrainingAndClassroomManager user={enrichedUser}/>;
-      case "courses":
-        return (
-          <TeacherCourseNotes
-            assignments={courses}
-            onMarkDone={handleMarkDone}
-            onGoToAssessment={() => handleTabSwitch("assessment")}
-          />
-        );
-      case "assessment":
-        return <ProctoredAssessment assignments={courses} />;
-      case "schedule":      return <ScheduleTab user={enrichedUser} lessons={lessons}/>;
-      case "grades":        return <GradesTab assignments={courses}/>;
-      case "assignments":   return <AssignmentsTab assignments={courses} onSubmitAssignment={handleSubmitAssignment}/>;
-      case "certificates":  return <CertificatesTab assignments={courses} certificates={certificates}/>;
+      case "courses":       return <CoursesTab assignments={assignments} onMarkDone={handleMarkDone}/>;
+      case "assessment":    return <ProctoredAssessment user={enrichedUser}/>;
+      case "schedule":      return <ScheduleTab user={enrichedUser}/>;
+      case "grades":        return <GradesTab/>;
+      case "assignments":   return <AssignmentsTab assignments={assignments} onSubmitAssignment={handleSubmitAssignment}/>;
+      case "certificates":  return <CertificatesTab/>;
       case "notifications": return <NotificationsTab notifications={notifications} onMarkRead={handleMarkNotifRead} onMarkAllRead={handleMarkAllNotifRead}/>;
-      case "feedback":      return <TeacherFeedbackTab user={enrichedUser} setToast={setToast}/>;
-      case "profile":       return <ProfileTab user={enrichedUser} onWorkingCenterChange={setWorkingCenter} onUserUpdate={setCurrentUser}/>;
+      case "profile":       return <ProfileTab user={enrichedUser} onWorkingCenterChange={setWorkingCenter}/>;
       default:              return null;
     }
   };
@@ -1685,58 +1271,43 @@ export default function TeacherDashboard({ user, onLogout }) {
       <style>{globalCSS}</style>
       <Toast msg={toast.msg} type={toast.type} onClose={()=>setToast({msg:"",type:""})}/>
 
+      {/* Sidebar */}
       <div style={{ width: 240, background: "white", borderRight: "1px solid #f1f5f9", display: "flex", flexDirection: "column", flexShrink: 0, boxShadow: "2px 0 12px rgba(0,0,0,0.04)", position: "sticky", top: 0, height: "100vh", overflowY: "auto" }}>
         <div style={{ padding: "20px 16px 12px" }}>
           <Logo size={120}/>
           <div style={{ textAlign: "center", padding: "4px 12px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: "#dbeafe", color: "#1e40af", border: "1px solid #bfdbfe", margin: "6px auto 0", display: "inline-block", width: "fit-content" }}>
-            🎓 {t("Teacher Panel")}
+            🎓 Teacher Panel
           </div>
         </div>
         <nav style={{ padding: "4px 10px", flex: 1 }}>
           {navItems.map(item=>(
             <button key={item.key} onClick={()=>setActiveTab(item.key)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", border: "none", borderRadius: 10, background: activeTab===item.key?"#dbeafe":"transparent", color: activeTab===item.key?"#1e40af":"#6b7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", textAlign: "left", marginBottom: 2, transition: "all 0.18s" }}>
               <span style={{ fontSize: 15 }}>{item.icon}</span>
-              <span style={{ flex: 1 }}>{t(item.label)}</span>
+              <span style={{ flex: 1 }}>{item.label}</span>
               {item.badge>0 && <span style={{ background: "#ef4444", color: "white", borderRadius: 20, fontSize: 10, fontWeight: 800, padding: "1px 7px" }}>{item.badge}</span>}
             </button>
           ))}
         </nav>
         <div style={{ padding: "12px 16px", borderTop: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 10 }}>
-          <SidebarAvatar teacher={currentUser} size={34} />
+          <div style={{ width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg,#3b82f6,#1d4ed8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: "white", flexShrink: 0 }}>{user.name?.[0]}</div>
           <div style={{ flex: 1, overflow: "hidden" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#1c1917" }}>{currentUser.name?.split(" ")[0]}</div>
-            <div style={{ fontSize: 10, color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser.subject}</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#1c1917" }}>{user.name?.split(" ")[0]}</div>
+            <div style={{ fontSize: 10, color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.subject}</div>
           </div>
-          <button onClick={onLogout} title={t("Sign Out")} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#9ca3af", padding: 4 }}>⏻</button>
+          <button onClick={onLogout} title="Sign Out" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#9ca3af", padding: 4 }}>⏻</button>
         </div>
       </div>
 
+      {/* Main Content */}
       <div style={{ flex: 1, width: "0px", minWidth: "0px", padding: "28px 32px", overflowY: "auto", maxHeight: "100vh" }}>
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
-          <button
-            onClick={() => setActiveTab("profile")}
-            title={t("My Profile")}
-            style={{
-              display: "flex", alignItems: "center", gap: 8,
-              padding: "6px 12px", borderRadius: 20,
-              border: "1px solid #e2e8f0", background: "white",
-              cursor: "pointer", fontFamily: "inherit",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
-              transition: "all 0.18s",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(59,130,246,0.15)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#e2e8f0"; e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.06)"; }}
-          >
-            <SidebarAvatar teacher={currentUser} size={28} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>{currentUser.name?.split(" ")[0]}</span>
-          </button>
-        </div>
         {renderContent()}
       </div>
 
+      {/* Floating Chatbot Widget */}
       <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 1000, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
         {chatOpen && (
           <div style={{ width: 340, height: 460, background: "rgba(255, 255, 255, 0.95)", backdropFilter: "blur(12px)", border: "1px solid #fbbf24", borderRadius: 20, boxShadow: "0 10px 40px rgba(0,0,0,0.12)", marginBottom: 16, display: "flex", flexDirection: "column", overflow: "hidden", animation: "slideUp 0.3s ease" }}>
+            {/* Header */}
             <div style={{ background: "linear-gradient(135deg,#f59e0b 0%,#d97706 100%)", padding: "16px 20px", color: "white", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ fontSize: 24 }}>🤖</span>
@@ -1747,6 +1318,7 @@ export default function TeacherDashboard({ user, onLogout }) {
               </div>
               <button onClick={() => setChatOpen(false)} style={{ background: "none", border: "none", color: "white", fontSize: 18, cursor: "pointer", padding: 0 }}>✕</button>
             </div>
+            {/* Messages Area */}
             <div style={{ flex: 1, padding: 16, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, background: "#fafbfc" }}>
               {chatMessages.map((msg, idx) => (
                 <div key={idx} style={{ display: "flex", justifyContent: msg.sender === "user" ? "flex-end" : "flex-start" }}>
@@ -1776,6 +1348,7 @@ export default function TeacherDashboard({ user, onLogout }) {
                 </div>
               )}
             </div>
+            {/* Input Area */}
             <div style={{ padding: 12, background: "white", borderTop: "1px solid #f1f5f9", display: "flex", gap: 8 }}>
               <input
                 type="text"
@@ -1818,3 +1391,4 @@ export default function TeacherDashboard({ user, onLogout }) {
     </div>
   );
 }
+

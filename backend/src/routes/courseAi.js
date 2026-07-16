@@ -1,21 +1,16 @@
-import express from "express";
-import { generateAICourse } from "../services/aiCourseGenerator.js";
+import { Router } from "express";
+import { generateAssignmentFeedback } from "../services/aiAssignmentFeedback.js";
 
-const router = express.Router();
+const router = Router();
 
-router.post("/generate", async (req, res, next) => {
+/**
+ * POST /assignment-feedback
+ * Generate AI-powered feedback for an assignment submission.
+ */
+router.post("/assignment-feedback", async (req, res, next) => {
   try {
-    const result = await generateAICourse(req.body || {});
-    res.json({ course: result });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.post("/generate-course", async (req, res, next) => {
-  try {
-    const result = await generateAICourse(req.body || {});
-    res.json({ course: result });
+    const result = await generateAssignmentFeedback(req.body || {});
+    res.json(result);
   } catch (error) {
     next(error);
   }
