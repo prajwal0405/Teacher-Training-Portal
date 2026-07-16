@@ -21,4 +21,15 @@ router.post("/generate-course", async (req, res, next) => {
   }
 });
 
+import { generateAssignmentFeedback } from "../services/aiAssignmentFeedback.js";
+
+router.post("/feedback", async (req, res, next) => {
+  try {
+    const feedback = await generateAssignmentFeedback(req.body);
+    res.json({ feedback });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

@@ -480,11 +480,20 @@ export function getTrainerPerformance() {
   return request("/api/trainer/performance");
 }
 
-export function askTeacherChatbot(message) {
-  return request("/api/teacher/chatbot", {
-    method: "POST",
-    body: JSON.stringify({ message })
-  });
+export async function askTeacherChatbot(message) {
+  try {
+    const response = await fetch("http://localhost:8001/api/v1/teacher-support-chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, source: "inline-chat" })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Chat request failed");
+    return data;
+  } catch (error) {
+    console.error("Chat API error:", error);
+    return { reply: "I'm having a little trouble connecting right now." };
+  }
 }
 
 // Course Management APIs
