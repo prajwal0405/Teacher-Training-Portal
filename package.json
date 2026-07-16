@@ -11,6 +11,7 @@
     "start": "concurrently \"npm run dev\" \"npm --prefix backend run dev\""
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.35",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "react": "^19.2.6",

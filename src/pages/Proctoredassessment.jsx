@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { S } from "../components/Shared";
 import { submitAssessmentResult, getMyAssessmentResults, updateCourseAssignmentProgress } from "../services/api";
+import {
+  FilesetResolver,
+  FaceDetector
+} from "@mediapipe/tasks-vision";
+
+const MEDIAPIPE_VERSION = "0.10.14"; // must match your installed npm package version
 
 /* ═══════════════════════════════════════════════════════════
    PROCTORED ASSESSMENT — SELF-CONTAINED VERSION
@@ -311,6 +317,9 @@ export default function ProctoredAssessment({ assignments = [] }) {
   const faceRef = useRef(null);
   const warnRef = useRef(0);
   const autoSubmitted = useRef(false);
+  const detectorRef = useRef(null);
+  const lastVideoTimeRef = useRef(-1);
+  const noFaceStreakRef = useRef(0);
 
   useEffect(() => {
     // Merge three sources into one "completed attempts" map, keyed by
@@ -357,42 +366,130 @@ export default function ProctoredAssessment({ assignments = [] }) {
   const eligible = assignments.filter((a) => (a.progressPercent || 0) === 100);
   const notReady = assignments.filter((a) => (a.progressPercent || 0) < 100);
 
-  const stopCamera = () => {
-    if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
-    clearInterval(faceRef.current);
-  };
+ // ── Initialize MediaPipe Face Detector ──
+const initializeFaceDetector = async () => {
+  const vision = await FilesetResolver.forVisionTasks(
+    `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/wasm`
+  );
 
-  const startFaceSimulation = () => {
-    faceRef.current = setInterval(() => {
-      const rand = Math.random();
-      if (rand < 0.04) {
+  detectorRef.current = await FaceDetector.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath:
+        "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite",
+      delegate: "GPU",
+    },
+    runningMode: "VIDEO",
+    minDetectionConfidence: 0.5,
+  });
+};
+
+// ── Real face detection loop ──
+const startFaceDetection = () => {
+  let lastTimestamp = -1;
+  let noFaceFrames = 0;
+  let faceOkFrames = 0;
+  const NO_FACE_THRESHOLD = 8;
+  const FACE_OK_THRESHOLD = 3;
+
+  const detect = () => {
+    if (!detectorRef.current || !videoRef.current || !faceRef.current) return;
+    const video = videoRef.current;
+
+    if (video.readyState < 2 || video.paused || video.ended) {
+      faceRef.current = requestAnimationFrame(detect);
+      return;
+    }
+
+    const now = performance.now();
+    if (now <= lastTimestamp) {
+      faceRef.current = requestAnimationFrame(detect);
+      return;
+    }
+    lastTimestamp = now;
+
+    let result;
+    try {
+      result = detectorRef.current.detectForVideo(video, now);
+    } catch (e) {
+      faceRef.current = requestAnimationFrame(detect);
+      return;
+    }
+
+    const faceCount = result?.detections?.length ?? 0;
+
+    if (faceCount === 0) {
+      noFaceFrames++;
+      faceOkFrames = 0;
+      if (noFaceFrames === NO_FACE_THRESHOLD) {
         setFaceStatus("noface");
         issueWarning("⚠️ Face not detected! Please ensure your face is clearly visible.");
-        setTimeout(() => setFaceStatus("ok"), 3000);
-      } else if (rand < 0.06) {
-        setFaceStatus("multiface");
-        issueWarning("⚠️ Multiple faces detected! Only you should be visible.");
-        setTimeout(() => setFaceStatus("ok"), 3000);
-      } else if (rand < 0.065) {
-        setGadgetAlert(true);
-        issueWarning("⚠️ Electronic gadget detected near your workspace!");
-        setTimeout(() => setGadgetAlert(false), 3000);
+      } else if (noFaceFrames > NO_FACE_THRESHOLD) {
+        setFaceStatus("noface");
       }
-    }, 8000);
+    } else if (faceCount >= 2) {
+      noFaceFrames = 0;
+      faceOkFrames++;
+      setFaceStatus("multiface");
+      if (faceOkFrames === 1) {
+        issueWarning("⚠️ Multiple faces detected! Only you should be visible.");
+      }
+    } else {
+      noFaceFrames = 0;
+      faceOkFrames++;
+      if (faceOkFrames >= FACE_OK_THRESHOLD) {
+        setFaceStatus("ok");
+      }
+    }
+
+    faceRef.current = requestAnimationFrame(detect);
   };
 
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      streamRef.current = stream;
-      if (videoRef.current) videoRef.current.srcObject = stream;
-      setCamGranted(true);
-      setCamError("");
-      startFaceSimulation();
-    } catch {
-      setCamError("Camera access denied. Camera is required for this assessment.");
+  faceRef.current = requestAnimationFrame(detect);
+};
+
+// ── Camera setup ──
+const startCamera = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    streamRef.current = stream;
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
     }
-  };
+
+    await new Promise((resolve) => {
+      if (videoRef.current.readyState >= 1) {
+        resolve();
+      } else {
+        videoRef.current.onloadedmetadata = resolve;
+      }
+    });
+
+    await initializeFaceDetector();
+
+    setCamGranted(true);
+    setCamError("");
+
+    startFaceDetection();
+  } catch (err) {
+    console.error(err);
+    setCamError("Camera access denied. Camera is required for this assessment.");
+  }
+};
+
+// ── Stop camera ──
+const stopCamera = () => {
+  if (streamRef.current) {
+    streamRef.current.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+  }
+  cancelAnimationFrame(faceRef.current);
+  faceRef.current = null;
+  if (detectorRef.current) {
+    try { detectorRef.current.close(); } catch (_) {}
+    detectorRef.current = null;
+  }
+};
 
   const issueWarning = useCallback((msg) => {
     warnRef.current += 1;
@@ -407,7 +504,7 @@ export default function ProctoredAssessment({ assignments = [] }) {
     if (autoSubmitted.current) return;
     autoSubmitted.current = true;
     clearInterval(timerRef.current);
-    clearInterval(faceRef.current);
+    cancelAnimationFrame(faceRef.current);
     stopCamera();
     setScreen("scoring");
     setScoring(true);
@@ -510,7 +607,12 @@ export default function ProctoredAssessment({ assignments = [] }) {
   }, [screen, issueWarning]);
 
   useEffect(() => () => { stopCamera(); clearInterval(timerRef.current); }, []);
-
+  
+  useEffect(() => {
+  if (screen === "exam" && !streamRef.current) {
+    startCamera();
+  }
+  }, [screen]);
   /* No network call here anymore — questions resolve instantly and
      locally, so "Start Exam" can never fail with "Request failed". */
   const startAssessmentFor = (assignment) => {
@@ -530,15 +632,16 @@ export default function ProctoredAssessment({ assignments = [] }) {
     setScreen("instructions");
   };
 
-  const startExam = async () => {
-    await startCamera();
-    warnRef.current = 0;
-    autoSubmitted.current = false;
-    setWarnings(0);
-    setAnswers({});
-    setCurrentQ(0);
-    setTimeLeft(ASSESSMENT_DURATION);
-    setScreen("exam");
+  const startExam = () => {
+  warnRef.current = 0;
+  autoSubmitted.current = false;
+  setWarnings(0);
+  setAnswers({});
+  setCurrentQ(0);
+  setTimeLeft(ASSESSMENT_DURATION);
+  setCamGranted(false);
+  setCamError("");
+  setScreen("exam");
   };
 
   const formatTime = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
